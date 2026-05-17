@@ -1,6 +1,7 @@
 import os
 import io
 import base64
+import time
 from flask import Flask, jsonify
 import pandas as pd
 import numpy as np
@@ -30,6 +31,10 @@ DISPLAY_PERIOD = 90
 BG_COLOR = '#131722'
 TEXT_COLOR = 'white'
 GRID_COLOR = '#444444'
+CACHE_SECONDS = 3600  # 1時間キャッシュ
+
+# キャッシュ用辞書
+chart_cache = {}
 
 
 def get_wma(series, length):
@@ -75,7 +80,6 @@ def fetch_and_calculate(symbol, period='max'):
         0
     )
     df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
-
     return df
 
 
@@ -124,7 +128,7 @@ def make_chart_image(df, symbol):
         else:
             mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
                      warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
-    except Exception as e:
+    except Exception:
         plt.close(fig)
         return None
 
@@ -161,7 +165,6 @@ def make_chart_image(df, symbol):
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
-
     return img_b64
 
 
@@ -170,6 +173,14 @@ def chart(symbol):
     symbol = symbol.upper()
     if symbol not in SYMBOLS:
         return jsonify({'error': f'{symbol} は対象外です'}), 400
+
+    # キャッシュチェック
+    now = time.time()
+    if symbol in chart_cache:
+        cached_time, cached_img = chart_cache[symbol]
+        if now - cached_time < CACHE_SECONDS:
+            return jsonify({'image': cached_img, 'symbol': symbol, 'cached': True})
+
     try:
         df = fetch_and_calculate(symbol, period=CALC_PERIOD)
         if df is None:
@@ -177,7 +188,11 @@ def chart(symbol):
         img_b64 = make_chart_image(df, symbol)
         if img_b64 is None:
             return jsonify({'error': f'{symbol} のチャート生成に失敗しました'}), 500
-        return jsonify({'image': img_b64, 'symbol': symbol})
+
+        # キャッシュに保存
+        chart_cache[symbol] = (now, img_b64)
+
+        return jsonify({'image': img_b64, 'symbol': symbol, 'cached': False})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
