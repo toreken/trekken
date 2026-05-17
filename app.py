@@ -1,3 +1,4 @@
+import os
 import io
 import base64
 from flask import Flask, jsonify
@@ -142,9 +143,5 @@ def index():
     with open('index.html', 'r', encoding='utf-8') as f:
         return f.read()
 
-
-import os
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+port = int(os.environ.get('PORT', 5000))
+app.run(debug=False, host='0.0.0.0', port=port)
