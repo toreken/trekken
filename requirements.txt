@@ -4,6 +4,4 @@ pandas
 numpy
 matplotlib
 mplfinance
-tvDatafeed
-websocket-client
 requests
