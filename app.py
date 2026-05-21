@@ -21,9 +21,15 @@ warnings.simplefilter(action='ignore', category=UserWarning)
 # tvDatafeed
 try:
     from tvDatafeed import TvDatafeed, Interval
-    tv = TvDatafeed()
+    tv_user = os.environ.get('TV_USERNAME')
+    tv_pass = os.environ.get('TV_PASSWORD')
+    if tv_user and tv_pass:
+        tv = TvDatafeed(tv_user, tv_pass)
+        print("✅ tvDatafeed OK (ログイン)")
+    else:
+        tv = TvDatafeed()
+        print("⚠️ tvDatafeed OK (ログインなし・データ制限あり)")
     TV_AVAILABLE = True
-    print("✅ tvDatafeed OK")
 except Exception as e:
     TV_AVAILABLE = False
     print(f"⚠️ tvDatafeed NG: {e}")
