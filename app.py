@@ -18,21 +18,45 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=UserWarning)
 
-# tvDatafeed
-try:
-    from tvDatafeed import TvDatafeed, Interval
-    tv_user = os.environ.get('TV_USERNAME')
-    tv_pass = os.environ.get('TV_PASSWORD')
-    if tv_user and tv_pass:
-        tv = TvDatafeed(tv_user, tv_pass)
-        print("✅ tvDatafeed OK (ログイン)")
-    else:
-        tv = TvDatafeed()
-        print("⚠️ tvDatafeed OK (ログインなし・データ制限あり)")
-    TV_AVAILABLE = True
-except Exception as e:
-    TV_AVAILABLE = False
-    print(f"⚠️ tvDatafeed NG: {e}")
+# tvDatafeed は起動時に初期化せず、必要になったとき（NQ1! 要求時）に初期化する。
+# こうすることで tvDatafeed で何が起きてもサーバー起動（ポート検出）は必ず成功する。
+tv = None
+TV_INIT_TRIED = False
+
+
+def get_tv():
+    """tvDatafeed を遅延初期化する。成功すれば tv インスタンスを返し、失敗すれば None を返す。"""
+    global tv, TV_INIT_TRIED
+    if tv is not None:
+        return tv
+    if TV_INIT_TRIED:
+        return None
+    TV_INIT_TRIED = True
+    try:
+        from tvDatafeed import TvDatafeed
+        tv_user = os.environ.get('TV_USERNAME')
+        tv_pass = os.environ.get('TV_PASSWORD')
+        if tv_user and tv_pass:
+            tv = TvDatafeed(tv_user, tv_pass)
+            print("✅ tvDatafeed OK (ログイン)")
+        else:
+            tv = TvDatafeed()
+            print("⚠️ tvDatafeed OK (ログインなし・データ制限あり)")
+        return tv
+    except Exception as e:
+        print(f"⚠️ tvDatafeed NG: {e}")
+        tv = None
+        return None
+
+
+def get_interval():
+    """Interval を安全に取り込む。"""
+    try:
+        from tvDatafeed import Interval
+        return Interval
+    except Exception:
+        return None
+
 
 app = Flask(__name__)
 
@@ -101,16 +125,20 @@ def fetch_and_calculate(symbol, period='max'):
 
 
 def fetch_nq1(n_bars=1000):
-    if not TV_AVAILABLE:
+    tv_local = get_tv()
+    if tv_local is None:
+        return None
+    Interval = get_interval()
+    if Interval is None:
         return None
     try:
-        df_qqq = tv.get_hist(symbol='QQQ', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
-        df_ndtw = tv.get_hist(symbol='NDTW', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        df_ndfi = tv.get_hist(symbol='NDFI', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        df_ndth = tv.get_hist(symbol='NDTH', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        df_uvol = tv.get_hist(symbol='UVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
-        df_dvol = tv.get_hist(symbol='DVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
-        df_chart = tv.get_hist(symbol='NQ1!', exchange='CME_MINI', interval=Interval.in_daily, n_bars=n_bars)
+        df_qqq = tv_local.get_hist(symbol='QQQ', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
+        df_ndtw = tv_local.get_hist(symbol='NDTW', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        df_ndfi = tv_local.get_hist(symbol='NDFI', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        df_ndth = tv_local.get_hist(symbol='NDTH', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        df_uvol = tv_local.get_hist(symbol='UVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
+        df_dvol = tv_local.get_hist(symbol='DVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
+        df_chart = tv_local.get_hist(symbol='NQ1!', exchange='CME_MINI', interval=Interval.in_daily, n_bars=n_bars)
 
         if any(x is None or x.empty for x in [df_qqq, df_ndtw, df_ndfi, df_ndth, df_uvol, df_dvol, df_chart]):
             return None
@@ -323,5 +351,6 @@ def index():
         return f.read()
 
 
-port = int(os.environ.get('PORT', 5000))
-app.run(debug=False, host='0.0.0.0', port=port)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
