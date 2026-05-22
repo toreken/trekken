@@ -63,7 +63,10 @@ app = Flask(__name__)
 SYMBOLS = [
     'TONX', 'FRSH', 'PAYC', 'GCTS', 'PXLW',
     'FSLR', 'SIDU', 'VRNS', 'TRVG', 'TZOO',
-    'MAKO', 'HLP'
+    'MAKO', 'HLP',
+    # グループ2
+    'KOS', 'GOOGL', 'INTC', 'NVDA', 'IONQ', 'FIGS', 'MU',
+    'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA'
 ]
 
 INDEX_SYMBOLS = ['NQ1!', 'ES1!', 'NI225']
