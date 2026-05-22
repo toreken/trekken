@@ -6,3 +6,4 @@ matplotlib
 mplfinance
 requests
 git+https://github.com/rongardF/tvdatafeed.git
+gunicorn
