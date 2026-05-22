@@ -191,6 +191,88 @@ def fetch_nq1(n_bars=1000):
         return None
 
 
+def fetch_es1(n_bars=1000):
+    tv_local = get_tv()
+    if tv_local is None:
+        return None
+    Interval = get_interval()
+    if Interval is None:
+        return None
+    try:
+        # SPYはAMEX/ARCAにあるためフォールバック
+        df_spy = tv_local.get_hist(symbol='SPY', exchange='AMEX', interval=Interval.in_daily, n_bars=n_bars)
+        if df_spy is None:
+            df_spy = tv_local.get_hist(symbol='SPY', exchange='ARCA', interval=Interval.in_daily, n_bars=n_bars)
+
+        df_ndtw = tv_local.get_hist(symbol='NDTW', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        if df_ndtw is None:
+            df_ndtw = tv_local.get_hist(symbol='NDTW', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
+
+        df_ndfi = tv_local.get_hist(symbol='NDFI', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        if df_ndfi is None:
+            df_ndfi = tv_local.get_hist(symbol='NDFI', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
+
+        df_ndth = tv_local.get_hist(symbol='NDTH', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        if df_ndth is None:
+            df_ndth = tv_local.get_hist(symbol='NDTH', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
+
+        df_uvol = tv_local.get_hist(symbol='UVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
+        df_dvol = tv_local.get_hist(symbol='DVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
+
+        # 表示用チャートデータ（S&P500 E-mini先物）
+        df_chart = tv_local.get_hist(symbol='ES1!', exchange='CME_MINI', interval=Interval.in_daily, n_bars=n_bars)
+
+        if any(x is None or x.empty for x in [df_spy, df_ndtw, df_ndfi, df_ndth, df_uvol, df_dvol, df_chart]):
+            return None
+
+        df = df_spy.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
+        df = df.join(df_ndtw[['close']].rename(columns={'close':'ndtw'}), how='inner')
+        df = df.join(df_ndfi[['close']].rename(columns={'close':'ndfi'}), how='inner')
+        df = df.join(df_ndth[['close']].rename(columns={'close':'ndth'}), how='inner')
+        df = df.join(df_uvol[['close']].rename(columns={'close':'uVol'}), how='inner')
+        df = df.join(df_dvol[['close']].rename(columns={'close':'dVol'}), how='inner')
+        for col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
+        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
+
+        df_chart = df_chart.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
+        for col in df_chart.columns: df_chart[col] = pd.to_numeric(df_chart[col], errors='coerce')
+        df_chart.index = pd.to_datetime(df_chart.index).normalize().tz_localize(None)
+
+        df['SPYSMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+        df['ndtwScore'] = df['ndtw'] / 3
+        df['ndfiScore'] = df['ndfi'] / 4
+        df['ndthScore'] = df['ndth'] / 6
+        df['discrepancyPercent'] = (df['Close'] - df['SPYSMA20']) / df['SPYSMA20'] * 100
+        df['discrepancyScore'] = df['discrepancyPercent'] * 3
+        df['uVolSMA10'] = df['uVol'].rolling(window=10).mean()
+        df['dVolSMA10'] = df['dVol'].rolling(window=10).mean()
+        df['volDiff'] = df['uVolSMA10'] - df['dVolSMA10']
+        df['volDiffScore'] = df['volDiff'] / 50000000
+        df['totalScore'] = df['ndtwScore'] + df['ndfiScore'] + df['ndthScore'] + df['discrepancyScore'] + df['volDiffScore']
+        df['isAboveEMA20'] = df['Close'] > df['SPYSMA20']
+
+        colors = []
+        for i in range(len(df)):
+            score = df['totalScore'].iloc[i]
+            is_above = df['isAboveEMA20'].iloc[i]
+            if pd.isna(score): c = '#888888'
+            elif score > 40 and is_above: c = '#32cd32'
+            elif score <= 40 and not is_above: c = '#ff4444'
+            else: c = '#ffd700'
+            colors.append(c)
+        df['candle_color'] = colors
+
+        cols_map = df[['candle_color', 'totalScore']].copy()
+        cols_map.index = cols_map.index - pd.Timedelta(days=1)
+        df_mapped = cols_map.reindex(df_chart.index, method='ffill')
+        df_plot = df_chart.join(df_mapped)
+
+        return df_plot
+    except Exception as e:
+        print(f"ES1! error: {e}")
+        return None
+
+
 def make_chart_image_stock(df, symbol):
     plot_len = min(DISPLAY_PERIOD, len(df))
     plot_df = df.iloc[-plot_len:].copy()
@@ -328,6 +410,11 @@ def chart(symbol):
             if df is None:
                 return jsonify({'error': 'NQ1! のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_nq(df, 'NASDAQ Futures')
+        elif symbol_upper == 'ES1!':
+            df = fetch_es1()
+            if df is None:
+                return jsonify({'error': 'ES1! のデータ取得に失敗しました'}), 500
+            img_b64 = make_chart_image_nq(df, 'S&P 500 Futures')
         elif symbol_upper in SYMBOLS:
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
             if df is None:
