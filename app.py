@@ -127,6 +127,72 @@ def fetch_and_calculate(symbol, period='max'):
     return df
 
 
+# 暗号通貨のティッカー対応表（サイト表示名 → TradingViewでのティッカーと取引所）
+CRYPTO_MAP = {
+    'BTC':   ('BTCUSDT',  'BINANCE'),
+    'ETH':   ('ETHUSDT',  'BINANCE'),
+    'SOL':   ('SOLUSDT',  'BINANCE'),
+    'XRP':   ('XRPUSDT',  'BINANCE'),
+    'ADA':   ('ADAUSDT',  'BINANCE'),
+    'DOGE':  ('DOGEUSDT', 'BINANCE'),
+    'AVAX':  ('AVAXUSDT', 'BINANCE'),
+    'LINK':  ('LINKUSDT', 'BINANCE'),
+    'MATIC': ('POLUSDT',  'BINANCE'),  # MATICは2024年にPOLへリブランド
+    'ATOMC': ('ATOMUSDT', 'BINANCE'),  # 暗号通貨のATOM（株式のATOMと区別するためサイト上はATOMCと表記）
+}
+
+
+def fetch_crypto(symbol_key, n_bars=1000):
+    """tvDatafeedで暗号通貨を取得し、個別株と同じスコア計算を適用する"""
+    tv_local = get_tv()
+    if tv_local is None:
+        return None
+    Interval = get_interval()
+    if Interval is None:
+        return None
+    if symbol_key not in CRYPTO_MAP:
+        return None
+    tv_symbol, tv_exchange = CRYPTO_MAP[symbol_key]
+    try:
+        df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
+                                   interval=Interval.in_daily, n_bars=n_bars)
+        if df_raw is None or df_raw.empty:
+            return None
+
+        # 既存の fetch_and_calculate と同じ小文字カラム名に揃える
+        df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
+                                    'close':'close','volume':'volume'})
+        df = df[['open', 'high', 'low', 'close', 'volume']].copy()
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
+
+        # ↓ ここからは fetch_and_calculate と完全に同じスコア計算
+        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['sma_50'] = df['close'].rolling(window=50).mean()
+        df['prev_close'] = df['close'].shift(1)
+        df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
+        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
+        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
+        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
+        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
+        df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
+        df['discrepancyScore'] = df['discrepancyPercent'] / 2
+        df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
+        df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
+        df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
+        df['volDiffScore'] = np.where(
+            df['volDiff_std'] != 0,
+            (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
+            0
+        )
+        df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
+        return df
+    except Exception as e:
+        print(f"{symbol_key} (crypto) error: {e}")
+        return None
+
+
 def fetch_nq1(n_bars=1000):
     tv_local = get_tv()
     if tv_local is None:
@@ -418,6 +484,11 @@ def chart(symbol):
             if df is None:
                 return jsonify({'error': 'ES1! のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_nq(df, 'S&P 500 Futures')
+        elif symbol_upper in CRYPTO_MAP:
+            df = fetch_crypto(symbol_upper)
+            if df is None:
+                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
+            img_b64 = make_chart_image_stock(df, symbol_upper)
         elif symbol_upper in SYMBOLS:
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
             if df is None:
