@@ -2,7 +2,7 @@ import os
 import io
 import base64
 import time
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import pandas as pd
 import numpy as np
 import mplfinance as mpf
@@ -827,6 +827,127 @@ def info(symbol):
             'peers': peers_info,
         }
         info_cache[symbol_upper] = (now, result)
+        return jsonify({**result, 'cached': False})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# =========================================
+# 銘柄比較（重ね合わせラインチャート）
+# =========================================
+compare_cache = {}
+
+# 比較用カラーパレット
+COMPARE_COLORS = ['#ff4444', '#32cd32', '#00bfff', '#ffd700', '#ff8800', '#aa66ff']
+
+
+def fetch_close_series(symbol, bars=DISPLAY_PERIOD):
+    """指定銘柄の終値シリーズを取得する。チャートと同じデータ源を使う。"""
+    sym = symbol.upper()
+    try:
+        if sym == 'NQ1!':
+            df = fetch_nq1()
+            if df is None or df.empty:
+                return None
+            return df['Close'].dropna().tail(bars)
+        if sym == 'ES1!':
+            df = fetch_es1()
+            if df is None or df.empty:
+                return None
+            return df['Close'].dropna().tail(bars)
+        if sym in CRYPTO_MAP:
+            df = fetch_crypto(sym)
+            if df is None or df.empty:
+                return None
+            return df['close'].dropna().tail(bars)
+        if sym in SYMBOLS or sym in SP500_SYMBOLS:
+            df = fetch_and_calculate(sym, period=CALC_PERIOD)
+            if df is None or df.empty:
+                return None
+            return df['close'].dropna().tail(bars)
+    except Exception:
+        pass
+    return None
+
+
+def make_compare_chart(symbols):
+    """複数銘柄の終値を正規化（初日=100）して重ね合わせたチャート画像を作る"""
+    series_map = {}
+    for s in symbols:
+        cs = fetch_close_series(s, bars=DISPLAY_PERIOD)
+        if cs is not None and len(cs) >= 2:
+            series_map[s] = cs
+
+    if not series_map:
+        return None, []
+
+    # 共通の日付軸に揃える（内側結合）
+    df = pd.concat(series_map, axis=1, join='inner')
+    if df.empty or len(df) < 2:
+        return None, []
+
+    # 各銘柄の初日を100として正規化
+    base = df.iloc[0]
+    norm = df.divide(base) * 100
+
+    fig = plt.figure(figsize=(14, 8), facecolor=BG_COLOR)
+    fig.subplots_adjust(top=0.92, bottom=0.15, left=0.06, right=0.92)
+    ax = fig.add_subplot(111, facecolor=BG_COLOR)
+    ax.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
+    ax.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
+    for spine in ax.spines.values():
+        spine.set_color(GRID_COLOR)
+    ax.grid(True, color=GRID_COLOR, alpha=0.4, linestyle='--', linewidth=0.5)
+    ax.axhline(100, color='#888', linewidth=0.8, linestyle=':', alpha=0.6)
+
+    color_map = {}
+    for i, sym in enumerate(norm.columns):
+        color = COMPARE_COLORS[i % len(COMPARE_COLORS)]
+        color_map[sym] = color
+        ax.plot(norm.index, norm[sym], color=color, linewidth=2.0, label=sym)
+
+    legend = ax.legend(loc='upper left', facecolor=BG_COLOR, edgecolor=GRID_COLOR,
+                       labelcolor=TEXT_COLOR, fontsize=11, framealpha=0.85)
+    if legend:
+        for text in legend.get_texts():
+            text.set_color(TEXT_COLOR)
+
+    ax.set_title(f"比較チャート（初日=100 で正規化）", fontsize=18, color=TEXT_COLOR, pad=14)
+    ax.set_ylabel('正規化価格', color=TEXT_COLOR)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
+    buf.seek(0)
+    img_b64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+
+    # 凡例用の色マップを返す
+    return img_b64, [{'symbol': s, 'color': color_map[s]} for s in norm.columns]
+
+
+@app.route('/compare')
+def compare():
+    """クエリパラメータ symbols=NVDA,AMD,INTC で複数銘柄を比較"""
+    symbols_param = request.args.get('symbols', '')
+    symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
+    if not symbols:
+        return jsonify({'error': '銘柄が指定されていません'}), 400
+    if len(symbols) > 8:
+        symbols = symbols[:8]  # 過剰防止
+
+    cache_key = ','.join(symbols)
+    now = time.time()
+    if cache_key in compare_cache:
+        cached_time, cached_data = compare_cache[cache_key]
+        if now - cached_time < CACHE_SECONDS:
+            return jsonify({**cached_data, 'cached': True})
+
+    try:
+        img_b64, legend = make_compare_chart(symbols)
+        if img_b64 is None:
+            return jsonify({'error': '比較チャートを生成できませんでした'}), 500
+        result = {'image': img_b64, 'symbols': symbols, 'legend': legend}
+        compare_cache[cache_key] = (now, result)
         return jsonify({**result, 'cached': False})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
