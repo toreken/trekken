@@ -211,15 +211,104 @@
     /* チャート表示エリア */
     .chart-area {
       width: 100%;
-      max-width: 960px;
+      max-width: 1280px;
+      display: none;
+      margin-bottom: 20px;
+      gap: 12px;
+    }
+
+    .chart-area.active {
+      display: flex;
+      flex-wrap: wrap;
+    }
+
+    .chart-main {
+      flex: 1 1 600px;
       background: #131722;
       border-radius: 12px;
       overflow: hidden;
-      display: none;
-      margin-bottom: 20px;
+      min-width: 0;
     }
 
-    .chart-area.active { display: block; }
+    .info-panel {
+      flex: 0 1 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 240px;
+    }
+
+    .info-card {
+      background: #1e2230;
+      border-radius: 12px;
+      padding: 14px 16px;
+      color: #e6e9f0;
+    }
+
+    .info-card-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #a0a8b8;
+      margin-bottom: 10px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .commentary-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .commentary-list li {
+      padding: 4px 0;
+    }
+
+    .peer-sector-name {
+      font-size: 11px;
+      color: #888fa0;
+      margin-bottom: 8px;
+    }
+
+    .peer-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .peer-list li {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .peer-list li:last-child { border-bottom: none; }
+
+    .peer-name {
+      font-weight: 700;
+      cursor: pointer;
+      color: #cdd5e3;
+    }
+
+    .peer-name:hover { color: #7c6ceb; }
+
+    .peer-change {
+      font-weight: 700;
+    }
+
+    .peer-up { color: #32cd32; }
+    .peer-down { color: #ff4444; }
+    .peer-na { color: #666; }
+
+    .info-empty {
+      font-size: 12px;
+      color: #777;
+      padding: 8px 0;
+    }
 
     .chart-header {
       padding: 12px 18px;
@@ -315,11 +404,28 @@
   </div>
 
   <div class="chart-area" id="chartArea">
-    <div class="chart-header">
-      <span id="chartTitle">📈 ---</span>
-      <button class="chart-close" onclick="closeChart()" title="閉じる">✕</button>
+    <div class="chart-main">
+      <div class="chart-header">
+        <span id="chartTitle">📈 ---</span>
+        <button class="chart-close" onclick="closeChart()" title="閉じる">✕</button>
+      </div>
+      <div class="chart-body" id="chartBody"></div>
     </div>
-    <div class="chart-body" id="chartBody"></div>
+    <div class="info-panel" id="infoPanel">
+      <div class="info-card">
+        <div class="info-card-title">📊 トレンド解説</div>
+        <ul class="commentary-list" id="commentaryList">
+          <li class="info-empty">チャートを選択すると表示されます</li>
+        </ul>
+      </div>
+      <div class="info-card">
+        <div class="info-card-title">🏭 同業他社の動き（1週間）</div>
+        <div class="peer-sector-name" id="peerSectorName"></div>
+        <ul class="peer-list" id="peerList">
+          <li class="info-empty">S&amp;P 500銘柄のみ対応</li>
+        </ul>
+      </div>
+    </div>
   </div>
 
   <div class="footer">© 2026 トレケン / トレンド研究所</div>
@@ -407,25 +513,72 @@
       const area = document.getElementById('chartArea');
       const title = document.getElementById('chartTitle');
       const body = document.getElementById('chartBody');
+      const commentaryList = document.getElementById('commentaryList');
+      const peerSectorName = document.getElementById('peerSectorName');
+      const peerList = document.getElementById('peerList');
 
       area.classList.add('active');
       title.textContent = `📈 ${sym}`;
       body.innerHTML = '<div class="chart-loading">データ取得中...</div>';
+      commentaryList.innerHTML = '<li class="info-empty">読み込み中...</li>';
+      peerSectorName.textContent = '';
+      peerList.innerHTML = '<li class="info-empty">読み込み中...</li>';
 
       // チャートエリアまでスクロール
       setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 
-      try {
-        const res = await fetch(`/chart/${encodeURIComponent(sym)}`);
-        const data = await res.json();
-        if (data.image) {
-          body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
-        } else {
-          body.innerHTML = `<div class="chart-error">⚠️ ${data.error || '取得失敗'}</div>`;
-        }
-      } catch (e) {
-        body.innerHTML = '<div class="chart-error">⚠️ サーバーに接続できません</div>';
-      }
+      // チャートと情報を並行取得
+      const chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.image) {
+            body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
+          } else {
+            body.innerHTML = `<div class="chart-error">⚠️ ${data.error || '取得失敗'}</div>`;
+          }
+        })
+        .catch(() => {
+          body.innerHTML = '<div class="chart-error">⚠️ サーバーに接続できません</div>';
+        });
+
+      const infoPromise = fetch(`/info/${encodeURIComponent(sym)}`)
+        .then(r => r.json())
+        .then(data => {
+          // トレンド解説
+          if (Array.isArray(data.commentary) && data.commentary.length > 0) {
+            commentaryList.innerHTML = data.commentary.map(line => `<li>${escapeHtml(line)}</li>`).join('');
+          } else {
+            commentaryList.innerHTML = '<li class="info-empty">解説を生成できませんでした</li>';
+          }
+
+          // 同業他社
+          if (data.peers && Array.isArray(data.peers.peers) && data.peers.peers.length > 0) {
+            peerSectorName.textContent = data.peers.sector;
+            peerList.innerHTML = data.peers.peers.map(p => {
+              const ch = p.change;
+              let cls = 'peer-na', label = '—';
+              if (ch !== null && ch !== undefined) {
+                cls = ch >= 0 ? 'peer-up' : 'peer-down';
+                label = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
+              }
+              return `<li><span class="peer-name" onclick="loadChart('${p.symbol}')">${escapeHtml(p.symbol)}</span><span class="peer-change ${cls}">${label}</span></li>`;
+            }).join('');
+          } else {
+            peerSectorName.textContent = '';
+            peerList.innerHTML = '<li class="info-empty">同業他社情報なし（S&P 500外の銘柄）</li>';
+          }
+        })
+        .catch(() => {
+          commentaryList.innerHTML = '<li class="info-empty">情報を取得できません</li>';
+          peerList.innerHTML = '<li class="info-empty">情報を取得できません</li>';
+        });
+
+      await Promise.all([chartPromise, infoPromise]);
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
     }
 
     function closeChart() {
