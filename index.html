@@ -90,9 +90,92 @@
       gap: 18px;
       font-size: 13px;
       font-weight: 700;
+      align-items: center;
     }
     .nav-links a { color: var(--brown-700); text-decoration: none; transition: color 0.2s; }
     .nav-links a:hover { color: var(--gold-600); }
+
+    /* ドロップダウン（各種チャンネル） */
+    .nav-dropdown {
+      position: relative;
+    }
+    .nav-dropdown-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      color: var(--brown-700);
+      transition: color 0.2s;
+    }
+    .nav-dropdown-trigger:hover { color: var(--gold-600); }
+    .nav-dropdown-trigger svg {
+      width: 10px;
+      height: 10px;
+      transition: transform 0.25s;
+    }
+    .nav-dropdown:hover .nav-dropdown-trigger svg { transform: rotate(180deg); }
+
+    .nav-dropdown-menu {
+      position: absolute;
+      top: calc(100% + 14px);
+      left: 50%;
+      transform: translateX(-50%) translateY(-6px);
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 12px 36px rgba(60, 35, 15, 0.18);
+      border: 1px solid var(--brown-100);
+      padding: 8px;
+      min-width: 180px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.25s, transform 0.25s, visibility 0.25s;
+      z-index: 100;
+    }
+    /* ドロップダウン上部の小さい三角（吹き出し風） */
+    .nav-dropdown-menu::before {
+      content: "";
+      position: absolute;
+      top: -6px;
+      left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 12px;
+      height: 12px;
+      background: #fff;
+      border-top: 1px solid var(--brown-100);
+      border-left: 1px solid var(--brown-100);
+    }
+    .nav-dropdown:hover .nav-dropdown-menu,
+    .nav-dropdown:focus-within .nav-dropdown-menu {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
+    }
+    .nav-dropdown-menu a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--brown-800);
+      transition: background 0.15s, color 0.15s;
+    }
+    .nav-dropdown-menu a:hover {
+      background: var(--cream-100);
+      color: var(--gold-600);
+    }
+    .nav-dropdown-menu a svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    /* チャンネル別の色アクセント（アイコン） */
+    .nav-dropdown-menu a.ch-x svg    { color: var(--brown-900); }
+    .nav-dropdown-menu a.ch-yt svg   { color: #c8351a; }
+    .nav-dropdown-menu a.ch-note svg { color: var(--gold-500); }
 
     /* ===== ヒーローエリア ===== */
     .hero {
@@ -766,7 +849,26 @@
       <div class="nav-links">
         <a href="#search">銘柄を探す</a>
         <a href="#notes">記事</a>
-        <a href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener">X</a>
+        <div class="nav-dropdown" tabindex="0">
+          <span class="nav-dropdown-trigger">
+            各種チャンネル
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 4 6 8 10 4"/></svg>
+          </span>
+          <div class="nav-dropdown-menu" role="menu">
+            <a class="ch-x" href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.743l7.733-8.835L1.254 2.25H8.08l4.256 5.622L18.244 2.25Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z"/></svg>
+              X (@Trade_CFD_FX)
+            </a>
+            <a class="ch-yt" href="https://www.youtube.com/@トレンド研究所" target="_blank" rel="noopener" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              YouTube
+            </a>
+            <a class="ch-note" href="https://note.com/natukb" target="_blank" rel="noopener" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 0h-19C1.1 0 0 1.1 0 2.5v19C0 22.9 1.1 24 2.5 24h19c1.4 0 2.5-1.1 2.5-2.5v-19C24 1.1 22.9 0 21.5 0zM7 17.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm10-4H7v-2h10v2zm0-4H7V7.5h10V9.5z"/></svg>
+              Note
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -777,21 +879,6 @@
     <div class="hero-sub-en">Candle Color Tells The Trend</div>
     <div class="hero-tagline">ろうそく足の色でトレンド把握 — トレケン式分析で次の一手を掴め！</div>
     <div class="hero-badge">投資判断のためのチャートデータベース</div>
-
-    <div class="social-row">
-      <a href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener" class="social-btn sb-x">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.743l7.733-8.835L1.254 2.25H8.08l4.256 5.622L18.244 2.25Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z"/></svg>
-        @Trade_CFD_FX
-      </a>
-      <a href="https://www.youtube.com/@トレンド研究所" target="_blank" rel="noopener" class="social-btn sb-yt">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-        YouTube
-      </a>
-      <a href="https://note.com/natukb" target="_blank" rel="noopener" class="social-btn sb-note">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 0h-19C1.1 0 0 1.1 0 2.5v19C0 22.9 1.1 24 2.5 24h19c1.4 0 2.5-1.1 2.5-2.5v-19C24 1.1 22.9 0 21.5 0zM7 17.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm10-4H7v-2h10v2zm0-4H7V7.5h10V9.5z"/></svg>
-        Note
-      </a>
-    </div>
   </section>
 
   <!-- 銘柄検索＆タブ -->
