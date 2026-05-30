@@ -1,0 +1,24 @@
+name: Prefetch S&P 500 Data
+
+# 毎日 23:30 UTC（日本時間 翌朝 8:30）に実行
+# 米国市場のクローズ後、日本人がサイトを見始める前のタイミング
+on:
+  schedule:
+    - cron: '30 23 * * *'
+  # 手動実行も可能（テスト用）
+  workflow_dispatch:
+
+jobs:
+  prefetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call prefetch endpoint
+        run: |
+          echo "Starting prefetch at $(date)"
+          curl --max-time 900 --fail \
+               "https://trekken.onrender.com/prefetch?token=${{ secrets.PREFETCH_TOKEN }}" \
+               -o response.json
+          echo "Response:"
+          cat response.json
+          echo ""
+          echo "Done at $(date)"
