@@ -284,12 +284,11 @@ def fetch_and_calculate(symbol, period='max'):
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
     df['prev_close'] = df['close'].shift(1)
-    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
     df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
     df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
     df['total_uvol_sma'] = get_wma(df['uvol'], 10)
     df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
+    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
     df['discrepancyScore'] = df['discrepancyPercent'] / 2
     df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
     df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -347,12 +346,11 @@ def fetch_crypto(symbol_key, n_bars=1000):
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
         df['prev_close'] = df['close'].shift(1)
-        df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
         df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
         df['total_uvol_sma'] = get_wma(df['uvol'], 10)
         df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
+        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
         df['discrepancyScore'] = df['discrepancyPercent'] / 2
         df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
         df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -753,15 +751,15 @@ def generate_commentary(df):
         if 'discrepancyPercent' in df.columns and not pd.isna(last['discrepancyPercent']):
             disc = last['discrepancyPercent']
             if disc > 8:
-                lines.append(f'📈 EMA21から +{disc:.1f}% で過熱気味')
+                lines.append(f'📈 EMA20から +{disc:.1f}% で過熱気味')
             elif disc > 3:
-                lines.append(f'📈 EMA21から +{disc:.1f}% で上方乖離')
+                lines.append(f'📈 EMA20から +{disc:.1f}% で上方乖離')
             elif disc < -8:
-                lines.append(f'📉 EMA21から {disc:.1f}% で売られすぎ圏')
+                lines.append(f'📉 EMA20から {disc:.1f}% で売られすぎ圏')
             elif disc < -3:
-                lines.append(f'📉 EMA21から {disc:.1f}% で下方乖離')
+                lines.append(f'📉 EMA20から {disc:.1f}% で下方乖離')
             else:
-                lines.append(f'➡️ EMA21近辺で推移（乖離 {disc:+.1f}%）')
+                lines.append(f'➡️ EMA20近辺で推移（乖離 {disc:+.1f}%）')
 
         # 出来高
         if 'volDiffScore' in df.columns and not pd.isna(last['volDiffScore']):
@@ -1000,12 +998,11 @@ def calculate_scores_from_ohlcv(df):
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
     df['prev_close'] = df['close'].shift(1)
-    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
     df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
     df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
     df['total_uvol_sma'] = get_wma(df['uvol'], 10)
     df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
+    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
     df['discrepancyScore'] = df['discrepancyPercent'] / 2
     df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
     df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
