@@ -132,6 +132,15 @@
       transition: opacity 0.25s, transform 0.25s, visibility 0.25s;
       z-index: 100;
     }
+    /* トリガーとメニューの間の見えないホバー継続エリア（隙間が切れないように） */
+    .nav-dropdown-menu::after {
+      content: "";
+      position: absolute;
+      top: -20px;
+      left: 0;
+      right: 0;
+      height: 20px;
+    }
     /* ドロップダウン上部の小さい三角（吹き出し風） */
     .nav-dropdown-menu::before {
       content: "";
@@ -851,7 +860,7 @@
         <a href="#notes">記事</a>
         <div class="nav-dropdown" tabindex="0">
           <span class="nav-dropdown-trigger">
-            各種チャンネル
+            チャンネル
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 4 6 8 10 4"/></svg>
           </span>
           <div class="nav-dropdown-menu" role="menu">
