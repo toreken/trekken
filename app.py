@@ -2,6 +2,7 @@ import os
 import io
 import base64
 import time
+import threading
 from flask import Flask, jsonify, request
 import pandas as pd
 import numpy as np
@@ -1046,38 +1047,86 @@ def prefetch_batch(symbols_batch):
     return results
 
 
-@app.route('/prefetch')
-def prefetch():
-    """S&P500を一括プリフェッチ。トークンで保護。"""
-    token = request.args.get('token', '')
-    if not PREFETCH_TOKEN or token != PREFETCH_TOKEN:
-        return jsonify({'error': 'unauthorized'}), 401
+# プリフェッチ実行状態
+prefetch_state = {
+    'running': False,
+    'started_at': None,
+    'finished_at': None,
+    'success_count': 0,
+    'failed_count': 0,
+    'failed_symbols': [],
+    'elapsed_seconds': None,
+}
+prefetch_lock = threading.Lock()
+
+
+def run_prefetch_in_background():
+    """別スレッドで実行されるプリフェッチ処理本体"""
+    global prefetch_state
 
     start_time = time.time()
     all_success = []
     all_failed = []
 
-    # 50銘柄ずつのバッチで処理
     BATCH_SIZE = 50
-    BATCH_WAIT = 3  # バッチ間の待機秒数
+    BATCH_WAIT = 3
 
-    for i in range(0, len(SP500_SYMBOLS), BATCH_SIZE):
-        batch = SP500_SYMBOLS[i:i+BATCH_SIZE]
-        print(f"Prefetch batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
-        res = prefetch_batch(batch)
-        all_success.extend(res.get('success', []))
-        all_failed.extend(res.get('failed', []))
-        # 最後のバッチでなければ待機
-        if i + BATCH_SIZE < len(SP500_SYMBOLS):
-            time.sleep(BATCH_WAIT)
+    try:
+        for i in range(0, len(SP500_SYMBOLS), BATCH_SIZE):
+            batch = SP500_SYMBOLS[i:i+BATCH_SIZE]
+            print(f"Prefetch batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
+            res = prefetch_batch(batch)
+            all_success.extend(res.get('success', []))
+            all_failed.extend(res.get('failed', []))
+            if i + BATCH_SIZE < len(SP500_SYMBOLS):
+                time.sleep(BATCH_WAIT)
+    except Exception as e:
+        print(f"Prefetch background error: {e}")
 
     elapsed = time.time() - start_time
+    with prefetch_lock:
+        prefetch_state['running'] = False
+        prefetch_state['finished_at'] = time.time()
+        prefetch_state['success_count'] = len(all_success)
+        prefetch_state['failed_count'] = len(all_failed)
+        prefetch_state['failed_symbols'] = all_failed
+        prefetch_state['elapsed_seconds'] = round(elapsed, 1)
+    print(f"Prefetch done: success={len(all_success)} failed={len(all_failed)} elapsed={elapsed:.1f}s")
+
+
+@app.route('/prefetch')
+def prefetch():
+    """S&P500を一括プリフェッチ。バックグラウンドで実行し、即座にレスポンスを返す。"""
+    token = request.args.get('token', '')
+    if not PREFETCH_TOKEN or token != PREFETCH_TOKEN:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    with prefetch_lock:
+        if prefetch_state['running']:
+            return jsonify({
+                'status': 'already_running',
+                'started_at': prefetch_state['started_at'],
+            }), 200
+        prefetch_state['running'] = True
+        prefetch_state['started_at'] = time.time()
+        prefetch_state['finished_at'] = None
+
+    # 別スレッドで実行
+    thread = threading.Thread(target=run_prefetch_in_background, daemon=True)
+    thread.start()
+
     return jsonify({
-        'success_count': len(all_success),
-        'failed_count': len(all_failed),
-        'failed': all_failed,
-        'elapsed_seconds': round(elapsed, 1),
-    })
+        'status': 'started',
+        'message': f'{len(SP500_SYMBOLS)} 銘柄のプリフェッチを開始しました。完了まで10〜20分ほどかかります。',
+        'check_status_at': '/prefetch/status',
+    }), 202
+
+
+@app.route('/prefetch/status')
+def prefetch_status():
+    """プリフェッチの進捗確認用エンドポイント（トークン不要）"""
+    with prefetch_lock:
+        return jsonify(dict(prefetch_state))
 
 
 @app.route('/')
