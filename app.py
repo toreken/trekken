@@ -244,7 +244,10 @@ DISPLAY_PERIOD = 90
 BG_COLOR = '#131722'
 TEXT_COLOR = 'white'
 GRID_COLOR = '#444444'
-CACHE_SECONDS = 3600
+CACHE_SECONDS = 86400  # 24時間（プリフェッチ前提のため長め）
+
+# プリフェッチ用トークン（外部cronからの呼び出しを保護）
+PREFETCH_TOKEN = os.environ.get('PREFETCH_TOKEN', '')
 
 chart_cache = {}
 
@@ -951,6 +954,130 @@ def compare():
         return jsonify({**result, 'cached': False})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# =========================================
+# プリフェッチ機能（外部cronから1日1回呼ぶ）
+# =========================================
+def calculate_scores_from_ohlcv(df):
+    """OHLCV DataFrameからスコアを計算する（fetch_and_calculate と同じロジック）"""
+    df = df.copy()
+    df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['sma_50'] = df['close'].rolling(window=50).mean()
+    df['prev_close'] = df['close'].shift(1)
+    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
+    df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
+    df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
+    df['total_uvol_sma'] = get_wma(df['uvol'], 10)
+    df['total_dvol_sma'] = get_wma(df['dvol'], 10)
+    df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
+    df['discrepancyScore'] = df['discrepancyPercent'] / 2
+    df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
+    df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
+    df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
+    df['volDiffScore'] = np.where(
+        df['volDiff_std'] != 0,
+        (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
+        0
+    )
+    df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
+    return df
+
+
+def prefetch_batch(symbols_batch):
+    """50銘柄程度をまとめて取得し、各銘柄のチャート画像と情報をキャッシュに格納する"""
+    results = {'success': [], 'failed': []}
+    try:
+        df_all = yf.download(
+            symbols_batch, period='2y', interval='1d',
+            progress=False, auto_adjust=False, group_by='ticker', threads=True
+        )
+    except Exception as e:
+        return {'success': [], 'failed': symbols_batch, 'error': str(e)}
+
+    now = time.time()
+    for sym in symbols_batch:
+        try:
+            # 一括取得の結果から1銘柄分を取り出す
+            if len(symbols_batch) == 1:
+                sub = df_all
+            else:
+                if sym not in df_all.columns.get_level_values(0):
+                    results['failed'].append(sym)
+                    continue
+                sub = df_all[sym]
+
+            if sub is None or sub.empty:
+                results['failed'].append(sym)
+                continue
+
+            df = sub.copy()
+            df.columns = df.columns.str.lower() if hasattr(df.columns, 'str') else [c.lower() for c in df.columns]
+            df = df.loc[:, ~df.columns.duplicated()].copy()
+            if hasattr(df.index, 'tz') and df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            if 'close' not in df.columns or len(df) < 60:
+                results['failed'].append(sym)
+                continue
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            df = df.dropna(subset=['close'])
+
+            # スコア計算
+            df = calculate_scores_from_ohlcv(df)
+
+            # チャート画像生成 → chart_cacheへ
+            img_b64 = make_chart_image_stock(df, sym)
+            if img_b64:
+                chart_cache[sym] = (now, img_b64)
+
+            # 情報生成 → info_cacheへ
+            commentary = generate_commentary(df)
+            peers_info = get_peers(sym)  # ここは別途yfinance呼び出しが発生
+            info_cache[sym] = (now, {
+                'symbol': sym, 'commentary': commentary, 'peers': peers_info
+            })
+
+            results['success'].append(sym)
+        except Exception as e:
+            print(f"prefetch {sym} error: {e}")
+            results['failed'].append(sym)
+    return results
+
+
+@app.route('/prefetch')
+def prefetch():
+    """S&P500を一括プリフェッチ。トークンで保護。"""
+    token = request.args.get('token', '')
+    if not PREFETCH_TOKEN or token != PREFETCH_TOKEN:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    start_time = time.time()
+    all_success = []
+    all_failed = []
+
+    # 50銘柄ずつのバッチで処理
+    BATCH_SIZE = 50
+    BATCH_WAIT = 3  # バッチ間の待機秒数
+
+    for i in range(0, len(SP500_SYMBOLS), BATCH_SIZE):
+        batch = SP500_SYMBOLS[i:i+BATCH_SIZE]
+        print(f"Prefetch batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
+        res = prefetch_batch(batch)
+        all_success.extend(res.get('success', []))
+        all_failed.extend(res.get('failed', []))
+        # 最後のバッチでなければ待機
+        if i + BATCH_SIZE < len(SP500_SYMBOLS):
+            time.sleep(BATCH_WAIT)
+
+    elapsed = time.time() - start_time
+    return jsonify({
+        'success_count': len(all_success),
+        'failed_count': len(all_failed),
+        'failed': all_failed,
+        'elapsed_seconds': round(elapsed, 1),
+    })
 
 
 @app.route('/')
