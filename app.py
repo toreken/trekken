@@ -251,6 +251,7 @@ CACHE_SECONDS = 86400  # 24時間（プリフェッチ前提のため長め）
 PREFETCH_TOKEN = os.environ.get('PREFETCH_TOKEN', '')
 
 chart_cache = {}
+thumb_cache = {}     # サムネイル画像とスコアのキャッシュ {symbol: (time, {'thumb': b64, 'score': float})}
 
 
 def get_wma(series, length):
@@ -582,7 +583,37 @@ def make_chart_image_stock(df, symbol):
     return img_b64
 
 
-def make_chart_image_nq(df, symbol):
+def make_thumbnail_image(df, symbol):
+    """軽量サムネイル画像（ライン1本のみ、軸/ラベル/余白なし）。"""
+    try:
+        plot_len = min(DISPLAY_PERIOD, len(df))
+        plot_df = df.iloc[-plot_len:].copy()
+        if plot_df.empty or len(plot_df) < 2:
+            return None
+
+        # 終値のラインのみ。色は最終スコアで決定
+        last_score = plot_df['totalScore'].iloc[-1] if 'totalScore' in plot_df.columns else 0
+        if pd.isna(last_score): color = '#888888'
+        elif last_score >= 7:    color = '#00bfff'
+        elif last_score > 0:     color = '#32cd32'
+        elif last_score <= -7:   color = '#ffd700'
+        else:                    color = '#ff4444'
+
+        fig = plt.figure(figsize=(2.4, 1.2), facecolor=BG_COLOR, dpi=60)
+        ax = fig.add_axes([0, 0, 1, 1])  # 余白ゼロ
+        ax.set_facecolor(BG_COLOR)
+        ax.plot(range(len(plot_df)), plot_df['close'].values, color=color, linewidth=1.2)
+        ax.axis('off')
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', pad_inches=0)
+        buf.seek(0)
+        img_b64 = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close(fig)
+        return img_b64
+    except Exception as e:
+        print(f"thumbnail {symbol} error: {e}")
+        return None
     plot_len = min(DISPLAY_PERIOD, len(df))
     plot_df = df.iloc[-plot_len:].copy()
 
@@ -1033,6 +1064,16 @@ def prefetch_batch(symbols_batch):
             if img_b64:
                 chart_cache[sym] = (now, img_b64)
 
+            # サムネイル生成 → thumb_cacheへ
+            thumb_b64 = make_thumbnail_image(df, sym)
+            last_score = df['totalScore'].iloc[-1] if 'totalScore' in df.columns else None
+            try:
+                last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
+            except Exception:
+                last_score_val = None
+            if thumb_b64:
+                thumb_cache[sym] = (now, {'thumb': thumb_b64, 'score': last_score_val})
+
             # 情報生成 → info_cacheへ
             commentary = generate_commentary(df)
             peers_info = get_peers(sym)  # ここは別途yfinance呼び出しが発生
@@ -1127,6 +1168,36 @@ def prefetch_status():
     """プリフェッチの進捗確認用エンドポイント（トークン不要）"""
     with prefetch_lock:
         return jsonify(dict(prefetch_state))
+
+
+@app.route('/sp500-all')
+def sp500_all():
+    """S&P500の全銘柄のサムネイル+スコアを返す。キャッシュにある分のみ。"""
+    items = []
+    for sym in SP500_SYMBOLS:
+        if sym in thumb_cache:
+            _, data = thumb_cache[sym]
+            items.append({
+                'symbol': sym,
+                'sector': SP500_SECTOR_MAP.get(sym, ''),
+                'thumb': data.get('thumb'),
+                'score': data.get('score'),
+            })
+        else:
+            # キャッシュ未生成の銘柄は thumb=None として情報だけ返す
+            items.append({
+                'symbol': sym,
+                'sector': SP500_SECTOR_MAP.get(sym, ''),
+                'thumb': None,
+                'score': None,
+            })
+
+    cached_count = sum(1 for it in items if it['thumb'] is not None)
+    return jsonify({
+        'total': len(items),
+        'cached_count': cached_count,
+        'items': items,
+    })
 
 
 @app.route('/')
