@@ -1,9 +1,12 @@
 import os
 import io
+import re
 import base64
 import time
 import threading
+import xml.etree.ElementTree as ET
 from flask import Flask, jsonify, request
+import requests as http_requests
 import pandas as pd
 import numpy as np
 import mplfinance as mpf
@@ -1198,6 +1201,79 @@ def sp500_all():
         'cached_count': cached_count,
         'items': items,
     })
+
+
+# =========================================
+# Note 記事取得（RSSフィード経由）
+# =========================================
+note_cache = {'time': 0, 'items': []}
+NOTE_CACHE_SECONDS = 1800  # 30分キャッシュ
+NOTE_USERNAME = 'natukb'   # トレケンのNoteアカウント
+
+
+def parse_note_rss(xml_text):
+    """NoteのRSS(XML)から記事情報を抽出する"""
+    try:
+        root = ET.fromstring(xml_text)
+        # RSS2.0形式: rss > channel > item
+        channel = root.find('channel')
+        if channel is None:
+            return []
+        items = []
+        for item in channel.findall('item')[:3]:  # 最新3件
+            title_el = item.find('title')
+            link_el = item.find('link')
+            pubdate_el = item.find('pubDate')
+            desc_el = item.find('description')
+
+            title = title_el.text if title_el is not None else ''
+            link = link_el.text if link_el is not None else ''
+            pubdate = pubdate_el.text if pubdate_el is not None else ''
+            desc = desc_el.text if desc_el is not None else ''
+
+            # サムネイル画像URLを description のHTMLから抽出
+            thumb = ''
+            if desc:
+                m = re.search(r'<img[^>]+src="([^"]+)"', desc)
+                if m:
+                    thumb = m.group(1)
+                # description からタグを除去して本文プレビューに
+                desc_text = re.sub(r'<[^>]+>', '', desc).strip()[:80]
+            else:
+                desc_text = ''
+
+            items.append({
+                'title': title,
+                'link': link,
+                'pubdate': pubdate,
+                'thumb': thumb,
+                'preview': desc_text,
+            })
+        return items
+    except Exception as e:
+        print(f"Note RSS parse error: {e}")
+        return []
+
+
+@app.route('/note-articles')
+def note_articles():
+    """Noteの最新記事3件を返す。30分キャッシュ。"""
+    now = time.time()
+    if now - note_cache['time'] < NOTE_CACHE_SECONDS and note_cache['items']:
+        return jsonify({'items': note_cache['items'], 'cached': True})
+
+    try:
+        url = f'https://note.com/{NOTE_USERNAME}/rss'
+        resp = http_requests.get(url, timeout=10,
+                                 headers={'User-Agent': 'Mozilla/5.0 (Trekken site)'})
+        if resp.status_code != 200:
+            return jsonify({'items': [], 'error': f'status {resp.status_code}'}), 200
+        items = parse_note_rss(resp.text)
+        note_cache['time'] = now
+        note_cache['items'] = items
+        return jsonify({'items': items, 'cached': False})
+    except Exception as e:
+        return jsonify({'items': [], 'error': str(e)}), 200
 
 
 @app.route('/')
