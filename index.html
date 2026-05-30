@@ -168,6 +168,117 @@
       padding: 4px;
     }
 
+    .sp500-toolbar {
+      margin-top: 14px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .overview-btn {
+      background: #7c6ceb;
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: background 0.2s;
+    }
+
+    .overview-btn:hover { background: #6754d4; }
+
+    .overview-sort {
+      padding: 8px 10px;
+      border: 1px solid #e0dcff;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: 'Noto Sans JP', sans-serif;
+      color: #1a1a2e;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .overview-grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 10px;
+      max-height: 70vh;
+      overflow-y: auto;
+      padding: 4px;
+      background: #f7f5ff;
+      border-radius: 10px;
+    }
+
+    .thumb-card {
+      background: #131722;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      border: 2px solid transparent;
+    }
+
+    .thumb-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+      border-color: #7c6ceb;
+    }
+
+    .thumb-card img {
+      width: 100%;
+      height: 64px;
+      display: block;
+      object-fit: cover;
+      background: #131722;
+    }
+
+    .thumb-card .thumb-placeholder {
+      width: 100%;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #555;
+      font-size: 10px;
+      background: #1e2230;
+    }
+
+    .thumb-info {
+      padding: 6px 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }
+
+    .thumb-symbol {
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .thumb-score {
+      font-weight: 700;
+    }
+
+    .ts-blue   { color: #00bfff; }
+    .ts-green  { color: #32cd32; }
+    .ts-yellow { color: #ffd700; }
+    .ts-red    { color: #ff4444; }
+    .ts-na     { color: #777; }
+
+    .overview-loading {
+      padding: 30px;
+      text-align: center;
+      color: #777;
+      font-size: 13px;
+      grid-column: 1 / -1;
+    }
+
     .symbol-chip {
       padding: 8px 6px;
       background: #f3f0ff;
@@ -457,7 +568,18 @@
         <button class="tab" data-group="SP500">S&amp;P 500</button>
       </div>
 
+      <div class="sp500-toolbar" id="sp500Toolbar" style="display:none;">
+        <button class="overview-btn" id="overviewBtn" onclick="toggleOverview()">📊 全銘柄を一気見</button>
+        <select class="overview-sort" id="overviewSort" onchange="renderOverview()" style="display:none;">
+          <option value="score_desc">スコア降順</option>
+          <option value="score_asc">スコア昇順</option>
+          <option value="symbol_asc">アルファベット順</option>
+          <option value="sector">セクター順</option>
+        </select>
+      </div>
+
       <div class="symbol-list" id="symbolList"></div>
+      <div class="overview-grid" id="overviewGrid" style="display:none;"></div>
       <div class="count-info" id="countInfo"></div>
     </div>
   </div>
@@ -552,9 +674,13 @@
     function renderSymbolList() {
       const list = document.getElementById('symbolList');
       const countInfo = document.getElementById('countInfo');
+      const toolbar = document.getElementById('sp500Toolbar');
       const symbols = GROUPS[currentGroup] || [];
       const q = currentQuery.trim().toUpperCase();
       const filtered = q ? symbols.filter(s => s.toUpperCase().includes(q)) : symbols;
+
+      // SP500タブのときだけツールバー表示
+      toolbar.style.display = (currentGroup === 'SP500') ? 'flex' : 'none';
 
       list.innerHTML = '';
       if (filtered.length === 0) {
@@ -728,12 +854,117 @@
       renderSymbolList();
     }
 
+    // ===== 一気見モード =====
+    let overviewData = null;     // /sp500-all のレスポンス
+    let overviewMode = false;    // 一気見表示中か
+
+    async function toggleOverview() {
+      const grid = document.getElementById('overviewGrid');
+      const list = document.getElementById('symbolList');
+      const countInfo = document.getElementById('countInfo');
+      const sortSel = document.getElementById('overviewSort');
+      const btn = document.getElementById('overviewBtn');
+
+      if (overviewMode) {
+        // 通常表示に戻す
+        overviewMode = false;
+        grid.style.display = 'none';
+        list.style.display = '';
+        countInfo.style.display = '';
+        sortSel.style.display = 'none';
+        btn.textContent = '📊 全銘柄を一気見';
+        return;
+      }
+
+      // 一気見表示に切替
+      overviewMode = true;
+      list.style.display = 'none';
+      countInfo.style.display = 'none';
+      grid.style.display = 'grid';
+      sortSel.style.display = 'inline-block';
+      btn.textContent = '📋 リスト表示に戻す';
+      grid.innerHTML = '<div class="overview-loading">データ取得中...</div>';
+
+      if (!overviewData) {
+        try {
+          const res = await fetch('/sp500-all');
+          overviewData = await res.json();
+        } catch (e) {
+          grid.innerHTML = '<div class="overview-loading">⚠️ サーバーに接続できません</div>';
+          return;
+        }
+      }
+      renderOverview();
+    }
+
+    function renderOverview() {
+      if (!overviewData || !overviewData.items) return;
+      const grid = document.getElementById('overviewGrid');
+      const sort = document.getElementById('overviewSort').value;
+      let items = overviewData.items.slice();
+
+      if (sort === 'score_desc') {
+        items.sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
+      } else if (sort === 'score_asc') {
+        items.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity));
+      } else if (sort === 'symbol_asc') {
+        items.sort((a, b) => a.symbol.localeCompare(b.symbol));
+      } else if (sort === 'sector') {
+        items.sort((a, b) => (a.sector || '').localeCompare(b.sector || '') || a.symbol.localeCompare(b.symbol));
+      }
+
+      const html = items.map(it => {
+        const sc = it.score;
+        let scoreCls = 'ts-na', scoreLabel = '—';
+        if (sc !== null && sc !== undefined) {
+          if (sc >= 7) scoreCls = 'ts-blue';
+          else if (sc > 0) scoreCls = 'ts-green';
+          else if (sc <= -7) scoreCls = 'ts-yellow';
+          else scoreCls = 'ts-red';
+          scoreLabel = (sc >= 0 ? '+' : '') + sc.toFixed(1);
+        }
+        const thumbHtml = it.thumb
+          ? `<img src="data:image/png;base64,${it.thumb}" alt="${escapeHtml(it.symbol)}">`
+          : `<div class="thumb-placeholder">準備中</div>`;
+        return `
+          <div class="thumb-card" onclick="loadChart('${it.symbol}')">
+            ${thumbHtml}
+            <div class="thumb-info">
+              <span class="thumb-symbol">${escapeHtml(it.symbol)}</span>
+              <span class="thumb-score ${scoreCls}">${scoreLabel}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      grid.innerHTML = html;
+      // 上部に件数表示
+      const cached = overviewData.cached_count || 0;
+      const total = overviewData.total || 0;
+      if (cached < total) {
+        const info = document.createElement('div');
+        info.className = 'overview-loading';
+        info.style.fontSize = '12px';
+        info.textContent = `${cached} / ${total} 銘柄のデータ準備済み（朝の自動更新後にすべて揃います）`;
+        grid.prepend(info);
+      }
+    }
+
     // タブ切替
     document.querySelectorAll('.tab').forEach(btn => {
       btn.onclick = () => {
         document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentGroup = btn.dataset.group;
+        // 別タブに移ったら一気見モードを解除
+        if (currentGroup !== 'SP500' && overviewMode) {
+          overviewMode = false;
+          document.getElementById('overviewGrid').style.display = 'none';
+          document.getElementById('symbolList').style.display = '';
+          document.getElementById('countInfo').style.display = '';
+          document.getElementById('overviewSort').style.display = 'none';
+          document.getElementById('overviewBtn').textContent = '📊 全銘柄を一気見';
+        }
         renderSymbolList();
       };
     });
