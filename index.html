@@ -622,6 +622,53 @@
 
     .commentary-list { list-style: none; padding: 0; margin: 0; font-size: 13px; line-height: 1.7; }
     .commentary-list li { padding: 4px 0; color: var(--brown-800); }
+
+    /* 銘柄概要パネル */
+    .profile-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--brown-800);
+      line-height: 1.4;
+      margin-bottom: 8px;
+    }
+    .profile-meta {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.7;
+      margin-bottom: 10px;
+    }
+    .profile-meta span {
+      display: inline-block;
+      margin-right: 10px;
+      white-space: nowrap;
+    }
+    .profile-meta .meta-label {
+      color: var(--gold-600);
+      font-weight: 700;
+      margin-right: 4px;
+    }
+    .profile-summary {
+      font-size: 12px;
+      color: var(--brown-700);
+      line-height: 1.6;
+      max-height: 140px;
+      overflow-y: auto;
+      padding-right: 4px;
+      border-top: 1px solid var(--brown-100);
+      padding-top: 10px;
+      margin-top: 6px;
+    }
+    .profile-summary::-webkit-scrollbar { width: 4px; }
+    .profile-summary::-webkit-scrollbar-thumb { background: var(--brown-200); border-radius: 2px; }
+    .profile-website {
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--gold-600);
+      text-decoration: none;
+    }
+    .profile-website:hover { color: var(--brown-800); }
     .peer-sector-name { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
     .peer-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
     .peer-list li {
@@ -1007,6 +1054,13 @@
       <div class="chart-body" id="chartBody"></div>
     </div>
     <div class="info-panel" id="infoPanel">
+      <div class="info-card" id="profileCard" style="display:none;">
+        <div class="info-card-title">🏢 銘柄概要</div>
+        <div class="profile-name" id="profileName"></div>
+        <div class="profile-meta" id="profileMeta"></div>
+        <div class="profile-summary" id="profileSummary"></div>
+        <a class="profile-website" id="profileWebsite" target="_blank" rel="noopener" style="display:none;">公式サイト →</a>
+      </div>
       <div class="info-card">
         <div class="info-card-title">📊 トレンド解説</div>
         <ul class="commentary-list" id="commentaryList">
@@ -1184,6 +1238,7 @@
       const peerList = document.getElementById('peerList');
       const compareBtn = document.getElementById('compareBtn');
       const restoreBtn = document.getElementById('restoreBtn');
+      const profileCard = document.getElementById('profileCard');
 
       area.classList.add('active');
       title.textContent = `📈 ${sym}`;
@@ -1193,6 +1248,7 @@
       peerList.innerHTML = '<li class="info-empty">読み込み中...</li>';
       compareBtn.style.display = 'none';
       restoreBtn.style.display = 'none';
+      profileCard.style.display = 'none';
 
       setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 
@@ -1211,6 +1267,29 @@
       const infoPromise = fetch(`/info/${encodeURIComponent(sym)}`)
         .then(r => r.json())
         .then(data => {
+          // 概要パネル
+          if (data.profile && data.profile.name) {
+            const p = data.profile;
+            document.getElementById('profileName').textContent = p.name;
+            const metaParts = [];
+            if (p.industry) metaParts.push(`<span><span class="meta-label">業種</span>${escapeHtml(p.industry)}</span>`);
+            if (p.country)  metaParts.push(`<span><span class="meta-label">本社</span>${escapeHtml(p.country)}</span>`);
+            if (p.employees) metaParts.push(`<span><span class="meta-label">従業員</span>${p.employees.toLocaleString()}人</span>`);
+            if (p.market_cap) metaParts.push(`<span><span class="meta-label">時価総額</span>${escapeHtml(p.market_cap)}</span>`);
+            document.getElementById('profileMeta').innerHTML = metaParts.join('');
+            document.getElementById('profileSummary').textContent = p.summary || '';
+            const ws = document.getElementById('profileWebsite');
+            if (p.website) {
+              ws.href = p.website;
+              ws.style.display = 'inline-block';
+            } else {
+              ws.style.display = 'none';
+            }
+            profileCard.style.display = '';
+          } else {
+            profileCard.style.display = 'none';
+          }
+
           if (Array.isArray(data.commentary) && data.commentary.length > 0) {
             commentaryList.innerHTML = data.commentary.map(line => `<li>${escapeHtml(line)}</li>`).join('');
           } else {
