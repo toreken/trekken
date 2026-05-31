@@ -714,6 +714,7 @@ def chart(symbol):
 # トレンド解説と同業他社情報（/info エンドポイント）
 # =========================================
 info_cache = {}
+profile_cache = {}  # 銘柄概要のキャッシュ（24時間）
 
 
 def generate_commentary(df):
@@ -828,6 +829,52 @@ def get_peers(symbol_upper):
     return {'sector': sub_industry, 'peers': peer_data}
 
 
+def format_market_cap(mc):
+    """時価総額を読みやすい形式に変換（例: 3.2T, 850B, 12.5M）"""
+    if mc is None or not isinstance(mc, (int, float)) or mc <= 0:
+        return None
+    if mc >= 1e12:
+        return f"{mc/1e12:.2f}兆ドル"
+    if mc >= 1e9:
+        return f"{mc/1e9:.2f}十億ドル"
+    if mc >= 1e6:
+        return f"{mc/1e6:.2f}百万ドル"
+    return f"{mc:,.0f}ドル"
+
+
+def get_profile(symbol_upper):
+    """銘柄の概要情報を yfinance から取得する。先物・暗号通貨は対象外。"""
+    # 対象外（概要が無い銘柄）
+    if symbol_upper in ('NQ1!', 'ES1!') or symbol_upper in CRYPTO_MAP:
+        return None
+
+    # 個別株か S&P 500 のみ対象
+    if symbol_upper not in SYMBOLS and symbol_upper not in SP500_SYMBOLS:
+        return None
+
+    try:
+        ticker = yf.Ticker(symbol_upper)
+        info = ticker.info or {}
+        # 何も取れなかった場合
+        if not info or 'shortName' not in info and 'longName' not in info:
+            return None
+
+        return {
+            'symbol': symbol_upper,
+            'name': info.get('longName') or info.get('shortName') or symbol_upper,
+            'industry': info.get('industry') or '',
+            'sector': info.get('sector') or '',
+            'country': info.get('country') or '',
+            'employees': info.get('fullTimeEmployees') or None,
+            'market_cap': format_market_cap(info.get('marketCap')),
+            'website': info.get('website') or '',
+            'summary': info.get('longBusinessSummary') or '',
+        }
+    except Exception as e:
+        print(f"get_profile {symbol_upper} error: {e}")
+        return None
+
+
 @app.route('/info/<symbol>')
 def info(symbol):
     symbol_upper = symbol.upper()
@@ -857,10 +904,22 @@ def info(symbol):
         commentary = generate_commentary(df)
         peers_info = get_peers(symbol_upper)
 
+        # 銘柄概要を取得（プロファイルキャッシュから or 新規取得）
+        profile = None
+        if symbol_upper in profile_cache:
+            p_time, p_data = profile_cache[symbol_upper]
+            if now - p_time < CACHE_SECONDS:
+                profile = p_data
+        if profile is None:
+            profile = get_profile(symbol_upper)
+            if profile is not None:
+                profile_cache[symbol_upper] = (now, profile)
+
         result = {
             'symbol': symbol_upper,
             'commentary': commentary,
             'peers': peers_info,
+            'profile': profile,
         }
         info_cache[symbol_upper] = (now, result)
         return jsonify({**result, 'cached': False})
@@ -1077,8 +1136,15 @@ def prefetch_batch(symbols_batch):
             # 情報生成 → info_cacheへ
             commentary = generate_commentary(df)
             peers_info = get_peers(sym)  # ここは別途yfinance呼び出しが発生
+
+            # 概要情報も取得 → profile_cacheへ
+            profile = get_profile(sym)
+            if profile is not None:
+                profile_cache[sym] = (now, profile)
+
             info_cache[sym] = (now, {
-                'symbol': sym, 'commentary': commentary, 'peers': peers_info
+                'symbol': sym, 'commentary': commentary, 'peers': peers_info,
+                'profile': profile,
             })
 
             results['success'].append(sym)
