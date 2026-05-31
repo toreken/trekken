@@ -253,6 +253,9 @@ CACHE_SECONDS = 86400  # 24時間（プリフェッチ前提のため長め）
 # プリフェッチ用トークン（外部cronからの呼び出しを保護）
 PREFETCH_TOKEN = os.environ.get('PREFETCH_TOKEN', '')
 
+# 永続キャッシュのGitHub URL（GitHub Actions が毎朝ここを更新する）
+PERSISTENT_CACHE_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/cache.json'
+
 chart_cache = {}
 thumb_cache = {}     # サムネイル画像とスコアのキャッシュ {symbol: (time, {'thumb': b64, 'score': float})}
 
@@ -1234,6 +1237,61 @@ def prefetch_status():
     """プリフェッチの進捗確認用エンドポイント（トークン不要）"""
     with prefetch_lock:
         return jsonify(dict(prefetch_state))
+
+
+# =========================================
+# 永続キャッシュ（GitHubに保存して再起動後も復元）
+# =========================================
+import json as _json
+
+
+def load_persistent_cache():
+    """起動時にGitHubから永続キャッシュを読み込む。失敗しても起動は継続。"""
+    try:
+        print(f"Loading persistent cache from {PERSISTENT_CACHE_URL} ...")
+        resp = http_requests.get(PERSISTENT_CACHE_URL, timeout=10,
+                                 headers={'User-Agent': 'Trekken site'})
+        if resp.status_code != 200:
+            print(f"Persistent cache: status {resp.status_code}, skipped")
+            return
+        data = resp.json()
+        now = time.time()
+        loaded_profiles = 0
+        loaded_thumbs = 0
+        # profile_cache の復元
+        for sym, profile in (data.get('profiles') or {}).items():
+            profile_cache[sym] = (now, profile)
+            loaded_profiles += 1
+        # thumb_cache の復元
+        for sym, thumb_data in (data.get('thumbs') or {}).items():
+            thumb_cache[sym] = (now, thumb_data)
+            loaded_thumbs += 1
+        print(f"Persistent cache loaded: {loaded_profiles} profiles, {loaded_thumbs} thumbs")
+    except Exception as e:
+        print(f"Persistent cache load failed: {e}")
+
+
+# 起動時に1回だけロード（gunicornワーカー起動時に呼ばれる）
+load_persistent_cache()
+
+
+@app.route('/cache-export')
+def cache_export():
+    """現在の永続キャッシュ対象データをJSONで返す。トークン保護。"""
+    token = request.args.get('token', '')
+    if not PREFETCH_TOKEN or token != PREFETCH_TOKEN:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    profiles = {sym: data for sym, (_, data) in profile_cache.items()}
+    thumbs = {sym: data for sym, (_, data) in thumb_cache.items()}
+
+    return jsonify({
+        'profiles': profiles,
+        'thumbs': thumbs,
+        'exported_at': time.time(),
+        'profile_count': len(profiles),
+        'thumb_count': len(thumbs),
+    })
 
 
 @app.route('/sp500-all')
