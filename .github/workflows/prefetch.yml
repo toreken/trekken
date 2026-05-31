@@ -1,24 +1,65 @@
 name: Prefetch S&P 500 Data
 
 # 毎日 23:30 UTC（日本時間 翌朝 8:30）に実行
-# 米国市場のクローズ後、日本人がサイトを見始める前のタイミング
 on:
   schedule:
     - cron: '30 23 * * *'
-  # 手動実行も可能（テスト用）
   workflow_dispatch:
 
 jobs:
   prefetch:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # cache.json を commit する権限
     steps:
-      - name: Call prefetch endpoint
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start prefetch (async)
         run: |
-          echo "Starting prefetch at $(date)"
-          curl --max-time 900 --fail \
+          echo "=== Starting prefetch at $(date -u) ==="
+          curl --max-time 30 --fail \
                "https://trekken.onrender.com/prefetch?token=${{ secrets.PREFETCH_TOKEN }}" \
-               -o response.json
-          echo "Response:"
-          cat response.json
+               | tee /tmp/start.json
           echo ""
-          echo "Done at $(date)"
+
+      - name: Wait for prefetch to complete
+        run: |
+          echo "=== Polling prefetch status ==="
+          for i in $(seq 1 30); do
+            sleep 60
+            RESPONSE=$(curl -sf "https://trekken.onrender.com/prefetch/status" || echo '{"running":"unknown"}')
+            RUNNING=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('running', 'unknown'))")
+            SUCCESS=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success_count', 0))")
+            FAILED=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('failed_count', 0))")
+            echo "Check $i ($(date -u +%H:%M:%S)): running=$RUNNING success=$SUCCESS failed=$FAILED"
+            if [ "$RUNNING" = "False" ] || [ "$RUNNING" = "false" ]; then
+              echo "=== Prefetch completed ==="
+              break
+            fi
+          done
+
+      - name: Export cache from server
+        run: |
+          echo "=== Fetching cache export ==="
+          mkdir -p cache
+          curl --max-time 120 --fail \
+               "https://trekken.onrender.com/cache-export?token=${{ secrets.PREFETCH_TOKEN }}" \
+               -o cache/cache.json
+          echo "Cache file size:"
+          du -h cache/cache.json
+          echo "Counts:"
+          python3 -c "import json; d=json.load(open('cache/cache.json')); print(f\"profiles={d.get('profile_count', 0)}, thumbs={d.get('thumb_count', 0)}\")"
+
+      - name: Commit cache to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cache/cache.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update persistent cache [skip render]"
+            git push
+            echo "Cache committed and pushed"
+          fi
