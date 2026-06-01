@@ -264,60 +264,82 @@ def calculate_scores(df):
     return df
 
 
-def make_thumbnail_b64(df):
-    """ローソク足サムネイル画像（base64）"""
+def make_thumbnail_b64(df, symbol):
+    """通常チャートと同じローソク足サムネイル（フル装備、600x400px相当）"""
     try:
+        # mplfinanceをここで動的import（GitHub Actions環境）
+        import mplfinance as mpf
+        from matplotlib.patches import Rectangle
+
         plot_len = min(DISPLAY_PERIOD, len(df))
         plot_df = df.iloc[-plot_len:].copy()
         if plot_df.empty or len(plot_df) < 2:
             return None
 
-        # ローソク足の色：スコアの色分け基準
-        # 上昇日（close >= open）→ スコア色
-        # 下降日（close < open）→ 暗めの灰色
-        last_score = plot_df["totalScore"].iloc[-1] if "totalScore" in plot_df.columns else 0
-        if pd.isna(last_score):
-            up_color = "#888888"
-        elif last_score >= 7:
-            up_color = "#00bfff"
-        elif last_score > 0:
-            up_color = "#32cd32"
-        elif last_score <= -7:
-            up_color = "#ffd700"
-        else:
-            up_color = "#ff4444"
-        down_color = "#555555"
+        TEXT_COLOR = 'white'
+        GRID_COLOR = '#444444'
 
-        fig = plt.figure(figsize=(2.5, 1.5), facecolor=BG_COLOR, dpi=60)
-        ax = fig.add_axes([0.02, 0.02, 0.96, 0.96])
-        ax.set_facecolor(BG_COLOR)
+        hidden_mc = mpf.make_marketcolors(up=BG_COLOR, down=BG_COLOR, edge=BG_COLOR, wick=BG_COLOR)
+        my_style = mpf.make_mpf_style(
+            base_mpf_style='nightclouds', marketcolors=hidden_mc, y_on_right=True,
+            rc={
+                'figure.facecolor': BG_COLOR, 'axes.facecolor': BG_COLOR,
+                'savefig.facecolor': BG_COLOR, 'axes.edgecolor': GRID_COLOR,
+                'axes.labelcolor': TEXT_COLOR, 'xtick.color': TEXT_COLOR,
+                'ytick.color': TEXT_COLOR, 'grid.color': GRID_COLOR,
+                'text.color': TEXT_COLOR, 'xtick.labelcolor': TEXT_COLOR,
+                'ytick.labelcolor': TEXT_COLOR,
+            }
+        )
 
-        # 各日のロー足を描画
-        for i, (_, row) in enumerate(plot_df.iterrows()):
-            o = row.get("open")
-            h = row.get("high")
-            l = row.get("low")
-            c = row.get("close")
-            if any(pd.isna(v) for v in (o, h, l, c)):
-                continue
-            color = up_color if c >= o else down_color
-            # ヒゲ
-            ax.plot([i, i], [l, h], color=color, linewidth=0.6, solid_capstyle="round")
-            # 実体
-            body_low, body_high = (o, c) if c >= o else (c, o)
-            body_height = max(body_high - body_low, (h - l) * 0.01)
-            ax.add_patch(plt.Rectangle(
-                (i - 0.35, body_low), 0.7, body_height,
-                facecolor=color, edgecolor=color, linewidth=0,
-            ))
+        fig = plt.figure(figsize=(6, 4), facecolor=BG_COLOR, dpi=100)
+        fig.subplots_adjust(top=0.90, bottom=0.15, left=0.07, right=0.90)
+        ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
+        ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR, labelsize=8)
+        ax_main.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR, labelsize=8)
 
-        ax.set_xlim(-1, len(plot_df))
-        ax.axis("off")
+        add_plots = []
+        if 'ema_20' in plot_df.columns and plot_df['ema_20'].notna().any():
+            add_plots.append(mpf.make_addplot(plot_df['ema_20'], color='orange', width=1.0, ax=ax_main))
+        if 'sma_50' in plot_df.columns and plot_df['sma_50'].notna().any():
+            add_plots.append(mpf.make_addplot(plot_df['sma_50'], color='cyan', width=1.0, ax=ax_main))
+
+        try:
+            if add_plots:
+                mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
+                         addplot=add_plots, warn_too_much_data=10000,
+                         returnfig=False, datetime_format='%Y-%m')
+            else:
+                mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
+                         warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
+        except Exception:
+            plt.close(fig)
+            return None
+
+        current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
+        ax_main.set_title(f"{symbol} (Score: {current_score:.1f})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
+        ax_main.xaxis.grid(False)
+        xmin, xmax = ax_main.get_xlim()
+        ax_main.set_xlim(xmin, xmax + 5)
+
+        for j in range(len(plot_df)):
+            row = plot_df.iloc[j]
+            score = row['totalScore']
+            if pd.isna(score):   c = '#888888'
+            elif score >= 7:     c = '#00bfff'
+            elif score > 0:      c = '#32cd32'
+            elif score <= -7:    c = '#ffd700'
+            else:                c = '#ff4444'
+            ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.0, zorder=10)
+            body_bottom = min(row['open'], row['close'])
+            body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
+            rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
+            ax_main.add_patch(rect)
 
         buf = io.BytesIO()
-        plt.savefig(buf, format="png", facecolor=BG_COLOR, bbox_inches="tight", pad_inches=0)
+        plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
         buf.seek(0)
-        img_b64 = base64.b64encode(buf.read()).decode("utf-8")
+        img_b64 = base64.b64encode(buf.read()).decode('utf-8')
         plt.close(fig)
         return img_b64
     except Exception as e:
@@ -402,7 +424,7 @@ def process_batch(symbols, profiles, thumbs, failed):
             df = calculate_scores(df)
 
             # サムネイル
-            thumb_b64 = make_thumbnail_b64(df)
+            thumb_b64 = make_thumbnail_b64(df, sym)
             last_score = df["totalScore"].iloc[-1] if "totalScore" in df.columns else None
             try:
                 last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
