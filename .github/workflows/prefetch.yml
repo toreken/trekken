@@ -9,47 +9,31 @@ on:
 jobs:
   prefetch:
     runs-on: ubuntu-latest
+    timeout-minutes: 180   # 最大3時間（通常は30〜60分）
     permissions:
-      contents: write   # cache.json を commit する権限
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Start prefetch (async)
-        run: |
-          echo "=== Starting prefetch at $(date -u) ==="
-          curl --max-time 30 --fail \
-               "https://trekken.onrender.com/prefetch?token=${{ secrets.PREFETCH_TOKEN }}" \
-               | tee /tmp/start.json
-          echo ""
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Wait for prefetch to complete
+      - name: Install dependencies
         run: |
-          echo "=== Polling prefetch status ==="
-          for i in $(seq 1 30); do
-            sleep 60
-            RESPONSE=$(curl -sf "https://trekken.onrender.com/prefetch/status" || echo '{"running":"unknown"}')
-            RUNNING=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('running', 'unknown'))")
-            SUCCESS=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('success_count', 0))")
-            FAILED=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('failed_count', 0))")
-            echo "Check $i ($(date -u +%H:%M:%S)): running=$RUNNING success=$SUCCESS failed=$FAILED"
-            if [ "$RUNNING" = "False" ] || [ "$RUNNING" = "false" ]; then
-              echo "=== Prefetch completed ==="
-              break
-            fi
-          done
+          python -m pip install --upgrade pip
+          pip install yfinance pandas numpy matplotlib
 
-      - name: Export cache from server
+      - name: Run prefetch script
         run: |
-          echo "=== Fetching cache export ==="
-          mkdir -p cache
-          curl --max-time 120 --fail \
-               "https://trekken.onrender.com/cache-export?token=${{ secrets.PREFETCH_TOKEN }}" \
-               -o cache/cache.json
-          echo "Cache file size:"
-          du -h cache/cache.json
-          echo "Counts:"
-          python3 -c "import json; d=json.load(open('cache/cache.json')); print(f\"profiles={d.get('profile_count', 0)}, thumbs={d.get('thumb_count', 0)}\")"
+          python prefetch_script.py
+
+      - name: Show cache summary
+        run: |
+          ls -lh cache/
+          python -c "import json; d=json.load(open('cache/cache.json')); print(f'profiles={d.get(\"profile_count\",0)}, thumbs={d.get(\"thumb_count\",0)}, failed={d.get(\"failed_count\",0)}, elapsed={d.get(\"elapsed_seconds\",0)}s')"
 
       - name: Commit cache to repository
         run: |
