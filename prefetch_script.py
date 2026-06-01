@@ -265,28 +265,53 @@ def calculate_scores(df):
 
 
 def make_thumbnail_b64(df):
-    """ラインのみの軽量サムネイル画像（base64）"""
+    """ローソク足サムネイル画像（base64）"""
     try:
         plot_len = min(DISPLAY_PERIOD, len(df))
         plot_df = df.iloc[-plot_len:].copy()
         if plot_df.empty or len(plot_df) < 2:
             return None
+
+        # ローソク足の色：スコアの色分け基準
+        # 上昇日（close >= open）→ スコア色
+        # 下降日（close < open）→ 暗めの灰色
         last_score = plot_df["totalScore"].iloc[-1] if "totalScore" in plot_df.columns else 0
         if pd.isna(last_score):
-            color = "#888888"
+            up_color = "#888888"
         elif last_score >= 7:
-            color = "#00bfff"
+            up_color = "#00bfff"
         elif last_score > 0:
-            color = "#32cd32"
+            up_color = "#32cd32"
         elif last_score <= -7:
-            color = "#ffd700"
+            up_color = "#ffd700"
         else:
-            color = "#ff4444"
+            up_color = "#ff4444"
+        down_color = "#555555"
 
-        fig = plt.figure(figsize=(2.4, 1.2), facecolor=BG_COLOR, dpi=60)
-        ax = fig.add_axes([0, 0, 1, 1])
+        fig = plt.figure(figsize=(2.5, 1.5), facecolor=BG_COLOR, dpi=60)
+        ax = fig.add_axes([0.02, 0.02, 0.96, 0.96])
         ax.set_facecolor(BG_COLOR)
-        ax.plot(range(len(plot_df)), plot_df["close"].values, color=color, linewidth=1.2)
+
+        # 各日のロー足を描画
+        for i, (_, row) in enumerate(plot_df.iterrows()):
+            o = row.get("open")
+            h = row.get("high")
+            l = row.get("low")
+            c = row.get("close")
+            if any(pd.isna(v) for v in (o, h, l, c)):
+                continue
+            color = up_color if c >= o else down_color
+            # ヒゲ
+            ax.plot([i, i], [l, h], color=color, linewidth=0.6, solid_capstyle="round")
+            # 実体
+            body_low, body_high = (o, c) if c >= o else (c, o)
+            body_height = max(body_high - body_low, (h - l) * 0.01)
+            ax.add_patch(plt.Rectangle(
+                (i - 0.35, body_low), 0.7, body_height,
+                facecolor=color, edgecolor=color, linewidth=0,
+            ))
+
+        ax.set_xlim(-1, len(plot_df))
         ax.axis("off")
 
         buf = io.BytesIO()
