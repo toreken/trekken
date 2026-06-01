@@ -588,25 +588,48 @@ def make_chart_image_stock(df, symbol):
 
 
 def make_thumbnail_image(df, symbol):
-    """軽量サムネイル画像（ライン1本のみ、軸/ラベル/余白なし）。"""
+    """ローソク足サムネイル画像。一気見画面用。"""
     try:
         plot_len = min(DISPLAY_PERIOD, len(df))
         plot_df = df.iloc[-plot_len:].copy()
         if plot_df.empty or len(plot_df) < 2:
             return None
 
-        # 終値のラインのみ。色は最終スコアで決定
+        # 色：上昇日はスコア色、下降日は暗めの灰色
         last_score = plot_df['totalScore'].iloc[-1] if 'totalScore' in plot_df.columns else 0
-        if pd.isna(last_score): color = '#888888'
-        elif last_score >= 7:    color = '#00bfff'
-        elif last_score > 0:     color = '#32cd32'
-        elif last_score <= -7:   color = '#ffd700'
-        else:                    color = '#ff4444'
+        if pd.isna(last_score):
+            up_color = '#888888'
+        elif last_score >= 7:
+            up_color = '#00bfff'
+        elif last_score > 0:
+            up_color = '#32cd32'
+        elif last_score <= -7:
+            up_color = '#ffd700'
+        else:
+            up_color = '#ff4444'
+        down_color = '#555555'
 
-        fig = plt.figure(figsize=(2.4, 1.2), facecolor=BG_COLOR, dpi=60)
-        ax = fig.add_axes([0, 0, 1, 1])  # 余白ゼロ
+        fig = plt.figure(figsize=(2.5, 1.5), facecolor=BG_COLOR, dpi=60)
+        ax = fig.add_axes([0.02, 0.02, 0.96, 0.96])
         ax.set_facecolor(BG_COLOR)
-        ax.plot(range(len(plot_df)), plot_df['close'].values, color=color, linewidth=1.2)
+
+        for i, (_, row) in enumerate(plot_df.iterrows()):
+            o = row.get('open')
+            h = row.get('high')
+            l = row.get('low')
+            c = row.get('close')
+            if any(pd.isna(v) for v in (o, h, l, c)):
+                continue
+            color = up_color if c >= o else down_color
+            ax.plot([i, i], [l, h], color=color, linewidth=0.6, solid_capstyle='round')
+            body_low, body_high = (o, c) if c >= o else (c, o)
+            body_height = max(body_high - body_low, (h - l) * 0.01)
+            ax.add_patch(Rectangle(
+                (i - 0.35, body_low), 0.7, body_height,
+                facecolor=color, edgecolor=color, linewidth=0,
+            ))
+
+        ax.set_xlim(-1, len(plot_df))
         ax.axis('off')
 
         buf = io.BytesIO()
