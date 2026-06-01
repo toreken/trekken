@@ -660,15 +660,6 @@
     }
     .profile-summary::-webkit-scrollbar { width: 4px; }
     .profile-summary::-webkit-scrollbar-thumb { background: var(--brown-200); border-radius: 2px; }
-    .profile-website {
-      display: inline-block;
-      margin-top: 10px;
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--gold-600);
-      text-decoration: none;
-    }
-    .profile-website:hover { color: var(--brown-800); }
     .peer-sector-name { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
     .peer-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
     .peer-list li {
@@ -1059,7 +1050,6 @@
         <div class="profile-name" id="profileName"></div>
         <div class="profile-meta" id="profileMeta"></div>
         <div class="profile-summary" id="profileSummary"></div>
-        <a class="profile-website" id="profileWebsite" target="_blank" rel="noopener" style="display:none;">公式サイト →</a>
       </div>
       <div class="info-card">
         <div class="info-card-title">📊 トレンド解説</div>
@@ -1278,13 +1268,6 @@
             if (p.market_cap) metaParts.push(`<span><span class="meta-label">時価総額</span>${escapeHtml(p.market_cap)}</span>`);
             document.getElementById('profileMeta').innerHTML = metaParts.join('');
             document.getElementById('profileSummary').textContent = p.summary || '';
-            const ws = document.getElementById('profileWebsite');
-            if (p.website) {
-              ws.href = p.website;
-              ws.style.display = 'inline-block';
-            } else {
-              ws.style.display = 'none';
-            }
             profileCard.style.display = '';
           } else {
             profileCard.style.display = 'none';
