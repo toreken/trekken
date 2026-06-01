@@ -203,6 +203,32 @@ BATCH_WAIT = 15          # バッチ間の待機秒数（長め）
 PROFILE_SLEEP = 0.5      # profile取得間のsleep
 RETRY_WAIT = 30          # リトライ前の待機
 
+# S&P500以外で対象にする銘柄（app.pyのSYMBOLSと同じ）
+EXTRA_SYMBOLS = [
+    'TONX', 'FRSH', 'PAYC', 'GCTS', 'PXLW',
+    'FSLR', 'SIDU', 'VRNS', 'TRVG', 'TZOO',
+    'MAKO', 'HLP',
+    # セクター銘柄
+    'KOS', 'GOOGL', 'INTC', 'NVDA', 'IONQ', 'FIGS', 'MU',
+    'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA'
+]
+
+# 全対象銘柄（S&P500とEXTRAをマージ、重複は除く）
+def _build_all_targets():
+    seen = set()
+    out = []
+    for s in SP500_SYMBOLS:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    for s in EXTRA_SYMBOLS:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+ALL_TARGETS = _build_all_targets()
+
 
 # ===========================
 # 計算系のヘルパー
@@ -374,21 +400,21 @@ def process_batch(symbols, profiles, thumbs, failed):
 def main():
     start_time = time.time()
     print(f"=== Prefetch start at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
-    print(f"Target: {len(SP500_SYMBOLS)} symbols, batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
+    print(f"Target: {len(ALL_TARGETS)} symbols (SP500 + Extra), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
 
     profiles = {}
     thumbs = {}
     failed = []
 
     # ステップ1: 通常バッチ処理
-    total_batches = (len(SP500_SYMBOLS) + BATCH_SIZE - 1) // BATCH_SIZE
-    for i in range(0, len(SP500_SYMBOLS), BATCH_SIZE):
-        batch = SP500_SYMBOLS[i:i + BATCH_SIZE]
+    total_batches = (len(ALL_TARGETS) + BATCH_SIZE - 1) // BATCH_SIZE
+    for i in range(0, len(ALL_TARGETS), BATCH_SIZE):
+        batch = ALL_TARGETS[i:i + BATCH_SIZE]
         batch_idx = i // BATCH_SIZE + 1
         elapsed = time.time() - start_time
         print(f"[Batch {batch_idx}/{total_batches}] elapsed={elapsed:.0f}s, success={len(thumbs)}/{len(profiles)}, failed={len(failed)}")
         process_batch(batch, profiles, thumbs, failed)
-        if i + BATCH_SIZE < len(SP500_SYMBOLS):
+        if i + BATCH_SIZE < len(ALL_TARGETS):
             time.sleep(BATCH_WAIT)
 
     # ステップ2: 失敗銘柄を1回リトライ
