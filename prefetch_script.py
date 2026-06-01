@@ -1,0 +1,49 @@
+name: Prefetch S&P 500 Data
+
+# 毎日 23:30 UTC（日本時間 翌朝 8:30）に実行
+on:
+  schedule:
+    - cron: '30 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  prefetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180   # 最大3時間（通常は30〜60分）
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas numpy matplotlib
+
+      - name: Run prefetch script
+        run: |
+          python prefetch_script.py
+
+      - name: Show cache summary
+        run: |
+          ls -lh cache/
+          python -c "import json; d=json.load(open('cache/cache.json')); print(f'profiles={d.get(\"profile_count\",0)}, thumbs={d.get(\"thumb_count\",0)}, failed={d.get(\"failed_count\",0)}, elapsed={d.get(\"elapsed_seconds\",0)}s')"
+
+      - name: Commit cache to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cache/cache.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update persistent cache [skip render]"
+            git push
+            echo "Cache committed and pushed"
+          fi
