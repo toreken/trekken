@@ -809,18 +809,6 @@ def generate_commentary(df):
             else:
                 lines.append(f'➡️ EMA20近辺で推移（乖離 {disc:+.1f}%）')
 
-        # 出来高
-        if 'volDiffScore' in df.columns and not pd.isna(last['volDiffScore']):
-            vds = last['volDiffScore']
-            if vds > 2:
-                lines.append('🔊 出来高が大きく増加（買い圧力強い）')
-            elif vds > 0.5:
-                lines.append('🔊 出来高がやや増加')
-            elif vds < -2:
-                lines.append('🔇 売り出来高が優勢')
-            elif vds < -0.5:
-                lines.append('🔇 売り出来高がやや優勢')
-
         return lines[:4]
     except Exception:
         return ['解説生成中にエラーが発生しました']
