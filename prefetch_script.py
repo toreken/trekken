@@ -430,8 +430,25 @@ def process_batch(symbols, profiles, thumbs, failed):
                 last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
             except Exception:
                 last_score_val = None
+
+            # 1週間変動率（5営業日前比）
+            week_change = None
+            try:
+                closes = df["close"].dropna()
+                if len(closes) >= 6:
+                    cur = float(closes.iloc[-1])
+                    ref = float(closes.iloc[-6])
+                    if ref != 0:
+                        week_change = (cur - ref) / ref * 100
+            except Exception:
+                week_change = None
+
             if thumb_b64:
-                thumbs[sym] = {"thumb": thumb_b64, "score": last_score_val}
+                thumbs[sym] = {
+                    "thumb": thumb_b64,
+                    "score": last_score_val,
+                    "week_change": week_change,
+                }
 
             # profile
             profile = fetch_profile(sym)
