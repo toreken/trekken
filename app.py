@@ -1175,8 +1175,25 @@ def prefetch_batch(symbols_batch):
                 last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
             except Exception:
                 last_score_val = None
+
+            # 1週間変動率
+            week_change = None
+            try:
+                closes = df['close'].dropna()
+                if len(closes) >= 6:
+                    cur = float(closes.iloc[-1])
+                    ref = float(closes.iloc[-6])
+                    if ref != 0:
+                        week_change = (cur - ref) / ref * 100
+            except Exception:
+                week_change = None
+
             if thumb_b64:
-                thumb_cache[sym] = (now, {'thumb': thumb_b64, 'score': last_score_val})
+                thumb_cache[sym] = (now, {
+                    'thumb': thumb_b64,
+                    'score': last_score_val,
+                    'week_change': week_change,
+                })
 
             # 情報生成 → info_cacheへ
             commentary = generate_commentary(df)
@@ -1338,7 +1355,7 @@ def cache_export():
 
 @app.route('/sp500-all')
 def sp500_all():
-    """S&P500の全銘柄のサムネイル+スコアを返す。キャッシュにある分のみ。"""
+    """S&P500の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。"""
     items = []
     for sym in SP500_SYMBOLS:
         if sym in thumb_cache:
@@ -1348,17 +1365,56 @@ def sp500_all():
                 'sector': SP500_SECTOR_MAP.get(sym, ''),
                 'thumb': data.get('thumb'),
                 'score': data.get('score'),
+                'week_change': data.get('week_change'),
             })
         else:
-            # キャッシュ未生成の銘柄は thumb=None として情報だけ返す
             items.append({
                 'symbol': sym,
                 'sector': SP500_SECTOR_MAP.get(sym, ''),
                 'thumb': None,
                 'score': None,
+                'week_change': None,
             })
 
     cached_count = sum(1 for it in items if it['thumb'] is not None)
+    return jsonify({
+        'total': len(items),
+        'cached_count': cached_count,
+        'items': items,
+    })
+
+
+@app.route('/symbols-meta')
+def symbols_meta():
+    """検索フィルタ用に、全グループの銘柄メタ情報（スコア+週次変動率のみ）を返す。
+    サムネイル画像は含まないので軽量。"""
+    # 全グループの銘柄を統合（重複除く、先物・暗号通貨は除外＝スコアが無いため）
+    all_syms = []
+    seen = set()
+    for s in SYMBOLS + SP500_SYMBOLS:
+        # 先物と暗号通貨は除外
+        if s in ('NQ1!', 'ES1!') or s in CRYPTO_MAP:
+            continue
+        if s not in seen:
+            seen.add(s)
+            all_syms.append(s)
+
+    items = []
+    for sym in all_syms:
+        score = None
+        week_change = None
+        if sym in thumb_cache:
+            _, data = thumb_cache[sym]
+            score = data.get('score')
+            week_change = data.get('week_change')
+        items.append({
+            'symbol': sym,
+            'sector': SP500_SECTOR_MAP.get(sym, ''),
+            'score': score,
+            'week_change': week_change,
+        })
+
+    cached_count = sum(1 for it in items if it['score'] is not None)
     return jsonify({
         'total': len(items),
         'cached_count': cached_count,
