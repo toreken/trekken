@@ -317,7 +317,7 @@ def make_thumbnail_b64(df, symbol):
             return None
 
         current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-        ax_main.set_title(f"{symbol} (Score: {current_score:.1f})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
+        ax_main.set_title(f"{symbol} (Score: {int(current_score)})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
         ax_main.xaxis.grid(False)
         xmin, xmax = ax_main.get_xlim()
         ax_main.set_xlim(xmin, xmax + 5)
