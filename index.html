@@ -677,14 +677,26 @@
     .peer-sector-name { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
     .peer-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
     .peer-list li {
-      display: flex; justify-content: space-between; padding: 6px 0;
+      display: grid;
+      grid-template-columns: minmax(60px, auto) 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+      padding: 7px 0;
       border-bottom: 1px solid var(--brown-100);
     }
     .peer-list li:last-child { border-bottom: none; }
     .peer-name { font-weight: 700; cursor: pointer; color: var(--brown-800); }
     .peer-name:hover { color: var(--gold-600); }
+    .peer-cell { display: flex; gap: 4px; align-items: baseline; justify-content: flex-end; }
+    .peer-cell-label { font-size: 10px; color: var(--muted); font-weight: 700; }
+    .peer-cell-value { font-weight: 700; font-size: 13px; }
     .peer-change { font-weight: 700; }
     .peer-up { color: #2e8b3a; } .peer-down { color: #c4302b; } .peer-na { color: #999; }
+    .peer-score-blue   { color: #00bfff; }
+    .peer-score-green  { color: #2e8b3a; }
+    .peer-score-yellow { color: #c9a000; }
+    .peer-score-red    { color: #c4302b; }
+    .peer-score-na     { color: #999; }
     .info-empty { font-size: 12px; color: #999; padding: 8px 0; }
 
     .chart-header {
@@ -1296,12 +1308,28 @@
             peerSectorName.textContent = data.peers.sector;
             peerList.innerHTML = data.peers.peers.map(p => {
               const ch = p.change;
-              let cls = 'peer-na', label = '—';
+              const sc = p.score;
+              // 変動率の色とラベル
+              let chCls = 'peer-na', chLabel = '—';
               if (ch !== null && ch !== undefined) {
-                cls = ch >= 0 ? 'peer-up' : 'peer-down';
-                label = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
+                chCls = ch >= 0 ? 'peer-up' : 'peer-down';
+                chLabel = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
               }
-              return `<li><span class="peer-name" onclick="loadChart('${p.symbol}')">${escapeHtml(p.symbol)}</span><span class="peer-change ${cls}">${label}</span></li>`;
+              // スコアの色とラベル
+              let scCls = 'peer-score-na', scLabel = '—';
+              if (sc !== null && sc !== undefined) {
+                if (sc >= 7) scCls = 'peer-score-blue';
+                else if (sc > 0) scCls = 'peer-score-green';
+                else if (sc <= -7) scCls = 'peer-score-yellow';
+                else scCls = 'peer-score-red';
+                const scInt = Math.trunc(sc);
+                scLabel = (scInt >= 0 ? '+' : '') + scInt;
+              }
+              return `<li>
+                <span class="peer-name" onclick="loadChart('${p.symbol}')">${escapeHtml(p.symbol)}</span>
+                <span class="peer-cell"><span class="peer-cell-label">スコア</span><span class="peer-cell-value ${scCls}">${scLabel}</span></span>
+                <span class="peer-cell"><span class="peer-cell-label">変動</span><span class="peer-cell-value ${chCls}">${chLabel}</span></span>
+              </li>`;
             }).join('');
             lastPeerSymbols = [sym, ...data.peers.peers.map(p => p.symbol)];
             compareBtn.style.display = 'inline-block';
