@@ -841,25 +841,35 @@ def get_peers(symbol_upper):
                 else:
                     sub = df_all[p] if p in df_all.columns.get_level_values(0) else None
                 if sub is None or sub.empty:
-                    peer_data.append({'symbol': p, 'change': None})
+                    peer_data.append({'symbol': p, 'change': None, 'score': None})
                     continue
                 closes = sub['Close'].dropna()
                 if len(closes) < 2:
-                    peer_data.append({'symbol': p, 'change': None})
+                    peer_data.append({'symbol': p, 'change': None, 'score': None})
                     continue
                 # 約1週間前との比較（5営業日前）
                 cur = float(closes.iloc[-1])
                 ref = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
                 if ref == 0:
-                    peer_data.append({'symbol': p, 'change': None})
+                    peer_data.append({'symbol': p, 'change': None, 'score': None})
                     continue
                 change_pct = (cur - ref) / ref * 100
-                peer_data.append({'symbol': p, 'change': change_pct})
+                # スコアをサムネイルキャッシュから取得
+                peer_score = None
+                if p in thumb_cache:
+                    _, thumb_data = thumb_cache[p]
+                    peer_score = thumb_data.get('score')
+                peer_data.append({'symbol': p, 'change': change_pct, 'score': peer_score})
             except Exception:
-                peer_data.append({'symbol': p, 'change': None})
+                peer_data.append({'symbol': p, 'change': None, 'score': None})
     except Exception:
         for p in peers:
-            peer_data.append({'symbol': p, 'change': None})
+            # 失敗時もスコアだけは付ける
+            peer_score = None
+            if p in thumb_cache:
+                _, thumb_data = thumb_cache[p]
+                peer_score = thumb_data.get('score')
+            peer_data.append({'symbol': p, 'change': None, 'score': peer_score})
 
     return {'sector': sub_industry, 'peers': peer_data}
 
