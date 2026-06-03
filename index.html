@@ -413,6 +413,120 @@
       border-bottom: 2px solid var(--brown-100);
       overflow-x: auto;
     }
+
+    /* ===== 条件検索 ===== */
+    .filter-row {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .filter-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--cream-100);
+      border: 1px solid var(--brown-200);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--brown-800);
+      cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .filter-toggle:hover { background: var(--brown-100); border-color: var(--gold-500); }
+    .filter-toggle .filter-icon { font-size: 14px; }
+    .filter-toggle .filter-chev { width: 10px; height: 10px; transition: transform 0.25s; }
+    .filter-toggle.open .filter-chev { transform: rotate(180deg); }
+    .filter-toggle.active { background: var(--brown-700); color: #fff; border-color: var(--brown-700); }
+    .filter-toggle.active:hover { background: var(--brown-800); }
+
+    .filter-clear {
+      padding: 7px 12px;
+      background: transparent;
+      border: 1px solid var(--brown-200);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-700);
+      cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: background 0.15s;
+    }
+    .filter-clear:hover { background: var(--cream-100); color: var(--brown-800); }
+
+    .filter-panel {
+      margin-top: 12px;
+      padding: 16px;
+      background: var(--cream-100);
+      border: 1px solid var(--brown-100);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 6px; }
+    .filter-group-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gold-600);
+      letter-spacing: 0.5px;
+    }
+    .filter-range-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .filter-num {
+      padding: 7px 10px;
+      width: 100px;
+      border: 1px solid var(--brown-200);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: 'Noto Sans JP', sans-serif;
+      color: var(--ink);
+      background: #fff;
+    }
+    .filter-num:focus { border-color: var(--gold-500); outline: none; }
+    .filter-range-sep { color: var(--muted); font-size: 13px; }
+    .filter-hint { font-size: 11px; color: var(--muted); }
+    .filter-color-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .filter-color-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 10px;
+      background: #fff;
+      border: 1px solid var(--brown-200);
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .filter-color-chip:has(input:checked) {
+      background: var(--cream-50);
+      border-color: var(--gold-500);
+    }
+    .filter-color-chip:has(input:not(:checked)) {
+      opacity: 0.5;
+    }
+    .filter-color-check { display: none; }
+    .filter-color-label { white-space: nowrap; }
+    .filter-status {
+      font-size: 11px;
+      color: var(--muted);
+      padding-top: 6px;
+      border-top: 1px dashed var(--brown-200);
+    }
+    .filter-status.warn { color: #c4302b; }
     .tab {
       padding: 11px 16px;
       font-size: 13px;
@@ -1035,6 +1149,61 @@
     <div class="search-card">
       <input type="text" class="search-box" id="searchBox" placeholder="🔍 全銘柄から検索（例: NVDA, AAPL, BTC）">
 
+      <div class="filter-row">
+        <button class="filter-toggle" id="filterToggle" onclick="toggleFilterPanel()">
+          <span class="filter-icon">⚙</span>
+          <span id="filterToggleLabel">条件で絞る</span>
+          <svg class="filter-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 4 6 8 10 4"/></svg>
+        </button>
+        <button class="filter-clear" id="filterClear" onclick="clearFilters()" style="display:none;">条件をクリア</button>
+      </div>
+
+      <div class="filter-panel" id="filterPanel" style="display:none;">
+        <div class="filter-group">
+          <div class="filter-group-title">スコアの範囲</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="scoreMin" placeholder="最小" step="0.1">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="scoreMax" placeholder="最大" step="0.1">
+          </div>
+          <div class="filter-hint">例: 5以上 → 最小に「5」　空欄で無制限</div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-group-title">トレンド色</div>
+          <div class="filter-color-row">
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="blue" checked>
+              <span class="filter-color-label ts-blue">● 強い上昇</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="green" checked>
+              <span class="filter-color-label ts-green">● 上昇</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="red" checked>
+              <span class="filter-color-label ts-red">● 下落</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="yellow" checked>
+              <span class="filter-color-label ts-yellow">● 強い下落</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <div class="filter-group-title">1週間の変動率</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="changeMin" placeholder="最小%" step="0.5">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="changeMax" placeholder="最大%" step="0.5">
+          </div>
+          <div class="filter-hint">例: +3%以上上昇 → 最小に「3」</div>
+        </div>
+
+        <div class="filter-status" id="filterStatus"></div>
+      </div>
+
       <div class="tabs" id="tabs">
         <button class="tab active" data-group="G1">先物・米国株</button>
         <button class="tab" data-group="G2">セクター銘柄</button>
@@ -1173,6 +1342,133 @@
 
     const FUTURES_SET = new Set(['NQ1!', 'ES1!']);
 
+    // ===== 条件検索フィルタ =====
+    let metaData = null;       // /symbols-meta のレスポンスをキャッシュ
+    let filterActive = false;  // 何らかの条件が指定されているか
+    const filterState = {
+      scoreMin: null, scoreMax: null,
+      changeMin: null, changeMax: null,
+      colors: new Set(['blue', 'green', 'red', 'yellow']),
+    };
+
+    function toggleFilterPanel() {
+      const panel = document.getElementById('filterPanel');
+      const btn = document.getElementById('filterToggle');
+      const open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'flex';
+      btn.classList.toggle('open', !open);
+      if (!open && !metaData) {
+        fetchMetaData();
+      }
+    }
+
+    async function fetchMetaData() {
+      try {
+        const res = await fetch('/symbols-meta');
+        metaData = await res.json();
+        updateFilterStatus();
+      } catch (e) {
+        const st = document.getElementById('filterStatus');
+        st.className = 'filter-status warn';
+        st.textContent = '⚠️ メタデータの取得に失敗しました';
+      }
+    }
+
+    function updateFilterStatus() {
+      const st = document.getElementById('filterStatus');
+      if (!metaData) {
+        st.textContent = '読み込み中...';
+        return;
+      }
+      const cached = metaData.cached_count || 0;
+      const total = metaData.total || 0;
+      st.className = 'filter-status' + (cached < total ? ' warn' : '');
+      st.textContent = `${cached} / ${total} 銘柄にスコア・変動率データあり`;
+    }
+
+    function readFilterInputs() {
+      const sMin = document.getElementById('scoreMin').value;
+      const sMax = document.getElementById('scoreMax').value;
+      const cMin = document.getElementById('changeMin').value;
+      const cMax = document.getElementById('changeMax').value;
+      filterState.scoreMin = sMin === '' ? null : parseFloat(sMin);
+      filterState.scoreMax = sMax === '' ? null : parseFloat(sMax);
+      filterState.changeMin = cMin === '' ? null : parseFloat(cMin);
+      filterState.changeMax = cMax === '' ? null : parseFloat(cMax);
+      filterState.colors.clear();
+      document.querySelectorAll('.filter-color-check').forEach(cb => {
+        if (cb.checked) filterState.colors.add(cb.value);
+      });
+      filterActive = (
+        filterState.scoreMin !== null || filterState.scoreMax !== null ||
+        filterState.changeMin !== null || filterState.changeMax !== null ||
+        filterState.colors.size < 4
+      );
+      const btn = document.getElementById('filterToggle');
+      const clearBtn = document.getElementById('filterClear');
+      btn.classList.toggle('active', filterActive);
+      clearBtn.style.display = filterActive ? 'inline-block' : 'none';
+    }
+
+    function clearFilters() {
+      document.getElementById('scoreMin').value = '';
+      document.getElementById('scoreMax').value = '';
+      document.getElementById('changeMin').value = '';
+      document.getElementById('changeMax').value = '';
+      document.querySelectorAll('.filter-color-check').forEach(cb => cb.checked = true);
+      readFilterInputs();
+      renderSymbolList();
+    }
+
+    function scoreColor(score) {
+      if (score === null || score === undefined) return null;
+      if (score >= 7) return 'blue';
+      if (score > 0) return 'green';
+      if (score <= -7) return 'yellow';
+      return 'red';
+    }
+
+    function passesFilter(sym) {
+      if (!filterActive) return true;
+      if (!metaData) return true;
+      const meta = metaData.items.find(it => it.symbol === sym);
+      if (!meta) return false;
+      const sc = meta.score, ch = meta.week_change;
+      if (filterState.scoreMin !== null) {
+        if (sc === null || sc === undefined || sc < filterState.scoreMin) return false;
+      }
+      if (filterState.scoreMax !== null) {
+        if (sc === null || sc === undefined || sc > filterState.scoreMax) return false;
+      }
+      if (filterState.changeMin !== null) {
+        if (ch === null || ch === undefined || ch < filterState.changeMin) return false;
+      }
+      if (filterState.changeMax !== null) {
+        if (ch === null || ch === undefined || ch > filterState.changeMax) return false;
+      }
+      if (filterState.colors.size < 4) {
+        const col = scoreColor(sc);
+        if (col === null) return false;
+        if (!filterState.colors.has(col)) return false;
+      }
+      return true;
+    }
+
+    function attachFilterListeners() {
+      ['scoreMin', 'scoreMax', 'changeMin', 'changeMax'].forEach(id => {
+        document.getElementById(id).addEventListener('input', () => {
+          readFilterInputs();
+          renderSymbolList();
+        });
+      });
+      document.querySelectorAll('.filter-color-check').forEach(cb => {
+        cb.addEventListener('change', () => {
+          readFilterInputs();
+          renderSymbolList();
+        });
+      });
+    }
+
     let currentGroup = 'G1';
     let currentQuery = '';
     let activeSymbol = null;
@@ -1201,7 +1497,21 @@
       toolbar.style.display = (currentGroup === 'SP500') ? 'flex' : 'none';
 
       let displaySymbols, totalCount;
-      if (q) {
+
+      if (filterActive) {
+        // 条件検索モード：全グループから条件にマッチするものを抽出
+        const allSymbols = [], seen = new Set();
+        ['G1', 'G2', 'G3', 'SP500'].forEach(g => {
+          (GROUPS[g] || []).forEach(s => {
+            if (!seen.has(s)) { seen.add(s); allSymbols.push(s); }
+          });
+        });
+        let pool = allSymbols.filter(s => passesFilter(s));
+        if (q) pool = pool.filter(s => s.toUpperCase().includes(q));
+        displaySymbols = sortSymbols(pool);
+        totalCount = allSymbols.length;
+      } else if (q) {
+        // 検索のみ
         const allSymbols = [], seen = new Set();
         ['G1', 'G2', 'G3', 'SP500'].forEach(g => {
           (GROUPS[g] || []).forEach(s => {
@@ -1211,6 +1521,7 @@
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
         totalCount = allSymbols.length;
       } else {
+        // 通常タブ表示
         const symbols = GROUPS[currentGroup] || [];
         displaySymbols = sortSymbols(symbols);
         totalCount = symbols.length;
@@ -1234,9 +1545,13 @@
           list.appendChild(chip);
         });
       }
-      countInfo.textContent = q
-        ? `${displaySymbols.length} 件ヒット（全 ${totalCount} 銘柄から）`
-        : `${displaySymbols.length} / ${totalCount} 銘柄`;
+      if (filterActive) {
+        countInfo.textContent = `${displaySymbols.length} 件ヒット（条件絞り込み中）`;
+      } else if (q) {
+        countInfo.textContent = `${displaySymbols.length} 件ヒット（全 ${totalCount} 銘柄から）`;
+      } else {
+        countInfo.textContent = `${displaySymbols.length} / ${totalCount} 銘柄`;
+      }
     }
 
     async function loadChart(sym) {
@@ -1589,6 +1904,7 @@
     reveals.forEach(r => obs.observe(r));
 
     // 初期化
+    attachFilterListeners();
     renderSymbolList();
     loadNoteArticles();
   </script>
