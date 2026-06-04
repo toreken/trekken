@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-GitHub Actions上で実行される S&P500プリフェッチスクリプト。
+GitHub Actions上で実行される S&P500 + 日経225 プリフェッチスクリプト。
 yfinanceでデータを取得し、サムネイル画像とprofile情報を生成して
 cache/cache.json として保存する。
+
+日経225銘柄はTSE:XXXX形式でキー管理し、yfinanceはXXXX.T形式で取得。
 """
 
 import os
@@ -60,7 +62,6 @@ SP500_SYMBOLS = [
     'WAB','WMT','DIS','WBD','WM','WAT','WEC','WFC','WELL','WST','WDC','WY','WSM','WMB','WTW',
     'WDAY','WYNN','XEL','XYL','YUM','ZBRA','ZBH','ZTS'
 ]
-
 
 SP500_SECTOR_MAP = {
     'MMM': 'Industrial Conglomerates', 'AOS': 'Building Products', 'ABT': 'Health Care Equipment', 'ABBV': 'Biotechnology',
@@ -192,14 +193,203 @@ SP500_SECTOR_MAP = {
 }
 
 
+# ===========================
+# 日経225 銘柄リスト（TSE:XXXX形式）
+# ===========================
+NIKKEI225_SYMBOLS = [
+    # 医薬品
+    'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
+    # 電気機器
+    'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
+    'TSE:6645','TSE:6674','TSE:6701','TSE:6702','TSE:6723','TSE:6724','TSE:6752','TSE:6753','TSE:6758',
+    'TSE:6762','TSE:6770','TSE:6841','TSE:6857','TSE:6861','TSE:6902','TSE:6920','TSE:6952','TSE:6954','TSE:6963',
+    'TSE:6971','TSE:6976','TSE:6981','TSE:7735','TSE:7751','TSE:7752','TSE:8035',
+    # 輸送用機器
+    'TSE:543A','TSE:7201','TSE:7202','TSE:7203','TSE:7205','TSE:7211','TSE:7261','TSE:7267','TSE:7269','TSE:7270','TSE:7272',
+    # 化学
+    'TSE:3407','TSE:4004','TSE:4005','TSE:4021','TSE:4042','TSE:4043','TSE:4061','TSE:4183','TSE:4188',
+    'TSE:4208','TSE:4452','TSE:4631','TSE:6988','TSE:7912',
+    # 機械
+    'TSE:6103','TSE:6113','TSE:6273','TSE:6301','TSE:6302','TSE:6305','TSE:6326','TSE:6361','TSE:6367',
+    'TSE:6369','TSE:6471','TSE:6472','TSE:7004','TSE:7011','TSE:7013',
+    # 鉄鋼
+    'TSE:5401','TSE:5406','TSE:5411',
+    # 非鉄金属
+    'TSE:3436','TSE:5703','TSE:5706','TSE:5711','TSE:5713','TSE:5714','TSE:5801','TSE:5802','TSE:5803',
+    # 金属製品
+    'TSE:5947',
+    # 鉱業
+    'TSE:1605',
+    # 石油・石炭製品
+    'TSE:5020','TSE:5101','TSE:5108',
+    # ガラス・土石製品
+    'TSE:4901','TSE:5201','TSE:5214','TSE:5233','TSE:5301','TSE:5332','TSE:5333',
+    # 食料品
+    'TSE:2002','TSE:2269','TSE:2282','TSE:2501','TSE:2502','TSE:2503','TSE:2531','TSE:2801','TSE:2802',
+    'TSE:2871','TSE:2914',
+    # 繊維製品
+    'TSE:3001','TSE:3861','TSE:3893',
+    # パルプ・紙
+    'TSE:3941',
+    # 銀行業
+    'TSE:5831','TSE:7186','TSE:8304','TSE:8306','TSE:8308','TSE:8309','TSE:8316','TSE:8331','TSE:8354','TSE:8355','TSE:8411',
+    # 証券・商品先物取引業
+    'TSE:8601','TSE:8604','TSE:8628',
+    # 保険業
+    'TSE:8725','TSE:8750','TSE:8766','TSE:8795',
+    # その他金融業
+    'TSE:8253','TSE:8591','TSE:8697',
+    # 不動産業
+    'TSE:3289','TSE:8801','TSE:8802','TSE:8804','TSE:8830',
+    # 卸売業
+    'TSE:2768','TSE:8001','TSE:8002','TSE:8008','TSE:8015','TSE:8031','TSE:8053','TSE:8058',
+    # 小売業
+    'TSE:2651','TSE:2753','TSE:3086','TSE:3099','TSE:3382','TSE:7532','TSE:8267','TSE:9843','TSE:9983',
+    # 情報・通信業
+    'TSE:4689','TSE:4704','TSE:4716','TSE:4732','TSE:4739','TSE:9432','TSE:9433','TSE:9434','TSE:9613','TSE:9984',
+    # サービス業
+    'TSE:2413','TSE:2432','TSE:4324','TSE:6098','TSE:9602','TSE:9735',
+    # 電気・ガス業
+    'TSE:9501','TSE:9502','TSE:9503','TSE:9531','TSE:9532',
+    # 陸運業
+    'TSE:9001','TSE:9005','TSE:9007','TSE:9008','TSE:9009','TSE:9020','TSE:9021','TSE:9022',
+    # 海運業
+    'TSE:9101','TSE:9104','TSE:9107',
+    # 空運業
+    'TSE:9202',
+    # 倉庫・運輸関連業
+    'TSE:9064',
+    # 建設業
+    'TSE:1721','TSE:1801','TSE:1802','TSE:1803','TSE:1808','TSE:1812','TSE:1925','TSE:1928','TSE:5631',
+    # ゴム製品
+    'TSE:5012',
+    # その他製品
+    'TSE:4902','TSE:7912','TSE:7951','TSE:7974',
+    # 精密機器
+    'TSE:4543','TSE:6146','TSE:7731','TSE:7733','TSE:7741','TSE:7762',
+]
+
+# 重複除去（念のため）
+NIKKEI225_SYMBOLS = list(dict.fromkeys(NIKKEI225_SYMBOLS))
+
+NIKKEI225_SECTOR_MAP = {
+    # 医薬品
+    'TSE:4151': '医薬品', 'TSE:4502': '医薬品', 'TSE:4503': '医薬品', 'TSE:4506': '医薬品',
+    'TSE:4507': '医薬品', 'TSE:4519': '医薬品', 'TSE:4523': '医薬品', 'TSE:4568': '医薬品', 'TSE:4578': '医薬品',
+    # 電気機器
+    'TSE:285A': '電気機器', 'TSE:4062': '電気機器', 'TSE:6479': '電気機器', 'TSE:6501': '電気機器',
+    'TSE:6502': '電気機器', 'TSE:6503': '電気機器', 'TSE:6504': '電気機器', 'TSE:6506': '電気機器',
+    'TSE:6526': '電気機器',
+    'TSE:6594': '電気機器', 'TSE:6645': '電気機器', 'TSE:6674': '電気機器', 'TSE:6701': '電気機器',
+    'TSE:6702': '電気機器', 'TSE:6723': '電気機器', 'TSE:6724': '電気機器', 'TSE:6752': '電気機器',
+    'TSE:6753': '電気機器', 'TSE:6758': '電気機器', 'TSE:6762': '電気機器', 'TSE:6770': '電気機器',
+    'TSE:6841': '電気機器', 'TSE:6857': '電気機器', 'TSE:6861': '電気機器', 'TSE:6902': '電気機器',
+    'TSE:6920': '電気機器', 'TSE:6952': '電気機器', 'TSE:6954': '電気機器', 'TSE:6963': '電気機器',
+    'TSE:6971': '電気機器', 'TSE:6976': '電気機器', 'TSE:6981': '電気機器',
+    'TSE:7735': '電気機器', 'TSE:7751': '電気機器', 'TSE:7752': '電気機器', 'TSE:8035': '電気機器',
+    # 輸送用機器
+    'TSE:543A': '自動車', 'TSE:7201': '自動車', 'TSE:7202': '自動車', 'TSE:7203': '自動車',
+    'TSE:7205': '自動車', 'TSE:7211': '自動車', 'TSE:7261': '自動車', 'TSE:7267': '自動車',
+    'TSE:7269': '自動車', 'TSE:7270': '自動車', 'TSE:7272': '自動車',
+    # 化学
+    'TSE:3407': '化学', 'TSE:4004': '化学', 'TSE:4005': '化学', 'TSE:4021': '化学',
+    'TSE:4042': '化学', 'TSE:4043': '化学', 'TSE:4061': '化学', 'TSE:4183': '化学',
+    'TSE:4188': '化学', 'TSE:4208': '化学', 'TSE:4452': '化学', 'TSE:4631': '化学',
+    'TSE:6988': '化学', 'TSE:7912': 'その他製品',
+    # 機械
+    'TSE:6103': '機械', 'TSE:6113': '機械', 'TSE:6273': '機械', 'TSE:6301': '機械',
+    'TSE:6302': '機械', 'TSE:6305': '機械', 'TSE:6326': '機械', 'TSE:6361': '機械',
+    'TSE:6367': '機械', 'TSE:6369': '機械', 'TSE:6471': '機械', 'TSE:6472': '機械',
+    'TSE:7004': '機械', 'TSE:7011': '機械', 'TSE:7013': '機械',
+    # 鉄鋼
+    'TSE:5401': '鉄鋼', 'TSE:5406': '鉄鋼', 'TSE:5411': '鉄鋼',
+    # 非鉄金属
+    'TSE:3436': '非鉄金属', 'TSE:5703': '非鉄金属', 'TSE:5706': '非鉄金属', 'TSE:5711': '非鉄金属',
+    'TSE:5713': '非鉄金属', 'TSE:5714': '非鉄金属', 'TSE:5801': '非鉄金属', 'TSE:5802': '非鉄金属', 'TSE:5803': '非鉄金属',
+    # 金属製品
+    'TSE:5947': '金属製品',
+    # 鉱業
+    'TSE:1605': '鉱業',
+    # 石油・石炭製品
+    'TSE:5020': '石油・石炭製品', 'TSE:5101': 'ゴム製品', 'TSE:5108': 'ゴム製品',
+    # ガラス・土石製品
+    'TSE:4901': 'ガラス・土石製品', 'TSE:5201': 'ガラス・土石製品', 'TSE:5214': 'ガラス・土石製品',
+    'TSE:5233': 'ガラス・土石製品', 'TSE:5301': 'ガラス・土石製品', 'TSE:5332': 'ガラス・土石製品', 'TSE:5333': 'ガラス・土石製品',
+    # 食料品
+    'TSE:2002': '食料品', 'TSE:2269': '食料品', 'TSE:2282': '食料品', 'TSE:2501': '食料品',
+    'TSE:2502': '食料品', 'TSE:2503': '食料品', 'TSE:2531': '食料品', 'TSE:2801': '食料品',
+    'TSE:2802': '食料品', 'TSE:2871': '食料品', 'TSE:2914': '食料品',
+    # 繊維製品
+    'TSE:3001': '繊維製品', 'TSE:3861': 'パルプ・紙', 'TSE:3893': 'パルプ・紙', 'TSE:3941': 'パルプ・紙',
+    # 銀行業
+    'TSE:5831': '銀行業', 'TSE:7186': '銀行業',
+    'TSE:8304': '銀行業', 'TSE:8306': '銀行業', 'TSE:8308': '銀行業', 'TSE:8309': '銀行業',
+    'TSE:8316': '銀行業', 'TSE:8331': '銀行業', 'TSE:8354': '銀行業', 'TSE:8355': '銀行業', 'TSE:8411': '銀行業',
+    # 証券
+    'TSE:8601': '証券・商品先物取引業', 'TSE:8604': '証券・商品先物取引業', 'TSE:8628': '証券・商品先物取引業',
+    # 保険
+    'TSE:8725': '保険業', 'TSE:8750': '保険業', 'TSE:8766': '保険業', 'TSE:8795': '保険業',
+    # その他金融
+    'TSE:8253': 'その他金融業', 'TSE:8591': 'その他金融業', 'TSE:8697': 'その他金融業',
+    # 不動産
+    'TSE:3289': '不動産業', 'TSE:8801': '不動産業', 'TSE:8802': '不動産業', 'TSE:8804': '不動産業', 'TSE:8830': '不動産業',
+    # 卸売
+    'TSE:2768': '卸売業', 'TSE:8001': '卸売業', 'TSE:8002': '卸売業', 'TSE:8008': '卸売業',
+    'TSE:8015': '卸売業', 'TSE:8031': '卸売業', 'TSE:8053': '卸売業', 'TSE:8058': '卸売業',
+    # 小売
+    'TSE:2651': '小売業', 'TSE:2753': '小売業', 'TSE:3086': '小売業', 'TSE:3099': '小売業',
+    'TSE:3382': '小売業', 'TSE:7532': '小売業', 'TSE:8267': '小売業', 'TSE:9843': '小売業', 'TSE:9983': '小売業',
+    # 情報通信
+    'TSE:4689': '情報・通信業', 'TSE:4704': '情報・通信業', 'TSE:4716': '情報・通信業', 'TSE:4732': '情報・通信業',
+    'TSE:4739': '情報・通信業', 'TSE:9432': '情報・通信業', 'TSE:9433': '情報・通信業', 'TSE:9434': '情報・通信業',
+    'TSE:9613': '情報・通信業', 'TSE:9984': '情報・通信業',
+    # サービス
+    'TSE:2413': 'サービス業', 'TSE:2432': 'サービス業', 'TSE:4324': 'サービス業',
+    'TSE:6098': 'サービス業', 'TSE:9602': 'サービス業', 'TSE:9735': 'サービス業',
+    # 電気・ガス
+    'TSE:9501': '電気・ガス業', 'TSE:9502': '電気・ガス業', 'TSE:9503': '電気・ガス業',
+    'TSE:9531': '電気・ガス業', 'TSE:9532': '電気・ガス業',
+    # 陸運
+    'TSE:9001': '陸運業', 'TSE:9005': '陸運業', 'TSE:9007': '陸運業', 'TSE:9008': '陸運業',
+    'TSE:9009': '陸運業', 'TSE:9020': '陸運業', 'TSE:9021': '陸運業', 'TSE:9022': '陸運業',
+    # 海運
+    'TSE:9101': '海運業', 'TSE:9104': '海運業', 'TSE:9107': '海運業',
+    # 空運
+    'TSE:9202': '空運業',
+    # 倉庫
+    'TSE:9064': '倉庫・運輸関連業',
+    # 建設
+    'TSE:1721': '建設業', 'TSE:1801': '建設業', 'TSE:1802': '建設業', 'TSE:1803': '建設業',
+    'TSE:1808': '建設業', 'TSE:1812': '建設業', 'TSE:1925': '建設業', 'TSE:1928': '建設業', 'TSE:5631': '建設業',
+    # ゴム
+    'TSE:5012': 'ゴム製品',
+    # その他製品
+    'TSE:4902': 'その他製品', 'TSE:7951': 'その他製品', 'TSE:7974': 'その他製品',
+    # 精密機器
+    'TSE:4543': '精密機器', 'TSE:6146': '精密機器', 'TSE:7731': '精密機器', 'TSE:7733': '精密機器', 'TSE:7741': '精密機器', 'TSE:7762': '精密機器',
+}
+
+
+# ===========================
+# 日経シンボル変換ユーティリティ
+# ===========================
+def is_jp_symbol(symbol):
+    """TSE: プレフィックスを持つ日経銘柄か判定"""
+    return symbol.startswith("TSE:")
+
+def tse_to_yfinance(symbol):
+    """TSE:7203 → 7203.T"""
+    code = symbol.replace("TSE:", "")
+    return f"{code}.T"
+
 
 # ===========================
 # 設定
 # ===========================
 DISPLAY_PERIOD = 90
 BG_COLOR = "#131722"
-BATCH_SIZE = 30          # 小さめ（レート制限対策）
-BATCH_WAIT = 15          # バッチ間の待機秒数（長め）
+BATCH_SIZE = 25          # 日経混在のため少し小さめ
+BATCH_WAIT = 15          # バッチ間の待機秒数
 PROFILE_SLEEP = 0.5      # profile取得間のsleep
 RETRY_WAIT = 30          # リトライ前の待機
 
@@ -208,12 +398,11 @@ EXTRA_SYMBOLS = [
     'TONX', 'FRSH', 'PAYC', 'GCTS', 'PXLW',
     'FSLR', 'SIDU', 'VRNS', 'TRVG', 'TZOO',
     'MAKO', 'HLP',
-    # セクター銘柄
     'KOS', 'GOOGL', 'INTC', 'NVDA', 'IONQ', 'FIGS', 'MU',
     'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA'
 ]
 
-# 全対象銘柄（S&P500とEXTRAをマージ、重複は除く）
+# 全対象銘柄（S&P500 + Extra + 日経225、重複除く）
 def _build_all_targets():
     seen = set()
     out = []
@@ -222,6 +411,10 @@ def _build_all_targets():
             seen.add(s)
             out.append(s)
     for s in EXTRA_SYMBOLS:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    for s in NIKKEI225_SYMBOLS:
         if s not in seen:
             seen.add(s)
             out.append(s)
@@ -241,7 +434,6 @@ def get_wma(series, length):
 
 
 def calculate_scores(df):
-    """fetch_and_calculateと同じスコア計算"""
     df = df.copy()
     df["ema_20"] = df["close"].ewm(span=20, adjust=False).mean()
     df["sma_50"] = df["close"].rolling(window=50).mean()
@@ -265,9 +457,7 @@ def calculate_scores(df):
 
 
 def make_thumbnail_b64(df, symbol):
-    """通常チャートと同じローソク足サムネイル（フル装備、600x400px相当）"""
     try:
-        # mplfinanceをここで動的import（GitHub Actions環境）
         import mplfinance as mpf
         from matplotlib.patches import Rectangle
 
@@ -360,18 +550,23 @@ def format_market_cap(mc):
 
 
 def fetch_profile(symbol):
-    """1銘柄のprofile情報を取得"""
+    """
+    1銘柄のprofile情報を取得。
+    日経銘柄(TSE:XXXX)はyfinanceのXXXX.T形式で取得し、
+    キャッシュキーはTSE:XXXX形式で保存する。
+    """
     try:
-        ticker = yf.Ticker(symbol)
+        yf_sym = tse_to_yfinance(symbol) if is_jp_symbol(symbol) else symbol
+        ticker = yf.Ticker(yf_sym)
         info = ticker.info or {}
         if not info or ("shortName" not in info and "longName" not in info):
             return None
         return {
-            "symbol": symbol,
+            "symbol": symbol,  # TSE:XXXX形式で保存
             "name": info.get("longName") or info.get("shortName") or symbol,
             "industry": info.get("industry") or "",
             "sector": info.get("sector") or "",
-            "country": info.get("country") or "",
+            "country": info.get("country") or "Japan",
             "employees": info.get("fullTimeEmployees") or None,
             "market_cap": format_market_cap(info.get("marketCap")),
             "website": info.get("website") or "",
@@ -383,15 +578,36 @@ def fetch_profile(symbol):
 
 
 def process_batch(symbols, profiles, thumbs, failed):
-    """1バッチ（最大30銘柄）を処理"""
-    print(f"  Downloading {len(symbols)} symbols...")
+    """
+    1バッチを処理。日経銘柄はyfinance .T形式でダウンロードし、
+    結果をTSE:XXXX形式のキーで保存する。
+    """
+    # 日経とUSを分離
+    jp_symbols = [s for s in symbols if is_jp_symbol(s)]
+    us_symbols = [s for s in symbols if not is_jp_symbol(s)]
+
+    # --- US銘柄処理 ---
+    if us_symbols:
+        _process_us_batch(us_symbols, profiles, thumbs, failed)
+
+    # --- 日経銘柄処理 ---
+    if jp_symbols:
+        # 少し間隔を空ける
+        if us_symbols:
+            time.sleep(3)
+        _process_jp_batch(jp_symbols, profiles, thumbs, failed)
+
+
+def _process_us_batch(symbols, profiles, thumbs, failed):
+    """US銘柄バッチ処理（既存ロジックをそのまま移植）"""
+    print(f"  [US] Downloading {len(symbols)} symbols...")
     try:
         df_all = yf.download(
             symbols, period="2y", interval="1d",
             progress=False, auto_adjust=False, group_by="ticker", threads=True,
         )
     except Exception as e:
-        print(f"  Batch download failed: {e}")
+        print(f"  [US] Batch download failed: {e}")
         failed.extend(symbols)
         return
 
@@ -408,49 +624,18 @@ def process_batch(symbols, profiles, thumbs, failed):
                 failed.append(sym)
                 continue
 
-            df = sub.copy()
-            df.columns = [c.lower() for c in df.columns]
-            df = df.loc[:, ~df.columns.duplicated()].copy()
-            if hasattr(df.index, "tz") and df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
-            if "close" not in df.columns or len(df) < 60:
+            df = _build_df(sub)
+            if df is None:
                 failed.append(sym)
                 continue
-            for col in ["open", "high", "low", "close", "volume"]:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
-            df = df.dropna(subset=["close"])
 
             df = calculate_scores(df)
-
-            # サムネイル
             thumb_b64 = make_thumbnail_b64(df, sym)
-            last_score = df["totalScore"].iloc[-1] if "totalScore" in df.columns else None
-            try:
-                last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
-            except Exception:
-                last_score_val = None
-
-            # 1週間変動率（5営業日前比）
-            week_change = None
-            try:
-                closes = df["close"].dropna()
-                if len(closes) >= 6:
-                    cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6])
-                    if ref != 0:
-                        week_change = (cur - ref) / ref * 100
-            except Exception:
-                week_change = None
+            last_score_val, week_change = _extract_score_and_change(df)
 
             if thumb_b64:
-                thumbs[sym] = {
-                    "thumb": thumb_b64,
-                    "score": last_score_val,
-                    "week_change": week_change,
-                }
+                thumbs[sym] = {"thumb": thumb_b64, "score": last_score_val, "week_change": week_change}
 
-            # profile
             profile = fetch_profile(sym)
             if profile is not None:
                 profiles[sym] = profile
@@ -461,10 +646,107 @@ def process_batch(symbols, profiles, thumbs, failed):
             failed.append(sym)
 
 
+def _process_jp_batch(symbols, profiles, thumbs, failed):
+    """
+    日経銘柄バッチ処理。
+    yfinanceはXXXX.T形式でダウンロード、キャッシュキーはTSE:XXXX形式。
+    """
+    # TSE:XXXX → XXXX.T の変換マップ
+    sym_map = {tse_to_yfinance(s): s for s in symbols}  # {'7203.T': 'TSE:7203', ...}
+    yf_syms = list(sym_map.keys())
+
+    print(f"  [JP] Downloading {len(yf_syms)} symbols (e.g. {yf_syms[:3]})...")
+    try:
+        df_all = yf.download(
+            yf_syms, period="2y", interval="1d",
+            progress=False, auto_adjust=False, group_by="ticker", threads=True,
+        )
+    except Exception as e:
+        print(f"  [JP] Batch download failed: {e}")
+        failed.extend(symbols)
+        return
+
+    for yf_sym, tse_sym in sym_map.items():
+        try:
+            if len(yf_syms) == 1:
+                sub = df_all
+            else:
+                if yf_sym not in df_all.columns.get_level_values(0):
+                    print(f"  [JP] {yf_sym} not in download result, skip")
+                    failed.append(tse_sym)
+                    continue
+                sub = df_all[yf_sym]
+            if sub is None or sub.empty:
+                failed.append(tse_sym)
+                continue
+
+            df = _build_df(sub)
+            if df is None:
+                failed.append(tse_sym)
+                continue
+
+            df = calculate_scores(df)
+            # タイトルはTSE:XXXX形式で表示
+            thumb_b64 = make_thumbnail_b64(df, tse_sym)
+            last_score_val, week_change = _extract_score_and_change(df)
+
+            if thumb_b64:
+                thumbs[tse_sym] = {"thumb": thumb_b64, "score": last_score_val, "week_change": week_change}
+
+            profile = fetch_profile(tse_sym)
+            if profile is not None:
+                profiles[tse_sym] = profile
+            time.sleep(PROFILE_SLEEP)
+
+        except Exception as e:
+            print(f"  {tse_sym} processing error: {e}")
+            failed.append(tse_sym)
+
+
+def _build_df(sub):
+    """yfinanceの生データをスコア計算用DataFrameに整形"""
+    df = sub.copy()
+    df.columns = [c.lower() for c in df.columns]
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+    if hasattr(df.index, "tz") and df.index.tz is not None:
+        df.index = df.index.tz_localize(None)
+    if "close" not in df.columns or len(df) < 60:
+        return None
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.dropna(subset=["close"])
+    return df
+
+
+def _extract_score_and_change(df):
+    """totalScoreの最終値と1週間変動率を返す"""
+    last_score = df["totalScore"].iloc[-1] if "totalScore" in df.columns else None
+    try:
+        last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
+    except Exception:
+        last_score_val = None
+
+    week_change = None
+    try:
+        closes = df["close"].dropna()
+        if len(closes) >= 6:
+            cur = float(closes.iloc[-1])
+            ref = float(closes.iloc[-6])
+            if ref != 0:
+                week_change = (cur - ref) / ref * 100
+    except Exception:
+        week_change = None
+
+    return last_score_val, week_change
+
+
 def main():
     start_time = time.time()
+    us_count = len([s for s in ALL_TARGETS if not is_jp_symbol(s)])
+    jp_count = len([s for s in ALL_TARGETS if is_jp_symbol(s)])
     print(f"=== Prefetch start at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
-    print(f"Target: {len(ALL_TARGETS)} symbols (SP500 + Extra), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
+    print(f"Target: {len(ALL_TARGETS)} symbols (US:{us_count}, JP:{jp_count}), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
 
     profiles = {}
     thumbs = {}
@@ -476,7 +758,8 @@ def main():
         batch = ALL_TARGETS[i:i + BATCH_SIZE]
         batch_idx = i // BATCH_SIZE + 1
         elapsed = time.time() - start_time
-        print(f"[Batch {batch_idx}/{total_batches}] elapsed={elapsed:.0f}s, success={len(thumbs)}/{len(profiles)}, failed={len(failed)}")
+        jp_in_batch = len([s for s in batch if is_jp_symbol(s)])
+        print(f"[Batch {batch_idx}/{total_batches}] elapsed={elapsed:.0f}s, success={len(thumbs)}/{len(profiles)}, failed={len(failed)}, JP={jp_in_batch}")
         process_batch(batch, profiles, thumbs, failed)
         if i + BATCH_SIZE < len(ALL_TARGETS):
             time.sleep(BATCH_WAIT)
