@@ -243,6 +243,218 @@ SP500_SECTOR_MAP = {
 
 INDEX_SYMBOLS = ['NQ1!', 'ES1!', 'NI225']
 
+# 日経225構成銘柄（2026年6月4日時点・公式の日経平均プロフィルより）
+# シンボル形式: TSE:XXXX（tvDatafeed用、exchange='TSE', symbol='XXXX' に分割可能）
+# yfinanceで企業概要を取得する場合は、'XXXX.T' に変換して使用
+NIKKEI225_SYMBOLS = [
+    # 医薬品 (9)
+    "TSE:4151", "TSE:4502", "TSE:4503", "TSE:4506", "TSE:4507",
+    "TSE:4519", "TSE:4523", "TSE:4568", "TSE:4578",
+    # 電気機器 (32)
+    "TSE:285A", "TSE:4062", "TSE:6479", "TSE:6501", "TSE:6503",
+    "TSE:6504", "TSE:6506", "TSE:6526", "TSE:6645", "TSE:6701",
+    "TSE:6702", "TSE:6723", "TSE:6724", "TSE:6752", "TSE:6753",
+    "TSE:6758", "TSE:6762", "TSE:6770", "TSE:6841", "TSE:6857",
+    "TSE:6861", "TSE:6902", "TSE:6920", "TSE:6954", "TSE:6963",
+    "TSE:6971", "TSE:6976", "TSE:6981", "TSE:7735", "TSE:7751",
+    "TSE:7752", "TSE:8035",
+    # 自動車 (10)
+    "TSE:543A", "TSE:7201", "TSE:7202", "TSE:7203", "TSE:7211",
+    "TSE:7261", "TSE:7267", "TSE:7269", "TSE:7270", "TSE:7272",
+    # 精密機器 (6)
+    "TSE:4543", "TSE:4902", "TSE:6146", "TSE:7731", "TSE:7733",
+    "TSE:7741",
+    # 通信 (4)
+    "TSE:9432", "TSE:9433", "TSE:9434", "TSE:9984",
+    # 銀行 (10)
+    "TSE:5831", "TSE:7186", "TSE:8304", "TSE:8306", "TSE:8308",
+    "TSE:8309", "TSE:8316", "TSE:8331", "TSE:8354", "TSE:8411",
+    # その他金融 (3)
+    "TSE:8253", "TSE:8591", "TSE:8697",
+    # 証券 (2)
+    "TSE:8601", "TSE:8604",
+    # 保険 (5)
+    "TSE:8630", "TSE:8725", "TSE:8750", "TSE:8766", "TSE:8795",
+    # 水産 (1)
+    "TSE:1332",
+    # 食品 (10)
+    "TSE:2002", "TSE:2269", "TSE:2282", "TSE:2501", "TSE:2502",
+    "TSE:2503", "TSE:2801", "TSE:2802", "TSE:2871", "TSE:2914",
+    # 小売業 (11)
+    "TSE:3086", "TSE:3092", "TSE:3099", "TSE:3382", "TSE:7453",
+    "TSE:7532", "TSE:8233", "TSE:8252", "TSE:8267", "TSE:9843",
+    "TSE:9983",
+    # サービス (19)
+    "TSE:2413", "TSE:2432", "TSE:3659", "TSE:3697", "TSE:4307",
+    "TSE:4324", "TSE:4385", "TSE:4661", "TSE:4689", "TSE:4704",
+    "TSE:4751", "TSE:4755", "TSE:6098", "TSE:6178", "TSE:6532",
+    "TSE:7974", "TSE:9602", "TSE:9735", "TSE:9766",
+    # 鉱業 (1)
+    "TSE:1605",
+    # 繊維 (2)
+    "TSE:3401", "TSE:3402",
+    # パルプ・紙 (1)
+    "TSE:3861",
+    # 化学 (16)
+    "TSE:3405", "TSE:3407", "TSE:4004", "TSE:4005", "TSE:4021",
+    "TSE:4042", "TSE:4043", "TSE:4061", "TSE:4063", "TSE:4183",
+    "TSE:4188", "TSE:4208", "TSE:4452", "TSE:4901", "TSE:4911",
+    "TSE:6988",
+    # 石油 (2)
+    "TSE:5019", "TSE:5020",
+    # ゴム (2)
+    "TSE:5101", "TSE:5108",
+    # 窯業 (6)
+    "TSE:5201", "TSE:5214", "TSE:5233", "TSE:5301", "TSE:5332",
+    "TSE:5333",
+    # 鉄鋼 (3)
+    "TSE:5401", "TSE:5406", "TSE:5411",
+    # 非鉄・金属 (8)
+    "TSE:3436", "TSE:5706", "TSE:5711", "TSE:5713", "TSE:5714",
+    "TSE:5801", "TSE:5802", "TSE:5803",
+    # 商社 (7)
+    "TSE:2768", "TSE:8001", "TSE:8002", "TSE:8015", "TSE:8031",
+    "TSE:8053", "TSE:8058",
+    # 建設 (9)
+    "TSE:1721", "TSE:1801", "TSE:1802", "TSE:1803", "TSE:1808",
+    "TSE:1812", "TSE:1925", "TSE:1928", "TSE:1963",
+    # 機械 (16)
+    "TSE:5631", "TSE:6103", "TSE:6113", "TSE:6273", "TSE:6301",
+    "TSE:6302", "TSE:6305", "TSE:6326", "TSE:6361", "TSE:6367",
+    "TSE:6471", "TSE:6472", "TSE:6473", "TSE:7004", "TSE:7011",
+    "TSE:7013",
+    # 造船 (1)
+    "TSE:7012",
+    # その他製造 (4)
+    "TSE:7832", "TSE:7911", "TSE:7912", "TSE:7951",
+    # 不動産 (5)
+    "TSE:3289", "TSE:8801", "TSE:8802", "TSE:8804", "TSE:8830",
+    # 鉄道・バス (8)
+    "TSE:9001", "TSE:9005", "TSE:9007", "TSE:9008", "TSE:9009",
+    "TSE:9020", "TSE:9021", "TSE:9022",
+    # 陸運 (2)
+    "TSE:9064", "TSE:9147",
+    # 海運 (3)
+    "TSE:9101", "TSE:9104", "TSE:9107",
+    # 空運 (2)
+    "TSE:9201", "TSE:9202",
+    # 電力 (3)
+    "TSE:9501", "TSE:9502", "TSE:9503",
+    # ガス (2)
+    "TSE:9531", "TSE:9532",
+]
+
+# 日経225のセクター（業種）マップ（公式分類）
+NIKKEI225_SECTOR_MAP = {
+    # 医薬品
+    "TSE:4151": "医薬品", "TSE:4502": "医薬品", "TSE:4503": "医薬品", "TSE:4506": "医薬品", "TSE:4507": "医薬品",
+    "TSE:4519": "医薬品", "TSE:4523": "医薬品", "TSE:4568": "医薬品", "TSE:4578": "医薬品",
+    # 電気機器
+    "TSE:285A": "電気機器", "TSE:4062": "電気機器", "TSE:6479": "電気機器", "TSE:6501": "電気機器", "TSE:6503": "電気機器",
+    "TSE:6504": "電気機器", "TSE:6506": "電気機器", "TSE:6526": "電気機器", "TSE:6645": "電気機器", "TSE:6701": "電気機器",
+    "TSE:6702": "電気機器", "TSE:6723": "電気機器", "TSE:6724": "電気機器", "TSE:6752": "電気機器", "TSE:6753": "電気機器",
+    "TSE:6758": "電気機器", "TSE:6762": "電気機器", "TSE:6770": "電気機器", "TSE:6841": "電気機器", "TSE:6857": "電気機器",
+    "TSE:6861": "電気機器", "TSE:6902": "電気機器", "TSE:6920": "電気機器", "TSE:6954": "電気機器", "TSE:6963": "電気機器",
+    "TSE:6971": "電気機器", "TSE:6976": "電気機器", "TSE:6981": "電気機器", "TSE:7735": "電気機器", "TSE:7751": "電気機器",
+    "TSE:7752": "電気機器", "TSE:8035": "電気機器",
+    # 自動車
+    "TSE:543A": "自動車", "TSE:7201": "自動車", "TSE:7202": "自動車", "TSE:7203": "自動車", "TSE:7211": "自動車",
+    "TSE:7261": "自動車", "TSE:7267": "自動車", "TSE:7269": "自動車", "TSE:7270": "自動車", "TSE:7272": "自動車",
+    # 精密機器
+    "TSE:4543": "精密機器", "TSE:4902": "精密機器", "TSE:6146": "精密機器", "TSE:7731": "精密機器", "TSE:7733": "精密機器",
+    "TSE:7741": "精密機器",
+    # 通信
+    "TSE:9432": "通信", "TSE:9433": "通信", "TSE:9434": "通信", "TSE:9984": "通信",
+    # 銀行
+    "TSE:5831": "銀行", "TSE:7186": "銀行", "TSE:8304": "銀行", "TSE:8306": "銀行", "TSE:8308": "銀行",
+    "TSE:8309": "銀行", "TSE:8316": "銀行", "TSE:8331": "銀行", "TSE:8354": "銀行", "TSE:8411": "銀行",
+    # その他金融
+    "TSE:8253": "その他金融", "TSE:8591": "その他金融", "TSE:8697": "その他金融",
+    # 証券
+    "TSE:8601": "証券", "TSE:8604": "証券",
+    # 保険
+    "TSE:8630": "保険", "TSE:8725": "保険", "TSE:8750": "保険", "TSE:8766": "保険", "TSE:8795": "保険",
+    # 水産
+    "TSE:1332": "水産",
+    # 食品
+    "TSE:2002": "食品", "TSE:2269": "食品", "TSE:2282": "食品", "TSE:2501": "食品", "TSE:2502": "食品",
+    "TSE:2503": "食品", "TSE:2801": "食品", "TSE:2802": "食品", "TSE:2871": "食品", "TSE:2914": "食品",
+    # 小売業
+    "TSE:3086": "小売業", "TSE:3092": "小売業", "TSE:3099": "小売業", "TSE:3382": "小売業", "TSE:7453": "小売業",
+    "TSE:7532": "小売業", "TSE:8233": "小売業", "TSE:8252": "小売業", "TSE:8267": "小売業", "TSE:9843": "小売業",
+    "TSE:9983": "小売業",
+    # サービス
+    "TSE:2413": "サービス", "TSE:2432": "サービス", "TSE:3659": "サービス", "TSE:3697": "サービス", "TSE:4307": "サービス",
+    "TSE:4324": "サービス", "TSE:4385": "サービス", "TSE:4661": "サービス", "TSE:4689": "サービス", "TSE:4704": "サービス",
+    "TSE:4751": "サービス", "TSE:4755": "サービス", "TSE:6098": "サービス", "TSE:6178": "サービス", "TSE:6532": "サービス",
+    "TSE:7974": "サービス", "TSE:9602": "サービス", "TSE:9735": "サービス", "TSE:9766": "サービス",
+    # 鉱業
+    "TSE:1605": "鉱業",
+    # 繊維
+    "TSE:3401": "繊維", "TSE:3402": "繊維",
+    # パルプ・紙
+    "TSE:3861": "パルプ・紙",
+    # 化学
+    "TSE:3405": "化学", "TSE:3407": "化学", "TSE:4004": "化学", "TSE:4005": "化学", "TSE:4021": "化学",
+    "TSE:4042": "化学", "TSE:4043": "化学", "TSE:4061": "化学", "TSE:4063": "化学", "TSE:4183": "化学",
+    "TSE:4188": "化学", "TSE:4208": "化学", "TSE:4452": "化学", "TSE:4901": "化学", "TSE:4911": "化学",
+    "TSE:6988": "化学",
+    # 石油
+    "TSE:5019": "石油", "TSE:5020": "石油",
+    # ゴム
+    "TSE:5101": "ゴム", "TSE:5108": "ゴム",
+    # 窯業
+    "TSE:5201": "窯業", "TSE:5214": "窯業", "TSE:5233": "窯業", "TSE:5301": "窯業", "TSE:5332": "窯業",
+    "TSE:5333": "窯業",
+    # 鉄鋼
+    "TSE:5401": "鉄鋼", "TSE:5406": "鉄鋼", "TSE:5411": "鉄鋼",
+    # 非鉄・金属
+    "TSE:3436": "非鉄・金属", "TSE:5706": "非鉄・金属", "TSE:5711": "非鉄・金属", "TSE:5713": "非鉄・金属", "TSE:5714": "非鉄・金属",
+    "TSE:5801": "非鉄・金属", "TSE:5802": "非鉄・金属", "TSE:5803": "非鉄・金属",
+    # 商社
+    "TSE:2768": "商社", "TSE:8001": "商社", "TSE:8002": "商社", "TSE:8015": "商社", "TSE:8031": "商社",
+    "TSE:8053": "商社", "TSE:8058": "商社",
+    # 建設
+    "TSE:1721": "建設", "TSE:1801": "建設", "TSE:1802": "建設", "TSE:1803": "建設", "TSE:1808": "建設",
+    "TSE:1812": "建設", "TSE:1925": "建設", "TSE:1928": "建設", "TSE:1963": "建設",
+    # 機械
+    "TSE:5631": "機械", "TSE:6103": "機械", "TSE:6113": "機械", "TSE:6273": "機械", "TSE:6301": "機械",
+    "TSE:6302": "機械", "TSE:6305": "機械", "TSE:6326": "機械", "TSE:6361": "機械", "TSE:6367": "機械",
+    "TSE:6471": "機械", "TSE:6472": "機械", "TSE:6473": "機械", "TSE:7004": "機械", "TSE:7011": "機械",
+    "TSE:7013": "機械",
+    # 造船
+    "TSE:7012": "造船",
+    # その他製造
+    "TSE:7832": "その他製造", "TSE:7911": "その他製造", "TSE:7912": "その他製造", "TSE:7951": "その他製造",
+    # 不動産
+    "TSE:3289": "不動産", "TSE:8801": "不動産", "TSE:8802": "不動産", "TSE:8804": "不動産", "TSE:8830": "不動産",
+    # 鉄道・バス
+    "TSE:9001": "鉄道・バス", "TSE:9005": "鉄道・バス", "TSE:9007": "鉄道・バス", "TSE:9008": "鉄道・バス", "TSE:9009": "鉄道・バス",
+    "TSE:9020": "鉄道・バス", "TSE:9021": "鉄道・バス", "TSE:9022": "鉄道・バス",
+    # 陸運
+    "TSE:9064": "陸運", "TSE:9147": "陸運",
+    # 海運
+    "TSE:9101": "海運", "TSE:9104": "海運", "TSE:9107": "海運",
+    # 空運
+    "TSE:9201": "空運", "TSE:9202": "空運",
+    # 電力
+    "TSE:9501": "電力", "TSE:9502": "電力", "TSE:9503": "電力",
+    # ガス
+    "TSE:9531": "ガス", "TSE:9532": "ガス",
+}
+
+
+def is_jp_symbol(sym):
+    """日経225銘柄か判定する。'TSE:XXXX' 形式。"""
+    return isinstance(sym, str) and sym.startswith('TSE:')
+
+
+def jp_to_yfinance(sym):
+    """'TSE:7203' → '7203.T'（yfinanceの日本株表記）"""
+    if not is_jp_symbol(sym):
+        return sym
+    return sym.split(':', 1)[1] + '.T'
+
 CALC_PERIOD = 'max'
 DISPLAY_PERIOD = 90
 BG_COLOR = '#131722'
@@ -367,6 +579,62 @@ def fetch_crypto(symbol_key, n_bars=1000):
         return df
     except Exception as e:
         print(f"{symbol_key} (crypto) error: {e}")
+        return None
+
+
+def fetch_jp(symbol_key, n_bars=1000):
+    """tvDatafeedで日経225銘柄を取得し、個別株と同じスコア計算を適用する。
+    symbol_key は 'TSE:7203' 形式。
+    """
+    tv_local = get_tv()
+    if tv_local is None:
+        return None
+    Interval = get_interval()
+    if Interval is None:
+        return None
+    if not is_jp_symbol(symbol_key):
+        return None
+    # 'TSE:7203' → exchange='TSE', symbol='7203'
+    parts = symbol_key.split(':', 1)
+    if len(parts) != 2:
+        return None
+    tv_exchange, tv_symbol = parts[0], parts[1]
+    try:
+        df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
+                                   interval=Interval.in_daily, n_bars=n_bars)
+        if df_raw is None or df_raw.empty:
+            return None
+
+        # 既存の fetch_and_calculate と同じ小文字カラム名に揃える
+        df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
+                                    'close':'close','volume':'volume'})
+        df = df[['open', 'high', 'low', 'close', 'volume']].copy()
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
+
+        # ↓ ここからは fetch_and_calculate と完全に同じスコア計算
+        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['sma_50'] = df['close'].rolling(window=50).mean()
+        df['prev_close'] = df['close'].shift(1)
+        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
+        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
+        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
+        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
+        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+        df['discrepancyScore'] = df['discrepancyPercent'] / 2
+        df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
+        df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
+        df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
+        df['volDiffScore'] = np.where(
+            df['volDiff_std'] != 0,
+            (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
+            0
+        )
+        df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
+        return df
+    except Exception as e:
+        print(f"{symbol_key} (jp) error: {e}")
         return None
 
 
@@ -740,6 +1008,11 @@ def chart(symbol):
             if df is None:
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
+        elif is_jp_symbol(symbol_upper):
+            df = fetch_jp(symbol_upper)
+            if df is None:
+                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
+            img_b64 = make_chart_image_stock(df, symbol_upper)
         elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS:
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
             if df is None:
@@ -815,7 +1088,64 @@ def generate_commentary(df):
 
 
 def get_peers(symbol_upper):
-    """S&P500銘柄について、同じGICS Sub-Industryの他銘柄を5つ取得し、1週間の変動率を返す"""
+    """同じセクターの他銘柄を5つ取得し、1週間の変動率を返す。
+    S&P500 → GICS Sub-Industry単位、日経225 → 公式業種単位。"""
+    # 日経225銘柄の場合
+    if is_jp_symbol(symbol_upper):
+        sub_industry = NIKKEI225_SECTOR_MAP.get(symbol_upper)
+        if not sub_industry:
+            return None
+        peers = [s for s, sub in NIKKEI225_SECTOR_MAP.items()
+                 if sub == sub_industry and s != symbol_upper]
+        if not peers:
+            return {'sector': sub_industry, 'peers': []}
+        peers = peers[:5]
+
+        # 日経銘柄の場合、yfinance に '7203.T' 形式で投げる
+        peer_yf_map = {p: jp_to_yfinance(p) for p in peers}
+        peer_data = []
+        try:
+            yf_tickers = list(peer_yf_map.values())
+            df_all = yf.download(yf_tickers, period='10d', interval='1d',
+                                 progress=False, auto_adjust=False, group_by='ticker')
+            for p in peers:
+                yf_p = peer_yf_map[p]
+                try:
+                    if len(peers) == 1:
+                        sub = df_all
+                    else:
+                        sub = df_all[yf_p] if yf_p in df_all.columns.get_level_values(0) else None
+                    if sub is None or sub.empty:
+                        peer_data.append({'symbol': p, 'change': None, 'score': None})
+                        continue
+                    closes = sub['Close'].dropna()
+                    if len(closes) < 2:
+                        peer_data.append({'symbol': p, 'change': None, 'score': None})
+                        continue
+                    cur = float(closes.iloc[-1])
+                    ref = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
+                    if ref == 0:
+                        peer_data.append({'symbol': p, 'change': None, 'score': None})
+                        continue
+                    change_pct = (cur - ref) / ref * 100
+                    peer_score = None
+                    if p in thumb_cache:
+                        _, thumb_data = thumb_cache[p]
+                        peer_score = thumb_data.get('score')
+                    peer_data.append({'symbol': p, 'change': change_pct, 'score': peer_score})
+                except Exception:
+                    peer_data.append({'symbol': p, 'change': None, 'score': None})
+        except Exception:
+            for p in peers:
+                peer_score = None
+                if p in thumb_cache:
+                    _, thumb_data = thumb_cache[p]
+                    peer_score = thumb_data.get('score')
+                peer_data.append({'symbol': p, 'change': None, 'score': peer_score})
+
+        return {'sector': sub_industry, 'peers': peer_data}
+
+    # S&P500銘柄の場合
     sub_industry = SP500_SECTOR_MAP.get(symbol_upper)
     if not sub_industry:
         return None  # S&P500外の銘柄
@@ -893,12 +1223,17 @@ def get_profile(symbol_upper):
     if symbol_upper in ('NQ1!', 'ES1!') or symbol_upper in CRYPTO_MAP:
         return None
 
-    # 個別株か S&P 500 のみ対象
-    if symbol_upper not in SYMBOLS and symbol_upper not in SP500_SYMBOLS:
+    # 個別株 / S&P 500 / 日経225 のみ対象
+    if (symbol_upper not in SYMBOLS
+            and symbol_upper not in SP500_SYMBOLS
+            and not is_jp_symbol(symbol_upper)):
         return None
 
+    # yfinance に渡すティッカー（日経は 'TSE:7203' → '7203.T'）
+    yf_ticker = jp_to_yfinance(symbol_upper) if is_jp_symbol(symbol_upper) else symbol_upper
+
     try:
-        ticker = yf.Ticker(symbol_upper)
+        ticker = yf.Ticker(yf_ticker)
         info = ticker.info or {}
         # 何も取れなかった場合
         if not info or 'shortName' not in info and 'longName' not in info:
@@ -941,6 +1276,8 @@ def info(symbol):
             df = fetch_es1()
         elif symbol_upper in CRYPTO_MAP:
             df = fetch_crypto(symbol_upper)
+        elif is_jp_symbol(symbol_upper):
+            df = fetch_jp(symbol_upper)
         elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS:
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
         else:
@@ -1003,6 +1340,11 @@ def fetch_close_series(symbol, bars=DISPLAY_PERIOD):
             return df['Close'].dropna().tail(bars)
         if sym in CRYPTO_MAP:
             df = fetch_crypto(sym)
+            if df is None or df.empty:
+                return None
+            return df['close'].dropna().tail(bars)
+        if is_jp_symbol(sym):
+            df = fetch_jp(sym)
             if df is None or df.empty:
                 return None
             return df['close'].dropna().tail(bars)
@@ -1432,7 +1774,7 @@ def symbols_meta():
     # 全グループの銘柄を統合（重複除く、先物・暗号通貨は除外＝スコアが無いため）
     all_syms = []
     seen = set()
-    for s in SYMBOLS + SP500_SYMBOLS:
+    for s in SYMBOLS + SP500_SYMBOLS + NIKKEI225_SYMBOLS:
         # 先物と暗号通貨は除外
         if s in ('NQ1!', 'ES1!') or s in CRYPTO_MAP:
             continue
@@ -1450,12 +1792,43 @@ def symbols_meta():
             week_change = data.get('week_change')
         items.append({
             'symbol': sym,
-            'sector': SP500_SECTOR_MAP.get(sym, ''),
+            'sector': SP500_SECTOR_MAP.get(sym, '') or NIKKEI225_SECTOR_MAP.get(sym, ''),
             'score': score,
             'week_change': week_change,
         })
 
     cached_count = sum(1 for it in items if it['score'] is not None)
+    return jsonify({
+        'total': len(items),
+        'cached_count': cached_count,
+        'items': items,
+    })
+
+
+@app.route('/jp225-all')
+def jp225_all():
+    """日経225 の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。"""
+    items = []
+    for sym in NIKKEI225_SYMBOLS:
+        if sym in thumb_cache:
+            _, data = thumb_cache[sym]
+            items.append({
+                'symbol': sym,
+                'sector': NIKKEI225_SECTOR_MAP.get(sym, ''),
+                'thumb': data.get('thumb'),
+                'score': data.get('score'),
+                'week_change': data.get('week_change'),
+            })
+        else:
+            items.append({
+                'symbol': sym,
+                'sector': NIKKEI225_SECTOR_MAP.get(sym, ''),
+                'thumb': None,
+                'score': None,
+                'week_change': None,
+            })
+
+    cached_count = sum(1 for it in items if it['thumb'] is not None)
     return jsonify({
         'total': len(items),
         'cached_count': cached_count,
