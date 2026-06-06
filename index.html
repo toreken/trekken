@@ -1345,6 +1345,56 @@
       }
     }
 
+    // ===== チャート取得時間の計測（メモリ内、最大10件、2秒以上のみ記録） =====
+    const chartTimings = [];
+    const TIMING_MAX = 10;
+    const TIMING_SLOW_MS = 2000;  // これ以上かかった場合のみ記録
+    let loadingTimerID = null;
+
+    function recordTiming(ms) {
+      if (ms < TIMING_SLOW_MS) return;
+      chartTimings.push(ms);
+      if (chartTimings.length > TIMING_MAX) chartTimings.shift();
+    }
+
+    function avgTimingSec() {
+      if (chartTimings.length === 0) return null;
+      const avg = chartTimings.reduce((a, b) => a + b, 0) / chartTimings.length;
+      return Math.round(avg / 1000);
+    }
+
+    function buildLoadingHtml() {
+      const avg = avgTimingSec();
+      const avgText = avg !== null
+        ? `<div style="margin-top:8px;font-size:11px;color:#666;">平均 約 ${avg} 秒かかります</div>`
+        : '';
+      return `<div class="chart-loading">データ取得中...<div id="loadingElapsed" style="margin-top:6px;font-size:11px;color:#555;"></div>${avgText}</div>`;
+    }
+
+    function startLoadingTimer(body) {
+      clearInterval(loadingTimerID);
+      const t0 = performance.now();
+      loadingTimerID = setInterval(() => {
+        const el = document.getElementById('loadingElapsed');
+        if (!el) { clearInterval(loadingTimerID); return; }
+        el.textContent = `経過 ${((performance.now() - t0) / 1000).toFixed(1)} 秒`;
+      }, 200);
+      return t0;
+    }
+
+    function stopLoadingTimer() {
+      clearInterval(loadingTimerID);
+      loadingTimerID = null;
+    }
+
+    function showElapsedBadge(body, ms) {
+      const badge = document.createElement('div');
+      badge.style.cssText = 'text-align:right;padding:4px 10px;font-size:11px;color:#888;';
+      badge.textContent = `取得 ${(ms / 1000).toFixed(1)} 秒`;
+      body.appendChild(badge);
+      setTimeout(() => badge.remove(), 4000);
+    }
+
     async function loadChart(sym) {
       activeSymbol = sym;
       compareMode = false;
@@ -1364,7 +1414,8 @@
 
       area.classList.add('active');
       title.textContent = `📈 ${sym}`;
-      body.innerHTML = '<div class="chart-loading">データ取得中...</div>';
+      body.innerHTML = buildLoadingHtml();
+      const t0 = startLoadingTimer(body);
       commentaryList.innerHTML = '<li class="info-empty">読み込み中...</li>';
       peerSectorName.textContent = '';
       peerList.innerHTML = '<li class="info-empty">読み込み中...</li>';
@@ -1377,14 +1428,18 @@
       const chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`)
         .then(r => r.json())
         .then(data => {
+          const ms = performance.now() - t0;
+          stopLoadingTimer();
+          recordTiming(ms);
           if (data.image) {
             lastChartImage = data.image;
             body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
+            if (ms >= TIMING_SLOW_MS) showElapsedBadge(body, ms);
           } else {
             body.innerHTML = `<div class="chart-error">⚠️ ${data.error || '取得失敗'}</div>`;
           }
         })
-        .catch(() => { body.innerHTML = '<div class="chart-error">⚠️ サーバーに接続できません</div>'; });
+        .catch(() => { stopLoadingTimer(); body.innerHTML = '<div class="chart-error">⚠️ サーバーに接続できません</div>'; });
 
       const infoPromise = fetch(`/info/${encodeURIComponent(sym)}`)
         .then(r => r.json())
