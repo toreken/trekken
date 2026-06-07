@@ -243,9 +243,50 @@ SP500_SECTOR_MAP = {
 
 INDEX_SYMBOLS = ['NQ1!', 'ES1!', 'NI225']
 
+# NASDAQ100構成銘柄（2026年6月時点、slickcharts.com 公開リストより。
+# 2026年1月20日のリバランスでAZNがWMTに置換済み。GOOGとGOOGLの両方を含むため101銘柄。)
+NASDAQ100_SYMBOLS = [
+    'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'GOOG', 'AVGO', 'META', 'TSLA', 'MU',
+    'WMT', 'AMD', 'ASML', 'INTC', 'CSCO', 'COST', 'LRCX', 'ARM', 'AMAT', 'NFLX',
+    'PLTR', 'TXN', 'KLAC', 'LIN', 'SNDK', 'MRVL', 'QCOM', 'PANW', 'ADI', 'PEP',
+    'TMUS', 'STX', 'AMGN', 'APP', 'WDC', 'CRWD', 'GILD', 'ISRG', 'SHOP', 'HON',
+    'BKNG', 'PDD', 'VRTX', 'SBUX', 'FTNT', 'CDNS', 'MAR', 'ADBE', 'ADP', 'CEG',
+    'SNPS', 'MNST', 'CSX', 'CMCSA', 'DDOG', 'MELI', 'INTU', 'MDLZ', 'ABNB', 'ORLY',
+    'NXPI', 'ROST', 'MPWR', 'CTAS', 'AEP', 'DASH', 'LITE', 'REGN', 'WBD', 'BKR',
+    'PCAR', 'FANG', 'FAST', 'EA', 'ODFL', 'XEL', 'ADSK', 'MCHP', 'FER', 'EXC',
+    'IDXX', 'MSTR', 'CCEP', 'KDP', 'ALNY', 'TTWO', 'AXON', 'TRI', 'PYPL', 'PAYX',
+    'WDAY', 'ROP', 'GEHC', 'CPRT', 'DXCM', 'KHC', 'CTSH', 'VRSK', 'ZS', 'INSM',
+    'CHTR',
+]
+
+# NASDAQ100にあってS&P500にない銘柄のセクター情報のみここに定義
+# S&P500と重複する銘柄は SP500_SECTOR_MAP から取得する（後述の get_sector ヘルパー参照）
+NASDAQ100_SECTOR_MAP = {
+    'ARM':  'Semiconductors',
+    'ASML': 'Semiconductor Materials & Equipment',
+    'CCEP': 'Soft Drinks & Non-alcoholic Beverages',
+    'MRVL': 'Semiconductors',
+    'MELI': 'Broadline Retail',
+    'MSTR': 'Application Software',
+    'PDD':  'Broadline Retail',
+    'SHOP': 'Application Software',
+    'ZS':   'Systems Software',
+    'ALNY': 'Biotechnology',
+    'INSM': 'Biotechnology',
+    'FER':  'Construction & Engineering',
+    'TRI':  'Research & Consulting Services',
+}
+
+
+def get_sector(sym):
+    """シンボルのセクター情報を取得する（SP500 → NASDAQ100追加分 → 日経225 の順で参照）。"""
+    return (SP500_SECTOR_MAP.get(sym)
+            or NASDAQ100_SECTOR_MAP.get(sym)
+            or NIKKEI225_SECTOR_MAP.get(sym)
+            or '')
+
+
 # 日経225構成銘柄（2026年6月4日時点・公式の日経平均プロフィルより）
-# シンボル形式: TSE:XXXX（tvDatafeed用、exchange='TSE', symbol='XXXX' に分割可能）
-# yfinanceで企業概要を取得する場合は、'XXXX.T' に変換して使用
 NIKKEI225_SYMBOLS = [
     # 医薬品 (9)
     "TSE:4151", "TSE:4502", "TSE:4503", "TSE:4506", "TSE:4507",
@@ -346,10 +387,8 @@ NIKKEI225_SYMBOLS = [
 
 # 日経225のセクター（業種）マップ（公式分類）
 NIKKEI225_SECTOR_MAP = {
-    # 医薬品
     "TSE:4151": "医薬品", "TSE:4502": "医薬品", "TSE:4503": "医薬品", "TSE:4506": "医薬品", "TSE:4507": "医薬品",
     "TSE:4519": "医薬品", "TSE:4523": "医薬品", "TSE:4568": "医薬品", "TSE:4578": "医薬品",
-    # 電気機器
     "TSE:285A": "電気機器", "TSE:4062": "電気機器", "TSE:6479": "電気機器", "TSE:6501": "電気機器", "TSE:6503": "電気機器",
     "TSE:6504": "電気機器", "TSE:6506": "電気機器", "TSE:6526": "電気機器", "TSE:6645": "電気機器", "TSE:6701": "電気機器",
     "TSE:6702": "電気機器", "TSE:6723": "電気機器", "TSE:6724": "電気機器", "TSE:6752": "電気機器", "TSE:6753": "電気機器",
@@ -357,89 +396,57 @@ NIKKEI225_SECTOR_MAP = {
     "TSE:6861": "電気機器", "TSE:6902": "電気機器", "TSE:6920": "電気機器", "TSE:6954": "電気機器", "TSE:6963": "電気機器",
     "TSE:6971": "電気機器", "TSE:6976": "電気機器", "TSE:6981": "電気機器", "TSE:7735": "電気機器", "TSE:7751": "電気機器",
     "TSE:7752": "電気機器", "TSE:8035": "電気機器",
-    # 自動車
     "TSE:543A": "自動車", "TSE:7201": "自動車", "TSE:7202": "自動車", "TSE:7203": "自動車", "TSE:7211": "自動車",
     "TSE:7261": "自動車", "TSE:7267": "自動車", "TSE:7269": "自動車", "TSE:7270": "自動車", "TSE:7272": "自動車",
-    # 精密機器
     "TSE:4543": "精密機器", "TSE:4902": "精密機器", "TSE:6146": "精密機器", "TSE:7731": "精密機器", "TSE:7733": "精密機器",
     "TSE:7741": "精密機器",
-    # 通信
     "TSE:9432": "通信", "TSE:9433": "通信", "TSE:9434": "通信", "TSE:9984": "通信",
-    # 銀行
     "TSE:5831": "銀行", "TSE:7186": "銀行", "TSE:8304": "銀行", "TSE:8306": "銀行", "TSE:8308": "銀行",
     "TSE:8309": "銀行", "TSE:8316": "銀行", "TSE:8331": "銀行", "TSE:8354": "銀行", "TSE:8411": "銀行",
-    # その他金融
     "TSE:8253": "その他金融", "TSE:8591": "その他金融", "TSE:8697": "その他金融",
-    # 証券
     "TSE:8601": "証券", "TSE:8604": "証券",
-    # 保険
     "TSE:8630": "保険", "TSE:8725": "保険", "TSE:8750": "保険", "TSE:8766": "保険", "TSE:8795": "保険",
-    # 水産
     "TSE:1332": "水産",
-    # 食品
     "TSE:2002": "食品", "TSE:2269": "食品", "TSE:2282": "食品", "TSE:2501": "食品", "TSE:2502": "食品",
     "TSE:2503": "食品", "TSE:2801": "食品", "TSE:2802": "食品", "TSE:2871": "食品", "TSE:2914": "食品",
-    # 小売業
     "TSE:3086": "小売業", "TSE:3092": "小売業", "TSE:3099": "小売業", "TSE:3382": "小売業", "TSE:7453": "小売業",
     "TSE:7532": "小売業", "TSE:8233": "小売業", "TSE:8252": "小売業", "TSE:8267": "小売業", "TSE:9843": "小売業",
     "TSE:9983": "小売業",
-    # サービス
     "TSE:2413": "サービス", "TSE:2432": "サービス", "TSE:3659": "サービス", "TSE:3697": "サービス", "TSE:4307": "サービス",
     "TSE:4324": "サービス", "TSE:4385": "サービス", "TSE:4661": "サービス", "TSE:4689": "サービス", "TSE:4704": "サービス",
     "TSE:4751": "サービス", "TSE:4755": "サービス", "TSE:6098": "サービス", "TSE:6178": "サービス", "TSE:6532": "サービス",
     "TSE:7974": "サービス", "TSE:9602": "サービス", "TSE:9735": "サービス", "TSE:9766": "サービス",
-    # 鉱業
     "TSE:1605": "鉱業",
-    # 繊維
     "TSE:3401": "繊維", "TSE:3402": "繊維",
-    # パルプ・紙
     "TSE:3861": "パルプ・紙",
-    # 化学
     "TSE:3405": "化学", "TSE:3407": "化学", "TSE:4004": "化学", "TSE:4005": "化学", "TSE:4021": "化学",
     "TSE:4042": "化学", "TSE:4043": "化学", "TSE:4061": "化学", "TSE:4063": "化学", "TSE:4183": "化学",
     "TSE:4188": "化学", "TSE:4208": "化学", "TSE:4452": "化学", "TSE:4901": "化学", "TSE:4911": "化学",
     "TSE:6988": "化学",
-    # 石油
     "TSE:5019": "石油", "TSE:5020": "石油",
-    # ゴム
     "TSE:5101": "ゴム", "TSE:5108": "ゴム",
-    # 窯業
     "TSE:5201": "窯業", "TSE:5214": "窯業", "TSE:5233": "窯業", "TSE:5301": "窯業", "TSE:5332": "窯業",
     "TSE:5333": "窯業",
-    # 鉄鋼
     "TSE:5401": "鉄鋼", "TSE:5406": "鉄鋼", "TSE:5411": "鉄鋼",
-    # 非鉄・金属
     "TSE:3436": "非鉄・金属", "TSE:5706": "非鉄・金属", "TSE:5711": "非鉄・金属", "TSE:5713": "非鉄・金属", "TSE:5714": "非鉄・金属",
     "TSE:5801": "非鉄・金属", "TSE:5802": "非鉄・金属", "TSE:5803": "非鉄・金属",
-    # 商社
     "TSE:2768": "商社", "TSE:8001": "商社", "TSE:8002": "商社", "TSE:8015": "商社", "TSE:8031": "商社",
     "TSE:8053": "商社", "TSE:8058": "商社",
-    # 建設
     "TSE:1721": "建設", "TSE:1801": "建設", "TSE:1802": "建設", "TSE:1803": "建設", "TSE:1808": "建設",
     "TSE:1812": "建設", "TSE:1925": "建設", "TSE:1928": "建設", "TSE:1963": "建設",
-    # 機械
     "TSE:5631": "機械", "TSE:6103": "機械", "TSE:6113": "機械", "TSE:6273": "機械", "TSE:6301": "機械",
     "TSE:6302": "機械", "TSE:6305": "機械", "TSE:6326": "機械", "TSE:6361": "機械", "TSE:6367": "機械",
     "TSE:6471": "機械", "TSE:6472": "機械", "TSE:6473": "機械", "TSE:7004": "機械", "TSE:7011": "機械",
     "TSE:7013": "機械",
-    # 造船
     "TSE:7012": "造船",
-    # その他製造
     "TSE:7832": "その他製造", "TSE:7911": "その他製造", "TSE:7912": "その他製造", "TSE:7951": "その他製造",
-    # 不動産
     "TSE:3289": "不動産", "TSE:8801": "不動産", "TSE:8802": "不動産", "TSE:8804": "不動産", "TSE:8830": "不動産",
-    # 鉄道・バス
     "TSE:9001": "鉄道・バス", "TSE:9005": "鉄道・バス", "TSE:9007": "鉄道・バス", "TSE:9008": "鉄道・バス", "TSE:9009": "鉄道・バス",
     "TSE:9020": "鉄道・バス", "TSE:9021": "鉄道・バス", "TSE:9022": "鉄道・バス",
-    # 陸運
     "TSE:9064": "陸運", "TSE:9147": "陸運",
-    # 海運
     "TSE:9101": "海運", "TSE:9104": "海運", "TSE:9107": "海運",
-    # 空運
     "TSE:9201": "空運", "TSE:9202": "空運",
-    # 電力
     "TSE:9501": "電力", "TSE:9502": "電力", "TSE:9503": "電力",
-    # ガス
     "TSE:9531": "ガス", "TSE:9532": "ガス",
 }
 
@@ -527,8 +534,8 @@ CRYPTO_MAP = {
     'DOGE':  ('DOGEUSDT', 'BINANCE'),
     'AVAX':  ('AVAXUSDT', 'BINANCE'),
     'LINK':  ('LINKUSDT', 'BINANCE'),
-    'MATIC': ('POLUSDT',  'BINANCE'),  # MATICは2024年にPOLへリブランド
-    'ATOMC': ('ATOMUSDT', 'BINANCE'),  # 暗号通貨のATOM（株式のATOMと区別するためサイト上はATOMCと表記）
+    'MATIC': ('POLUSDT',  'BINANCE'),
+    'ATOMC': ('ATOMUSDT', 'BINANCE'),
 }
 
 
@@ -549,7 +556,6 @@ def fetch_crypto(symbol_key, n_bars=1000):
         if df_raw is None or df_raw.empty:
             return None
 
-        # 既存の fetch_and_calculate と同じ小文字カラム名に揃える
         df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
                                     'close':'close','volume':'volume'})
         df = df[['open', 'high', 'low', 'close', 'volume']].copy()
@@ -557,7 +563,6 @@ def fetch_crypto(symbol_key, n_bars=1000):
             df[col] = pd.to_numeric(df[col], errors='coerce')
         df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
 
-        # ↓ ここからは fetch_and_calculate と完全に同じスコア計算
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
         df['prev_close'] = df['close'].shift(1)
@@ -594,7 +599,6 @@ def fetch_jp(symbol_key, n_bars=1000):
         return None
     if not is_jp_symbol(symbol_key):
         return None
-    # 'TSE:7203' → exchange='TSE', symbol='7203'
     parts = symbol_key.split(':', 1)
     if len(parts) != 2:
         return None
@@ -605,7 +609,6 @@ def fetch_jp(symbol_key, n_bars=1000):
         if df_raw is None or df_raw.empty:
             return None
 
-        # 既存の fetch_and_calculate と同じ小文字カラム名に揃える
         df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
                                     'close':'close','volume':'volume'})
         df = df[['open', 'high', 'low', 'close', 'volume']].copy()
@@ -613,7 +616,6 @@ def fetch_jp(symbol_key, n_bars=1000):
             df[col] = pd.to_numeric(df[col], errors='coerce')
         df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
 
-        # ↓ ここからは fetch_and_calculate と完全に同じスコア計算
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
         df['prev_close'] = df['close'].shift(1)
@@ -713,7 +715,6 @@ def fetch_es1(n_bars=1000):
     if Interval is None:
         return None
     try:
-        # SPYはAMEX/ARCAにあるためフォールバック
         df_spy = tv_local.get_hist(symbol='SPY', exchange='AMEX', interval=Interval.in_daily, n_bars=n_bars)
         if df_spy is None:
             df_spy = tv_local.get_hist(symbol='SPY', exchange='ARCA', interval=Interval.in_daily, n_bars=n_bars)
@@ -732,8 +733,6 @@ def fetch_es1(n_bars=1000):
 
         df_uvol = tv_local.get_hist(symbol='UVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
         df_dvol = tv_local.get_hist(symbol='DVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
-
-        # 表示用チャートデータ（S&P500 E-mini先物）
         df_chart = tv_local.get_hist(symbol='ES1!', exchange='CME_MINI', interval=Interval.in_daily, n_bars=n_bars)
 
         if any(x is None or x.empty for x in [df_spy, df_ndtw, df_ndfi, df_ndth, df_uvol, df_dvol, df_chart]):
@@ -855,6 +854,62 @@ def make_chart_image_stock(df, symbol):
     return img_b64
 
 
+def make_chart_image_nq(df, symbol):
+    """NQ1!/ES1! 用のチャート画像生成。大文字カラム(Open/High/Low/Close)と
+    candle_color 列を使う。スコアによる色分けは fetch_nq1 / fetch_es1 が付与済み。"""
+    plot_len = min(DISPLAY_PERIOD, len(df))
+    plot_df = df.iloc[-plot_len:].copy()
+
+    hidden_mc = mpf.make_marketcolors(up=BG_COLOR, down=BG_COLOR, edge=BG_COLOR, wick=BG_COLOR)
+    my_style = mpf.make_mpf_style(
+        base_mpf_style='nightclouds', marketcolors=hidden_mc, y_on_right=True,
+        rc={
+            'figure.facecolor': BG_COLOR, 'axes.facecolor': BG_COLOR,
+            'savefig.facecolor': BG_COLOR, 'axes.edgecolor': GRID_COLOR,
+            'axes.labelcolor': TEXT_COLOR, 'xtick.color': TEXT_COLOR,
+            'ytick.color': TEXT_COLOR, 'grid.color': GRID_COLOR,
+            'text.color': TEXT_COLOR, 'xtick.labelcolor': TEXT_COLOR,
+            'ytick.labelcolor': TEXT_COLOR,
+        }
+    )
+
+    fig = plt.figure(figsize=(14, 8), facecolor=BG_COLOR)
+    fig.subplots_adjust(top=0.92, bottom=0.15, left=0.05, right=0.90)
+    ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
+    ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
+    ax_main.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
+
+    try:
+        mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
+                 warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
+    except Exception:
+        plt.close(fig)
+        return None
+
+    current_score = plot_df['totalScore'].iloc[-1] if 'totalScore' in plot_df.columns and not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
+    ax_main.set_title(f"{symbol} (Score: {int(current_score)})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
+    ax_main.xaxis.grid(False)
+    xmin, xmax = ax_main.get_xlim()
+    ax_main.set_xlim(xmin, xmax + 5)
+
+    for j in range(len(plot_df)):
+        row = plot_df.iloc[j]
+        c = row.get('candle_color', '#888888')
+        if pd.isna(c): c = '#888888'
+        ax_main.plot([j, j], [row['Low'], row['High']], color=c, linewidth=1.5, zorder=10)
+        body_bottom = min(row['Open'], row['Close'])
+        body_height = max(abs(row['Open'] - row['Close']), row['Close'] * 0.0005)
+        rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
+        ax_main.add_patch(rect)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
+    buf.seek(0)
+    img_b64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    return img_b64
+
+
 def make_thumbnail_image(df, symbol):
     """通常チャートと同じローソク足サムネイル（フル装備、サイズ小さめ）。一気見画面用。"""
     try:
@@ -876,7 +931,6 @@ def make_thumbnail_image(df, symbol):
             }
         )
 
-        # 600x400px相当（dpi=100 で 6×4 インチ）
         fig = plt.figure(figsize=(6, 4), facecolor=BG_COLOR, dpi=100)
         fig.subplots_adjust(top=0.90, bottom=0.15, left=0.07, right=0.90)
         ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
@@ -930,56 +984,6 @@ def make_thumbnail_image(df, symbol):
     except Exception as e:
         print(f"thumbnail {symbol} error: {e}")
         return None
-    plot_len = min(DISPLAY_PERIOD, len(df))
-    plot_df = df.iloc[-plot_len:].copy()
-
-    hidden_mc = mpf.make_marketcolors(up=BG_COLOR, down=BG_COLOR, edge=BG_COLOR, wick=BG_COLOR)
-    my_style = mpf.make_mpf_style(
-        base_mpf_style='nightclouds', marketcolors=hidden_mc, y_on_right=True,
-        rc={
-            'figure.facecolor': BG_COLOR, 'axes.facecolor': BG_COLOR,
-            'savefig.facecolor': BG_COLOR, 'axes.edgecolor': GRID_COLOR,
-            'axes.labelcolor': TEXT_COLOR, 'xtick.color': TEXT_COLOR,
-            'ytick.color': TEXT_COLOR, 'grid.color': GRID_COLOR,
-            'text.color': TEXT_COLOR,
-        }
-    )
-
-    fig = plt.figure(figsize=(14, 8), facecolor=BG_COLOR)
-    fig.subplots_adjust(top=0.92, bottom=0.15, left=0.05, right=0.90)
-    ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
-    ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    ax_main.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-
-    try:
-        mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
-                 warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
-    except Exception:
-        plt.close(fig)
-        return None
-
-    current_score = plot_df['totalScore'].iloc[-1] if 'totalScore' in plot_df.columns and not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-    ax_main.set_title(f"{symbol} (Score: {int(current_score)})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
-    ax_main.xaxis.grid(False)
-    xmin, xmax = ax_main.get_xlim()
-    ax_main.set_xlim(xmin, xmax + 5)
-
-    for j in range(len(plot_df)):
-        row = plot_df.iloc[j]
-        c = row.get('candle_color', '#888888')
-        if pd.isna(c): c = '#888888'
-        ax_main.plot([j, j], [row['Low'], row['High']], color=c, linewidth=1.5, zorder=10)
-        body_bottom = min(row['Open'], row['Close'])
-        body_height = max(abs(row['Open'] - row['Close']), row['Close'] * 0.0005)
-        rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
-        ax_main.add_patch(rect)
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
-    buf.seek(0)
-    img_b64 = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    return img_b64
 
 
 @app.route('/chart/<symbol>')
@@ -1013,7 +1017,7 @@ def chart(symbol):
             if df is None:
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
-        elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS:
+        elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS or symbol_upper in NASDAQ100_SYMBOLS:
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
             if df is None:
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
@@ -1034,14 +1038,13 @@ def chart(symbol):
 # トレンド解説と同業他社情報（/info エンドポイント）
 # =========================================
 info_cache = {}
-profile_cache = {}  # 銘柄概要のキャッシュ（24時間）
+profile_cache = {}
 
 
 def generate_commentary(df):
-    """直近データから簡潔なトレンド解説を3行程度で生成する"""
+    """直近データから簡潔なトレンド解説を3行程度で生成する（スコア・乖離率は整数表示）"""
     try:
         last = df.iloc[-1]
-        # 列名は小文字（個別株）と大文字（NQ1!/ES1!）の両方に対応
         close_col = 'close' if 'close' in df.columns else 'Close'
         score_col = 'totalScore' if 'totalScore' in df.columns else None
 
@@ -1052,7 +1055,6 @@ def generate_commentary(df):
         if pd.isna(score):
             return ['スコアがまだ計算できていません']
 
-        # 色分け基準（既存のチャート色と同じ）
         if score >= 7:
             zone = '強い上昇トレンド'
             zone_emoji = '🟦'
@@ -1066,21 +1068,20 @@ def generate_commentary(df):
             zone = '下落トレンド'
             zone_emoji = '🔴'
 
-        lines = [f'{zone_emoji} 現在: {zone}（スコア {score:+.1f}）']
+        lines = [f'{zone_emoji} 現在: {zone}(スコア {int(score):+d})']
 
-        # 乖離率
         if 'discrepancyPercent' in df.columns and not pd.isna(last['discrepancyPercent']):
             disc = last['discrepancyPercent']
             if disc > 8:
-                lines.append(f'📈 EMA20から +{disc:.1f}% で過熱気味')
+                lines.append(f'📈 EMA20から +{int(disc)}% で過熱気味')
             elif disc > 3:
-                lines.append(f'📈 EMA20から +{disc:.1f}% で上方乖離')
+                lines.append(f'📈 EMA20から +{int(disc)}% で上方乖離')
             elif disc < -8:
-                lines.append(f'📉 EMA20から {disc:.1f}% で売られすぎ圏')
+                lines.append(f'📉 EMA20から {int(disc)}% で売られすぎ圏')
             elif disc < -3:
-                lines.append(f'📉 EMA20から {disc:.1f}% で下方乖離')
+                lines.append(f'📉 EMA20から {int(disc)}% で下方乖離')
             else:
-                lines.append(f'➡️ EMA20近辺で推移（乖離 {disc:+.1f}%）')
+                lines.append(f'➡️ EMA20近辺で推移(乖離 {int(disc):+d}%)')
 
         return lines[:4]
     except Exception:
@@ -1088,9 +1089,7 @@ def generate_commentary(df):
 
 
 def get_peers(symbol_upper):
-    """同じセクターの他銘柄を5つ取得し、1週間の変動率を返す。
-    S&P500 → GICS Sub-Industry単位、日経225 → 公式業種単位。"""
-    # 日経225銘柄の場合
+    """同じセクターの他銘柄を5つ取得し、1週間の変動率を返す。"""
     if is_jp_symbol(symbol_upper):
         sub_industry = NIKKEI225_SECTOR_MAP.get(symbol_upper)
         if not sub_industry:
@@ -1101,7 +1100,6 @@ def get_peers(symbol_upper):
             return {'sector': sub_industry, 'peers': []}
         peers = peers[:5]
 
-        # 日経銘柄の場合、yfinance に '7203.T' 形式で投げる
         peer_yf_map = {p: jp_to_yfinance(p) for p in peers}
         peer_data = []
         try:
@@ -1145,23 +1143,21 @@ def get_peers(symbol_upper):
 
         return {'sector': sub_industry, 'peers': peer_data}
 
-    # S&P500銘柄の場合
-    sub_industry = SP500_SECTOR_MAP.get(symbol_upper)
+    sub_industry = get_sector(symbol_upper)
     if not sub_industry:
-        return None  # S&P500外の銘柄
+        return None
 
-    # 同じ業界の他銘柄を抽出
-    peers = [s for s, sub in SP500_SECTOR_MAP.items()
-             if sub == sub_industry and s != symbol_upper]
+    # 同じ業界の他銘柄を、S&P500 と NASDAQ100 の和集合から抽出
+    candidate_syms = set(SP500_SYMBOLS) | set(NASDAQ100_SYMBOLS)
+    peers = [s for s in candidate_syms
+             if get_sector(s) == sub_industry and s != symbol_upper]
     if not peers:
         return {'sector': sub_industry, 'peers': []}
 
-    # 最大5銘柄（順番固定のため先頭から）
-    peers = peers[:5]
+    peers = sorted(peers)[:5]
 
     peer_data = []
     try:
-        # 一括取得（高速化のためまとめて）
         df_all = yf.download(peers, period='10d', interval='1d',
                              progress=False, auto_adjust=False, group_by='ticker')
         for p in peers:
@@ -1177,14 +1173,12 @@ def get_peers(symbol_upper):
                 if len(closes) < 2:
                     peer_data.append({'symbol': p, 'change': None, 'score': None})
                     continue
-                # 約1週間前との比較（5営業日前）
                 cur = float(closes.iloc[-1])
                 ref = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
                 if ref == 0:
                     peer_data.append({'symbol': p, 'change': None, 'score': None})
                     continue
                 change_pct = (cur - ref) / ref * 100
-                # スコアをサムネイルキャッシュから取得
                 peer_score = None
                 if p in thumb_cache:
                     _, thumb_data = thumb_cache[p]
@@ -1194,7 +1188,6 @@ def get_peers(symbol_upper):
                 peer_data.append({'symbol': p, 'change': None, 'score': None})
     except Exception:
         for p in peers:
-            # 失敗時もスコアだけは付ける
             peer_score = None
             if p in thumb_cache:
                 _, thumb_data = thumb_cache[p]
@@ -1205,7 +1198,7 @@ def get_peers(symbol_upper):
 
 
 def format_market_cap(mc):
-    """時価総額を読みやすい形式に変換（例: 3.2T, 850B, 12.5M）"""
+    """時価総額を読みやすい形式に変換"""
     if mc is None or not isinstance(mc, (int, float)) or mc <= 0:
         return None
     if mc >= 1e12:
@@ -1219,23 +1212,20 @@ def format_market_cap(mc):
 
 def get_profile(symbol_upper):
     """銘柄の概要情報を yfinance から取得する。先物・暗号通貨は対象外。"""
-    # 対象外（概要が無い銘柄）
     if symbol_upper in ('NQ1!', 'ES1!') or symbol_upper in CRYPTO_MAP:
         return None
 
-    # 個別株 / S&P 500 / 日経225 のみ対象
     if (symbol_upper not in SYMBOLS
             and symbol_upper not in SP500_SYMBOLS
+            and symbol_upper not in NASDAQ100_SYMBOLS
             and not is_jp_symbol(symbol_upper)):
         return None
 
-    # yfinance に渡すティッカー（日経は 'TSE:7203' → '7203.T'）
     yf_ticker = jp_to_yfinance(symbol_upper) if is_jp_symbol(symbol_upper) else symbol_upper
 
     try:
         ticker = yf.Ticker(yf_ticker)
         info = ticker.info or {}
-        # 何も取れなかった場合
         if not info or 'shortName' not in info and 'longName' not in info:
             return None
 
@@ -1263,13 +1253,11 @@ def info(symbol):
     if symbol_upper in info_cache:
         cached_time, cached_data = info_cache[symbol_upper]
         if now - cached_time < CACHE_SECONDS:
-            # 翻訳が後から追加された場合に備えて、キャッシュデータにも翻訳を再適用
             cached_data = dict(cached_data)
             cached_data['profile'] = apply_translation(cached_data.get('profile'))
             return jsonify({**cached_data, 'cached': True})
 
     try:
-        # スコア計算用のデータを取得（チャートと同じロジック）
         if symbol_upper == 'NQ1!':
             df = fetch_nq1()
         elif symbol_upper == 'ES1!':
@@ -1278,7 +1266,7 @@ def info(symbol):
             df = fetch_crypto(symbol_upper)
         elif is_jp_symbol(symbol_upper):
             df = fetch_jp(symbol_upper)
-        elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS:
+        elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS or symbol_upper in NASDAQ100_SYMBOLS:
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
         else:
             return jsonify({'error': f'{symbol_upper} は対象外です'}), 400
@@ -1289,7 +1277,6 @@ def info(symbol):
         commentary = generate_commentary(df)
         peers_info = get_peers(symbol_upper)
 
-        # 銘柄概要を取得（プロファイルキャッシュから or 新規取得）
         profile = None
         if symbol_upper in profile_cache:
             p_time, p_data = profile_cache[symbol_upper]
@@ -1300,7 +1287,6 @@ def info(symbol):
             if profile is not None:
                 profile_cache[symbol_upper] = (now, profile)
 
-        # 日本語訳があれば適用
         profile = apply_translation(profile)
 
         result = {
@@ -1319,13 +1305,11 @@ def info(symbol):
 # 銘柄比較（重ね合わせラインチャート）
 # =========================================
 compare_cache = {}
-
-# 比較用カラーパレット
 COMPARE_COLORS = ['#ff4444', '#32cd32', '#00bfff', '#ffd700', '#ff8800', '#aa66ff']
 
 
 def fetch_close_series(symbol, bars=DISPLAY_PERIOD):
-    """指定銘柄の終値シリーズを取得する。チャートと同じデータ源を使う。"""
+    """指定銘柄の終値シリーズを取得する。"""
     sym = symbol.upper()
     try:
         if sym == 'NQ1!':
@@ -1348,7 +1332,7 @@ def fetch_close_series(symbol, bars=DISPLAY_PERIOD):
             if df is None or df.empty:
                 return None
             return df['close'].dropna().tail(bars)
-        if sym in SYMBOLS or sym in SP500_SYMBOLS:
+        if sym in SYMBOLS or sym in SP500_SYMBOLS or sym in NASDAQ100_SYMBOLS:
             df = fetch_and_calculate(sym, period=CALC_PERIOD)
             if df is None or df.empty:
                 return None
@@ -1369,12 +1353,10 @@ def make_compare_chart(symbols):
     if not series_map:
         return None, []
 
-    # 共通の日付軸に揃える（内側結合）
     df = pd.concat(series_map, axis=1, join='inner')
     if df.empty or len(df) < 2:
         return None, []
 
-    # 各銘柄の初日を100として正規化
     base = df.iloc[0]
     norm = df.divide(base) * 100
 
@@ -1409,7 +1391,6 @@ def make_compare_chart(symbols):
     img_b64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
 
-    # 凡例用の色マップを返す
     return img_b64, [{'symbol': s, 'color': color_map[s]} for s in norm.columns]
 
 
@@ -1421,7 +1402,7 @@ def compare():
     if not symbols:
         return jsonify({'error': '銘柄が指定されていません'}), 400
     if len(symbols) > 8:
-        symbols = symbols[:8]  # 過剰防止
+        symbols = symbols[:8]
 
     cache_key = ','.join(symbols)
     now = time.time()
@@ -1445,7 +1426,7 @@ def compare():
 # プリフェッチ機能（外部cronから1日1回呼ぶ）
 # =========================================
 def calculate_scores_from_ohlcv(df):
-    """OHLCV DataFrameからスコアを計算する（fetch_and_calculate と同じロジック）"""
+    """OHLCV DataFrameからスコアを計算する"""
     df = df.copy()
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
@@ -1482,7 +1463,6 @@ def prefetch_batch(symbols_batch):
     now = time.time()
     for sym in symbols_batch:
         try:
-            # 一括取得の結果から1銘柄分を取り出す
             if len(symbols_batch) == 1:
                 sub = df_all
             else:
@@ -1508,15 +1488,12 @@ def prefetch_batch(symbols_batch):
                     df[col] = pd.to_numeric(df[col], errors='coerce')
             df = df.dropna(subset=['close'])
 
-            # スコア計算
             df = calculate_scores_from_ohlcv(df)
 
-            # チャート画像生成 → chart_cacheへ
             img_b64 = make_chart_image_stock(df, sym)
             if img_b64:
                 chart_cache[sym] = (now, img_b64)
 
-            # サムネイル生成 → thumb_cacheへ
             thumb_b64 = make_thumbnail_image(df, sym)
             last_score = df['totalScore'].iloc[-1] if 'totalScore' in df.columns else None
             try:
@@ -1524,7 +1501,6 @@ def prefetch_batch(symbols_batch):
             except Exception:
                 last_score_val = None
 
-            # 1週間変動率
             week_change = None
             try:
                 closes = df['close'].dropna()
@@ -1543,11 +1519,9 @@ def prefetch_batch(symbols_batch):
                     'week_change': week_change,
                 })
 
-            # 情報生成 → info_cacheへ
             commentary = generate_commentary(df)
-            peers_info = get_peers(sym)  # ここは別途yfinance呼び出しが発生
+            peers_info = get_peers(sym)
 
-            # 概要情報も取得 → profile_cacheへ
             profile = get_profile(sym)
             if profile is not None:
                 profile_cache[sym] = (now, profile)
@@ -1564,7 +1538,6 @@ def prefetch_batch(symbols_batch):
     return results
 
 
-# プリフェッチ実行状態
 prefetch_state = {
     'running': False,
     'started_at': None,
@@ -1578,7 +1551,8 @@ prefetch_lock = threading.Lock()
 
 
 def run_prefetch_in_background():
-    """別スレッドで実行されるプリフェッチ処理本体"""
+    """別スレッドで実行されるプリフェッチ処理本体。
+    S&P500 を全件処理した後、NASDAQ100 のうち S&P500 にない差分のみ追加で処理する。"""
     global prefetch_state
 
     start_time = time.time()
@@ -1588,14 +1562,18 @@ def run_prefetch_in_background():
     BATCH_SIZE = 50
     BATCH_WAIT = 3
 
+    # NASDAQ100のうち S&P500 に含まれない銘柄（追加で取得が必要な銘柄）
+    nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
+    targets = list(SP500_SYMBOLS) + nasdaq_only
+
     try:
-        for i in range(0, len(SP500_SYMBOLS), BATCH_SIZE):
-            batch = SP500_SYMBOLS[i:i+BATCH_SIZE]
+        for i in range(0, len(targets), BATCH_SIZE):
+            batch = targets[i:i+BATCH_SIZE]
             print(f"Prefetch batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
             res = prefetch_batch(batch)
             all_success.extend(res.get('success', []))
             all_failed.extend(res.get('failed', []))
-            if i + BATCH_SIZE < len(SP500_SYMBOLS):
+            if i + BATCH_SIZE < len(targets):
                 time.sleep(BATCH_WAIT)
     except Exception as e:
         print(f"Prefetch background error: {e}")
@@ -1613,7 +1591,7 @@ def run_prefetch_in_background():
 
 @app.route('/prefetch')
 def prefetch():
-    """S&P500を一括プリフェッチ。バックグラウンドで実行し、即座にレスポンスを返す。"""
+    """S&P500 + NASDAQ100差分 を一括プリフェッチ。バックグラウンドで実行し、即座にレスポンスを返す。"""
     token = request.args.get('token', '')
     if not PREFETCH_TOKEN or token != PREFETCH_TOKEN:
         return jsonify({'error': 'unauthorized'}), 401
@@ -1628,20 +1606,21 @@ def prefetch():
         prefetch_state['started_at'] = time.time()
         prefetch_state['finished_at'] = None
 
-    # 別スレッドで実行
     thread = threading.Thread(target=run_prefetch_in_background, daemon=True)
     thread.start()
 
+    nasdaq_only_count = len([s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)])
+    total = len(SP500_SYMBOLS) + nasdaq_only_count
     return jsonify({
         'status': 'started',
-        'message': f'{len(SP500_SYMBOLS)} 銘柄のプリフェッチを開始しました。完了まで10〜20分ほどかかります。',
+        'message': f'{total} 銘柄（S&P500 + NASDAQ100差分）のプリフェッチを開始しました。完了まで10〜20分ほどかかります。',
         'check_status_at': '/prefetch/status',
     }), 202
 
 
 @app.route('/prefetch/status')
 def prefetch_status():
-    """プリフェッチの進捗確認用エンドポイント（トークン不要）"""
+    """プリフェッチの進捗確認用エンドポイント"""
     with prefetch_lock:
         return jsonify(dict(prefetch_state))
 
@@ -1651,7 +1630,6 @@ def prefetch_status():
 # =========================================
 import json as _json
 
-# 翻訳辞書（{symbol: 日本語訳文}）
 translations = {}
 PERSISTENT_TRANSLATIONS_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/translations.json'
 
@@ -1669,11 +1647,9 @@ def load_persistent_cache():
         now = time.time()
         loaded_profiles = 0
         loaded_thumbs = 0
-        # profile_cache の復元
         for sym, profile in (data.get('profiles') or {}).items():
             profile_cache[sym] = (now, profile)
             loaded_profiles += 1
-        # thumb_cache の復元
         for sym, thumb_data in (data.get('thumbs') or {}).items():
             thumb_cache[sym] = (now, thumb_data)
             loaded_thumbs += 1
@@ -1712,7 +1688,6 @@ def apply_translation(profile):
     return profile
 
 
-# 起動時に1回だけロード（gunicornワーカー起動時に呼ばれる）
 load_persistent_cache()
 load_translations()
 
@@ -1769,13 +1744,10 @@ def sp500_all():
 
 @app.route('/symbols-meta')
 def symbols_meta():
-    """検索フィルタ用に、全グループの銘柄メタ情報（スコア+週次変動率のみ）を返す。
-    サムネイル画像は含まないので軽量。"""
-    # 全グループの銘柄を統合（重複除く、先物・暗号通貨は除外＝スコアが無いため）
+    """検索フィルタ用に、全グループの銘柄メタ情報を返す。サムネイル画像は含まないので軽量。"""
     all_syms = []
     seen = set()
-    for s in SYMBOLS + SP500_SYMBOLS + NIKKEI225_SYMBOLS:
-        # 先物と暗号通貨は除外
+    for s in SYMBOLS + SP500_SYMBOLS + NASDAQ100_SYMBOLS + NIKKEI225_SYMBOLS:
         if s in ('NQ1!', 'ES1!') or s in CRYPTO_MAP:
             continue
         if s not in seen:
@@ -1792,12 +1764,44 @@ def symbols_meta():
             week_change = data.get('week_change')
         items.append({
             'symbol': sym,
-            'sector': SP500_SECTOR_MAP.get(sym, '') or NIKKEI225_SECTOR_MAP.get(sym, ''),
+            'sector': get_sector(sym),
             'score': score,
             'week_change': week_change,
         })
 
     cached_count = sum(1 for it in items if it['score'] is not None)
+    return jsonify({
+        'total': len(items),
+        'cached_count': cached_count,
+        'items': items,
+    })
+
+
+@app.route('/nasdaq100-all')
+def nasdaq100_all():
+    """NASDAQ100 の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。
+    S&P500と重複する銘柄も、同じ thumb_cache から共有して表示する。"""
+    items = []
+    for sym in NASDAQ100_SYMBOLS:
+        if sym in thumb_cache:
+            _, data = thumb_cache[sym]
+            items.append({
+                'symbol': sym,
+                'sector': get_sector(sym),
+                'thumb': data.get('thumb'),
+                'score': data.get('score'),
+                'week_change': data.get('week_change'),
+            })
+        else:
+            items.append({
+                'symbol': sym,
+                'sector': get_sector(sym),
+                'thumb': None,
+                'score': None,
+                'week_change': None,
+            })
+
+    cached_count = sum(1 for it in items if it['thumb'] is not None)
     return jsonify({
         'total': len(items),
         'cached_count': cached_count,
@@ -1840,20 +1844,19 @@ def jp225_all():
 # Note 記事取得（RSSフィード経由）
 # =========================================
 note_cache = {'time': 0, 'items': []}
-NOTE_CACHE_SECONDS = 1800  # 30分キャッシュ
-NOTE_USERNAME = 'natukb'   # トレケンのNoteアカウント
+NOTE_CACHE_SECONDS = 1800
+NOTE_USERNAME = 'natukb'
 
 
 def parse_note_rss(xml_text):
     """NoteのRSS(XML)から記事情報を抽出する"""
     try:
         root = ET.fromstring(xml_text)
-        # RSS2.0形式: rss > channel > item
         channel = root.find('channel')
         if channel is None:
             return []
         items = []
-        for item in channel.findall('item')[:3]:  # 最新3件
+        for item in channel.findall('item')[:3]:
             title_el = item.find('title')
             link_el = item.find('link')
             pubdate_el = item.find('pubDate')
@@ -1864,13 +1867,11 @@ def parse_note_rss(xml_text):
             pubdate = pubdate_el.text if pubdate_el is not None else ''
             desc = desc_el.text if desc_el is not None else ''
 
-            # サムネイル画像URLを description のHTMLから抽出
             thumb = ''
             if desc:
                 m = re.search(r'<img[^>]+src="([^"]+)"', desc)
                 if m:
                     thumb = m.group(1)
-                # description からタグを除去して本文プレビューに
                 desc_text = re.sub(r'<[^>]+>', '', desc).strip()[:80]
             else:
                 desc_text = ''
