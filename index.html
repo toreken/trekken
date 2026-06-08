@@ -381,6 +381,56 @@
     }
 
     /* ===== 条件検索 ===== */
+    /* ===== ワンタッチフィルタ（初心者向け） ===== */
+    .quick-filter-row {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: linear-gradient(135deg, #fdf6e3 0%, #f5e6d3 100%);
+      border-radius: 12px;
+      border: 1px solid var(--brown-100);
+    }
+    .quick-filter-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-700);
+      margin-bottom: 10px;
+      letter-spacing: 0.5px;
+    }
+    .quick-filter-buttons {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
+    .quick-filter-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #fff;
+      border: 2px solid var(--brown-200);
+      border-radius: 10px;
+      cursor: pointer;
+      text-align: left;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .quick-filter-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(60, 35, 15, 0.12);
+    }
+    .quick-filter-btn .qf-icon { font-size: 24px; line-height: 1; }
+    .quick-filter-btn .qf-text { display: flex; flex-direction: column; gap: 2px; }
+    .quick-filter-btn .qf-text strong { font-size: 13px; color: var(--brown-800); font-weight: 700; }
+    .quick-filter-btn .qf-text small { font-size: 10px; color: var(--muted); }
+    .quick-filter-btn.qf-undervalue:hover { border-color: #c9a000; background: #fffbed; }
+    .quick-filter-btn.qf-uptrend:hover    { border-color: #2e8b3a; background: #f0faf2; }
+    .quick-filter-btn.qf-overvalue:hover  { border-color: #00bfff; background: #ecf8ff; }
+    .quick-filter-btn.qf-downtrend:hover  { border-color: #c4302b; background: #fdf1f0; }
+    .quick-filter-btn.active {
+      box-shadow: 0 0 0 3px rgba(196, 154, 74, 0.25);
+      border-color: var(--gold-500);
+    }
+
     .filter-row {
       margin-top: 12px;
       display: flex;
@@ -950,6 +1000,40 @@
     <div class="search-card">
       <input type="text" class="search-box" id="searchBox" placeholder="🔍 全銘柄から検索（例: NVDA, AAPL, 7203）">
 
+      <div class="quick-filter-row">
+        <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）</div>
+        <div class="quick-filter-buttons">
+          <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued')" title="EMA20から大きく下方乖離、反発の可能性">
+            <span class="qf-icon">💎</span>
+            <span class="qf-text">
+              <strong>割安銘柄</strong>
+              <small>強い下落・反発候補（黄）</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend')" title="EMA20より上、上昇基調">
+            <span class="qf-icon">🌟</span>
+            <span class="qf-text">
+              <strong>上昇トレンド</strong>
+              <small>勢いがある銘柄（緑+青）</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-overvalue" onclick="applyQuickFilter('overvalued')" title="EMA20から大きく上方乖離、過熱気味">
+            <span class="qf-icon">⚠️</span>
+            <span class="qf-text">
+              <strong>割高（過熱）</strong>
+              <small>強い上昇・買われすぎ（青）</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-downtrend" onclick="applyQuickFilter('downtrend')" title="EMA20より下、下落基調">
+            <span class="qf-icon">📉</span>
+            <span class="qf-text">
+              <strong>下落トレンド</strong>
+              <small>逆風が吹く銘柄（赤+黄）</small>
+            </span>
+          </button>
+        </div>
+      </div>
+
       <div class="filter-row">
         <button class="filter-toggle" id="filterToggle" onclick="toggleFilterPanel()">
           <span class="filter-icon">⚙</span>
@@ -1307,8 +1391,61 @@
       document.getElementById('changeMax').value = '';
       document.querySelectorAll('.filter-color-check').forEach(cb => cb.checked = true);
       document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
+      document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
       readFilterInputs();
       renderSymbolList();
+    }
+
+    function applyQuickFilter(type) {
+      // 色チェックボックスのマッピング
+      const colorMap = {
+        'undervalued': ['yellow'],          // 強い下落・反発候補
+        'uptrend':     ['green', 'blue'],   // 上昇トレンド全般
+        'overvalued':  ['blue'],            // 強い上昇・過熱
+        'downtrend':   ['red', 'yellow'],   // 下落トレンド全般
+      };
+      const targetColors = colorMap[type];
+      if (!targetColors) return;
+
+      // 既存の数値・グループ設定をリセット（色とボタン状態は新規セット）
+      document.getElementById('scoreMin').value = '';
+      document.getElementById('scoreMax').value = '';
+      document.getElementById('changeMin').value = '';
+      document.getElementById('changeMax').value = '';
+      document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
+
+      // 色チェックボックスをセット
+      document.querySelectorAll('.filter-color-check').forEach(cb => {
+        cb.checked = targetColors.includes(cb.value);
+      });
+
+      // ボタンのactive表示を更新
+      const typeToClass = {
+        'undervalued': 'qf-undervalue',
+        'uptrend': 'qf-uptrend',
+        'overvalued': 'qf-overvalue',
+        'downtrend': 'qf-downtrend',
+      };
+      document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.querySelector('.quick-filter-btn.' + typeToClass[type]);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      // フィルタパネルを開いて状態が見えるようにする
+      const panel = document.getElementById('filterPanel');
+      const toggle = document.getElementById('filterToggle');
+      panel.style.display = 'flex';
+      toggle.classList.add('open');
+
+      // メタデータ未取得なら取得
+      if (!metaData) fetchMetaData();
+
+      readFilterInputs();
+      renderSymbolList();
+
+      // 銘柄リストへスクロール
+      setTimeout(() => {
+        document.getElementById('symbolList').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
     }
 
     function scoreColor(score) {
