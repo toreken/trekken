@@ -942,6 +942,152 @@
     .note-card:hover .note-card-action svg { transform: translateX(4px); }
     .note-loading { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; flex: 1 1 100%; min-width: 100%; }
 
+    /* ===== ② 色凡例バナー ===== */
+    .legend-bar {
+      max-width: 1200px;
+      margin: -20px auto 0;
+      padding: 14px 28px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 18px 24px;
+      font-size: 12px;
+      color: var(--brown-700);
+      font-weight: 700;
+      position: relative;
+      z-index: 5;
+    }
+    .legend-bar-title {
+      width: 100%;
+      text-align: center;
+      font-size: 11px;
+      color: var(--gold-600);
+      letter-spacing: 1px;
+      margin-bottom: 2px;
+    }
+    .legend-bar-title::before { content: "● "; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .legend-dot.ld-blue   { background: #00bfff; }
+    .legend-dot.ld-green  { background: #32cd32; }
+    .legend-dot.ld-yellow { background: #ffd700; }
+    .legend-dot.ld-red    { background: #ff4444; }
+
+    /* ===== ① 今日の注目銘柄 ===== */
+    .featured-section {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 30px 28px 20px;
+      position: relative;
+      z-index: 5;
+    }
+    .featured-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+    }
+    .featured-block {
+      background: rgba(255, 252, 245, 0.85);
+      backdrop-filter: blur(10px);
+      border-radius: 18px;
+      padding: 20px 22px;
+      border: 1px solid var(--brown-100);
+      box-shadow: 0 4px 16px rgba(60, 35, 15, 0.06);
+    }
+    .featured-block.undervalue { border-top: 3px solid #c9a000; }
+    .featured-block.uptrend    { border-top: 3px solid #00bfff; }
+    .featured-title {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .featured-title .featured-icon { font-size: 22px; line-height: 1; }
+    .featured-title strong {
+      font-size: 16px;
+      color: var(--brown-800);
+      font-weight: 900;
+    }
+    .featured-title small {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .featured-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .featured-card {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding: 10px 14px;
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid var(--brown-100);
+      cursor: pointer;
+      transition: transform 0.2s cubic-bezier(0.22,1,0.36,1), box-shadow 0.2s, border-color 0.2s;
+      text-decoration: none;
+    }
+    .featured-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(60, 35, 15, 0.12);
+      border-color: var(--gold-500);
+    }
+    .featured-card-rank {
+      font-family: 'Playfair Display', serif;
+      font-size: 22px;
+      font-weight: 900;
+      color: var(--gold-500);
+      width: 28px;
+      text-align: center;
+    }
+    .featured-card-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .featured-card-symbol { font-size: 14px; font-weight: 900; color: var(--brown-800); }
+    .featured-card-sector {
+      font-size: 10px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 220px;
+    }
+    .featured-card-meta { text-align: right; }
+    .featured-card-score { font-size: 18px; font-weight: 900; line-height: 1.1; }
+    .featured-card-change { font-size: 10px; font-weight: 700; margin-top: 2px; }
+    .fc-blue   { color: #00bfff; }
+    .fc-green  { color: #2e8b3a; }
+    .fc-yellow { color: #c9a000; }
+    .fc-red    { color: #c4302b; }
+    .featured-loading { color: var(--muted); font-size: 12px; padding: 14px; text-align: center; }
+
+    @media (max-width: 700px) {
+      .featured-row { grid-template-columns: 1fr; }
+      .featured-section { padding: 20px 18px 10px; }
+    }
+
+    /* ===== ③ 免責事項 ===== */
+    .footer-disclaimer {
+      max-width: 700px;
+      margin: 14px auto 18px;
+      padding: 12px 18px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      font-size: 11px;
+      line-height: 1.7;
+      color: var(--cream-200);
+      letter-spacing: 0.3px;
+    }
+    .footer-disclaimer-label {
+      display: inline-block;
+      font-weight: 700;
+      color: var(--gold-400);
+      margin-right: 6px;
+    }
+
     /* ===== フッター ===== */
     .footer { margin-top: 60px; padding: 40px 28px 30px; background: var(--brown-800); color: var(--cream-100); text-align: center; font-size: 12px; }
     .footer-logo { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 900; margin-bottom: 8px; }
@@ -1104,6 +1250,41 @@
     <div class="hero-sub-en">Candle Color Tells The Trend</div>
     <div class="hero-tagline">ろうそく足の色でトレンド把握 — トレケン式分析で次の一手を掴め！</div>
     <div class="hero-badge">投資判断のためのチャートデータベース</div>
+  </section>
+
+  <!-- ② 色凡例バナー -->
+  <div class="legend-bar">
+    <div class="legend-bar-title">ローソク足の色で一目で判定</div>
+    <span class="legend-item"><span class="legend-dot ld-blue"></span>強い上昇・過熱気味</span>
+    <span class="legend-item"><span class="legend-dot ld-green"></span>上昇トレンド</span>
+    <span class="legend-item"><span class="legend-dot ld-red"></span>下落トレンド</span>
+    <span class="legend-item"><span class="legend-dot ld-yellow"></span>強い下落・反発候補</span>
+  </div>
+
+  <!-- ① 今日の注目銘柄 -->
+  <section class="featured-section reveal" id="featured">
+    <div class="featured-row">
+      <div class="featured-block undervalue">
+        <div class="featured-title">
+          <span class="featured-icon">💎</span>
+          <strong>今日の割安TOP3</strong>
+          <small>強い下落・反発候補</small>
+        </div>
+        <div class="featured-cards" id="undervaluedFeatured">
+          <div class="featured-loading">読み込み中...</div>
+        </div>
+      </div>
+      <div class="featured-block uptrend">
+        <div class="featured-title">
+          <span class="featured-icon">🌟</span>
+          <strong>今日の上昇TOP3</strong>
+          <small>強い上昇・トレンド継続</small>
+        </div>
+        <div class="featured-cards" id="uptrendFeatured">
+          <div class="featured-loading">読み込み中...</div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- 銘柄検索＆タブ -->
@@ -1325,6 +1506,12 @@
   <!-- フッター -->
   <footer class="footer">
     <div class="footer-logo">Tore<span>ken</span></div>
+    <div class="footer-disclaimer">
+      <span class="footer-disclaimer-label">⚠️ 免責事項</span>
+      当サイトは投資判断のための情報提供のみを目的としており、特定銘柄の売買を推奨するものではありません。
+      掲載情報の正確性・完全性は保証されません。投資には元本割れリスクがあり、最終的な投資判断はご自身の責任で行ってください。
+      過去のチャート・スコアは将来の結果を保証するものではありません。
+    </div>
     <div>© 2026 トレケン / トレンド研究所</div>
   </footer>
 
@@ -2009,6 +2196,79 @@
       renderSymbolList();
     });
 
+    // ===== ① 注目銘柄（割安TOP3 / 上昇TOP3） =====
+    async function loadFeaturedSymbols() {
+      try {
+        const res = await fetch('/symbols-meta');
+        const data = await res.json();
+        if (!data.items) return;
+
+        const valid = data.items.filter(it => it.score !== null && it.score !== undefined);
+        if (valid.length === 0) {
+          document.getElementById('undervaluedFeatured').innerHTML =
+            '<div class="featured-loading">朝の自動更新後に表示されます</div>';
+          document.getElementById('uptrendFeatured').innerHTML =
+            '<div class="featured-loading">朝の自動更新後に表示されます</div>';
+          return;
+        }
+
+        // 割安TOP3: スコア昇順（下から3つ）
+        const undervalued = [...valid].sort((a, b) => a.score - b.score).slice(0, 3);
+        // 上昇TOP3: スコア降順（上から3つ）
+        const uptrend = [...valid].sort((a, b) => b.score - a.score).slice(0, 3);
+
+        renderFeaturedList('undervaluedFeatured', undervalued);
+        renderFeaturedList('uptrendFeatured', uptrend);
+      } catch (e) {
+        document.getElementById('undervaluedFeatured').innerHTML =
+          '<div class="featured-loading">⚠️ 取得失敗</div>';
+        document.getElementById('uptrendFeatured').innerHTML =
+          '<div class="featured-loading">⚠️ 取得失敗</div>';
+      }
+    }
+
+    function renderFeaturedList(targetId, items) {
+      const container = document.getElementById(targetId);
+      if (!items || items.length === 0) {
+        container.innerHTML = '<div class="featured-loading">該当銘柄なし</div>';
+        return;
+      }
+      container.innerHTML = items.map((it, idx) => {
+        const sc = it.score;
+        let scCls = 'fc-red';
+        if (sc >= 7) scCls = 'fc-blue';
+        else if (sc > 0) scCls = 'fc-green';
+        else if (sc <= -7) scCls = 'fc-yellow';
+        const scInt = Math.trunc(sc);
+        const scLabel = (scInt >= 0 ? '+' : '') + scInt;
+
+        const ch = it.week_change;
+        let chCls = 'fc-red', chLabel = '—';
+        if (ch !== null && ch !== undefined) {
+          chCls = ch >= 0 ? 'fc-green' : 'fc-red';
+          chLabel = (ch >= 0 ? '+' : '') + ch.toFixed(1) + '%';
+        }
+
+        const displaySym = (typeof NIKKEI_SET !== 'undefined' && NIKKEI_SET.has(it.symbol))
+          ? it.symbol.replace('TSE:', '')
+          : it.symbol;
+        const sectorLabel = it.sector || '';
+
+        return `
+          <div class="featured-card" onclick="loadChart('${it.symbol}')">
+            <div class="featured-card-rank">${idx + 1}</div>
+            <div class="featured-card-body">
+              <div class="featured-card-symbol">${escapeHtml(displaySym)}</div>
+              <div class="featured-card-sector">${escapeHtml(sectorLabel)}</div>
+            </div>
+            <div class="featured-card-meta">
+              <div class="featured-card-score ${scCls}">${scLabel}</div>
+              <div class="featured-card-change ${chCls}">${chLabel}</div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
     // ===== Note記事の取得 =====
     async function loadNoteArticles() {
       const grid = document.getElementById('noteGrid');
@@ -2070,6 +2330,7 @@
     // 初期化
     attachFilterListeners();
     renderSymbolList();
+    loadFeaturedSymbols();
     loadNoteArticles();
   </script>
 </body>
