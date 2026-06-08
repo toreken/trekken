@@ -70,7 +70,9 @@ SYMBOLS = [
     'MAKO', 'HLP',
     # グループ2
     'KOS', 'GOOGL', 'INTC', 'NVDA', 'IONQ', 'FIGS', 'MU',
-    'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA'
+    'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA',
+    # 量子コンピュータ関連（ピュアプレイ + 量子セキュリティ）
+    'RGTI', 'QBTS', 'QUBT', 'LAES',
 ]
 
 # S&P500 構成銘柄（yfinance形式: BRK.B → BRK-B 等に変換済み）
