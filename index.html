@@ -569,6 +569,82 @@
       cursor: pointer;
     }
 
+    /* ===== ① 銘柄チップの千鳥フェードイン ===== */
+    @keyframes chipFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== ② タブのスムーススライドインジケータ ===== */
+    .tabs { position: relative; }
+    .tabs::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      width: var(--tab-width, 0px);
+      height: 2px;
+      background: linear-gradient(90deg, var(--gold-500), var(--gold-600));
+      border-radius: 2px;
+      transform: translateX(var(--tab-left, 0px));
+      transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                  width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+    }
+    .tab.active { border-bottom-color: transparent !important; }
+
+    /* ===== ③ クイックフィルタの呼吸（注目誘導） ===== */
+    @keyframes quickFilterBreath {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(196, 154, 74, 0); }
+      50%      { box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.10); }
+    }
+    .quick-filter-btn:not(.active) {
+      animation: quickFilterBreath 5s ease-in-out infinite;
+    }
+    .quick-filter-btn.qf-undervalue:not(.active) { animation-delay: 0s; }
+    .quick-filter-btn.qf-uptrend:not(.active)    { animation-delay: 1.25s; }
+    .quick-filter-btn.qf-overvalue:not(.active)  { animation-delay: 2.5s; }
+    .quick-filter-btn.qf-downtrend:not(.active)  { animation-delay: 3.75s; }
+    /* hover時はパルスを止めて干渉を防ぐ */
+    .quick-filter-btn:hover { animation: none; }
+
+    /* ===== ④ 見出しの装飾線アニメ ===== */
+    .section-title-en {
+      position: relative;
+      display: inline-block;
+    }
+    .section-title-en::after {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 0;
+      width: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--gold-500), transparent);
+      border-radius: 2px;
+      transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+    }
+    .reveal.visible .section-title-en::after { width: 55%; }
+
+    /* ===== ⑤ ナビpillに微かなホバーglow ===== */
+    .nav-pill { transition: box-shadow 0.4s ease, transform 0.4s ease; }
+    .nav-pill:hover {
+      box-shadow: 0 6px 28px rgba(196, 154, 74, 0.18);
+      transform: translateY(-1px);
+    }
+
+    /* ===== ⑥ サムネイルカードの繊細なホバー ===== */
+    .thumb-card { transition: transform 0.25s cubic-bezier(0.22,1,0.36,1), box-shadow 0.25s, border-color 0.25s; }
+    .thumb-card:hover {
+      transform: translateY(-4px) scale(1.015);
+      box-shadow: 0 14px 28px rgba(60, 35, 15, 0.22);
+    }
+
+    /* ===== ⑦ ノートカードのホバー強化 ===== */
+    .note-card { transition: transform 0.35s cubic-bezier(0.22,1,0.36,1), box-shadow 0.35s; }
+    .note-card-thumb img { transition: transform 0.6s cubic-bezier(0.22,1,0.36,1); }
+    .note-card:hover .note-card-thumb img { transform: scale(1.06); }
+
     .symbol-list {
       margin-top: 18px;
       display: grid;
@@ -588,10 +664,18 @@
       font-size: 12px;
       font-weight: 700;
       color: var(--brown-800);
-      transition: background 0.15s, transform 0.15s;
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+                  background 0.15s, box-shadow 0.2s;
       user-select: none;
+      animation: chipFadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: calc(var(--i, 0) * 0.012s);
     }
-    .symbol-chip:hover { background: var(--brown-700); color: #fff; transform: translateY(-1px); }
+    .symbol-chip:hover {
+      background: var(--brown-700);
+      color: #fff;
+      transform: translateY(-2px) scale(1.03);
+      box-shadow: 0 4px 12px rgba(196, 154, 74, 0.25);
+    }
     .symbol-chip.active { background: var(--brown-700); color: #fff; }
     .symbol-chip.futures {
       background: linear-gradient(135deg, #f4dba0 0%, var(--gold-500) 100%);
@@ -1546,7 +1630,7 @@
         div.textContent = '該当する銘柄がありません';
         list.appendChild(div);
       } else {
-        displaySymbols.forEach(sym => {
+        displaySymbols.forEach((sym, idx) => {
           const chip = document.createElement('div');
           let cls = 'symbol-chip';
           if (sym === activeSymbol) cls += ' active';
@@ -1555,6 +1639,7 @@
           else if (QUANTUM_SET.has(sym) && currentGroup === 'QUANTUM') cls += ' quantum';
           else if (NASDAQ_SET.has(sym) && currentGroup === 'NASDAQ100') cls += ' nasdaq';
           chip.className = cls;
+          chip.style.setProperty('--i', idx);
           // 日経銘柄はコード番号だけ表示（TSE:7203 → 7203）
           chip.textContent = NIKKEI_SET.has(sym) ? sym.replace('TSE:', '') : sym;
           chip.onclick = () => loadChart(sym);
@@ -1840,10 +1925,20 @@
     }
 
     // タブ切替
+    function updateTabIndicator(activeBtn) {
+      if (!activeBtn) return;
+      const tabs = document.getElementById('tabs');
+      const rect = activeBtn.getBoundingClientRect();
+      const parentRect = tabs.getBoundingClientRect();
+      tabs.style.setProperty('--tab-width', rect.width + 'px');
+      tabs.style.setProperty('--tab-left', (rect.left - parentRect.left + tabs.scrollLeft) + 'px');
+    }
+
     document.querySelectorAll('.tab').forEach(btn => {
       btn.onclick = () => {
         document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        updateTabIndicator(btn);
         currentGroup = btn.dataset.group;
         // SP500、NASDAQ100、NIKKEI225以外に切り替えた時はoverview解除
         if (currentGroup !== 'SP500' && currentGroup !== 'NIKKEI225' && currentGroup !== 'NASDAQ100' && overviewMode) {
@@ -1856,6 +1951,16 @@
         }
         renderSymbolList();
       };
+    });
+
+    // 初期インジケータ位置設定 + ウィンドウリサイズ追従
+    window.addEventListener('load', () => {
+      const activeBtn = document.querySelector('.tab.active');
+      if (activeBtn) setTimeout(() => updateTabIndicator(activeBtn), 150);
+    });
+    window.addEventListener('resize', () => {
+      const activeBtn = document.querySelector('.tab.active');
+      if (activeBtn) updateTabIndicator(activeBtn);
     });
 
     // 検索ボックス
