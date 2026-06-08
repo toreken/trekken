@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-GitHub Actions上で実行される S&P500 + 日経225 プリフェッチスクリプト。
+GitHub Actions上で実行される S&P500 + NASDAQ100差分 + 日経225 プリフェッチスクリプト。
 yfinanceでデータを取得し、サムネイル画像とprofile情報を生成して
 cache/cache.json として保存する。
 
 日経225銘柄はTSE:XXXX形式でキー管理し、yfinanceはXXXX.T形式で取得。
+NASDAQ100銘柄はS&P500と多くが重複するため、差分13銘柄(ARM, ASML, CCEPなど)のみ追加。
 """
 
 import os
@@ -200,10 +201,10 @@ NIKKEI225_SYMBOLS = [
     # 医薬品
     'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
     # 電気機器
-    'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
+    'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
     'TSE:6645','TSE:6674','TSE:6701','TSE:6702','TSE:6723','TSE:6724','TSE:6752','TSE:6753','TSE:6758',
-    'TSE:6762','TSE:6770','TSE:6841','TSE:6857','TSE:6861','TSE:6902','TSE:6920','TSE:6952','TSE:6954','TSE:6963',
-    'TSE:6971','TSE:6976','TSE:6981','TSE:7735','TSE:7751','TSE:7752','TSE:8035',
+    'TSE:6762','TSE:6770','TSE:6841','TSE:6857','TSE:6861','TSE:6902','TSE:6952','TSE:6954','TSE:6971',
+    'TSE:6976','TSE:7735','TSE:7751','TSE:8035',
     # 輸送用機器
     'TSE:543A','TSE:7201','TSE:7202','TSE:7203','TSE:7205','TSE:7211','TSE:7261','TSE:7267','TSE:7269','TSE:7270','TSE:7272',
     # 化学
@@ -232,7 +233,7 @@ NIKKEI225_SYMBOLS = [
     # パルプ・紙
     'TSE:3941',
     # 銀行業
-    'TSE:5831','TSE:7186','TSE:8304','TSE:8306','TSE:8308','TSE:8309','TSE:8316','TSE:8331','TSE:8354','TSE:8355','TSE:8411',
+    'TSE:8304','TSE:8306','TSE:8308','TSE:8309','TSE:8316','TSE:8331','TSE:8354','TSE:8355','TSE:8411',
     # 証券・商品先物取引業
     'TSE:8601','TSE:8604','TSE:8628',
     # 保険業
@@ -266,7 +267,7 @@ NIKKEI225_SYMBOLS = [
     # その他製品
     'TSE:4902','TSE:7912','TSE:7951','TSE:7974',
     # 精密機器
-    'TSE:4543','TSE:6146','TSE:7731','TSE:7733','TSE:7741','TSE:7762',
+    'TSE:4543','TSE:7731','TSE:7733','TSE:7741','TSE:7762',
 ]
 
 # 重複除去（念のため）
@@ -278,15 +279,13 @@ NIKKEI225_SECTOR_MAP = {
     'TSE:4507': '医薬品', 'TSE:4519': '医薬品', 'TSE:4523': '医薬品', 'TSE:4568': '医薬品', 'TSE:4578': '医薬品',
     # 電気機器
     'TSE:285A': '電気機器', 'TSE:4062': '電気機器', 'TSE:6479': '電気機器', 'TSE:6501': '電気機器',
-    'TSE:6502': '電気機器', 'TSE:6503': '電気機器', 'TSE:6504': '電気機器', 'TSE:6506': '電気機器',
-    'TSE:6526': '電気機器',
+    'TSE:6502': '電気機器', 'TSE:6504': '電気機器', 'TSE:6506': '電気機器', 'TSE:6526': '電気機器',
     'TSE:6594': '電気機器', 'TSE:6645': '電気機器', 'TSE:6674': '電気機器', 'TSE:6701': '電気機器',
     'TSE:6702': '電気機器', 'TSE:6723': '電気機器', 'TSE:6724': '電気機器', 'TSE:6752': '電気機器',
     'TSE:6753': '電気機器', 'TSE:6758': '電気機器', 'TSE:6762': '電気機器', 'TSE:6770': '電気機器',
     'TSE:6841': '電気機器', 'TSE:6857': '電気機器', 'TSE:6861': '電気機器', 'TSE:6902': '電気機器',
-    'TSE:6920': '電気機器', 'TSE:6952': '電気機器', 'TSE:6954': '電気機器', 'TSE:6963': '電気機器',
-    'TSE:6971': '電気機器', 'TSE:6976': '電気機器', 'TSE:6981': '電気機器',
-    'TSE:7735': '電気機器', 'TSE:7751': '電気機器', 'TSE:7752': '電気機器', 'TSE:8035': '電気機器',
+    'TSE:6952': '電気機器', 'TSE:6954': '電気機器', 'TSE:6971': '電気機器', 'TSE:6976': '電気機器',
+    'TSE:7735': '電気機器', 'TSE:7751': '電気機器', 'TSE:8035': '電気機器',
     # 輸送用機器
     'TSE:543A': '自動車', 'TSE:7201': '自動車', 'TSE:7202': '自動車', 'TSE:7203': '自動車',
     'TSE:7205': '自動車', 'TSE:7211': '自動車', 'TSE:7261': '自動車', 'TSE:7267': '自動車',
@@ -322,7 +321,6 @@ NIKKEI225_SECTOR_MAP = {
     # 繊維製品
     'TSE:3001': '繊維製品', 'TSE:3861': 'パルプ・紙', 'TSE:3893': 'パルプ・紙', 'TSE:3941': 'パルプ・紙',
     # 銀行業
-    'TSE:5831': '銀行業', 'TSE:7186': '銀行業',
     'TSE:8304': '銀行業', 'TSE:8306': '銀行業', 'TSE:8308': '銀行業', 'TSE:8309': '銀行業',
     'TSE:8316': '銀行業', 'TSE:8331': '銀行業', 'TSE:8354': '銀行業', 'TSE:8355': '銀行業', 'TSE:8411': '銀行業',
     # 証券
@@ -366,7 +364,34 @@ NIKKEI225_SECTOR_MAP = {
     # その他製品
     'TSE:4902': 'その他製品', 'TSE:7951': 'その他製品', 'TSE:7974': 'その他製品',
     # 精密機器
-    'TSE:4543': '精密機器', 'TSE:6146': '精密機器', 'TSE:7731': '精密機器', 'TSE:7733': '精密機器', 'TSE:7741': '精密機器', 'TSE:7762': '精密機器',
+    'TSE:4543': '精密機器', 'TSE:7731': '精密機器', 'TSE:7733': '精密機器', 'TSE:7741': '精密機器', 'TSE:7762': '精密機器',
+}
+
+
+# ===========================
+# NASDAQ100 のうち S&P500 に含まれない銘柄（差分のみ）
+# (2026年6月時点、slickcharts.com 公開リスト・WMT/AZN 入れ替え反映済み)
+# S&P500と重複する銘柄は既にプリフェッチされているため、ここには含めない。
+# ===========================
+NASDAQ100_ONLY_SYMBOLS = [
+    'ARM', 'ASML', 'CCEP', 'MRVL', 'MELI', 'MSTR', 'PDD', 'SHOP', 'ZS',
+    'ALNY', 'INSM', 'FER', 'TRI',
+]
+
+NASDAQ100_ONLY_SECTOR_MAP = {
+    'ARM':  'Semiconductors',
+    'ASML': 'Semiconductor Materials & Equipment',
+    'CCEP': 'Soft Drinks & Non-alcoholic Beverages',
+    'MRVL': 'Semiconductors',
+    'MELI': 'Broadline Retail',
+    'MSTR': 'Application Software',
+    'PDD':  'Broadline Retail',
+    'SHOP': 'Application Software',
+    'ZS':   'Systems Software',
+    'ALNY': 'Biotechnology',
+    'INSM': 'Biotechnology',
+    'FER':  'Construction & Engineering',
+    'TRI':  'Research & Consulting Services',
 }
 
 
@@ -411,6 +436,10 @@ def _build_all_targets():
             seen.add(s)
             out.append(s)
     for s in EXTRA_SYMBOLS:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    for s in NASDAQ100_ONLY_SYMBOLS:
         if s not in seen:
             seen.add(s)
             out.append(s)
@@ -745,8 +774,9 @@ def main():
     start_time = time.time()
     us_count = len([s for s in ALL_TARGETS if not is_jp_symbol(s)])
     jp_count = len([s for s in ALL_TARGETS if is_jp_symbol(s)])
+    ndx_only_count = len([s for s in NASDAQ100_ONLY_SYMBOLS if s in ALL_TARGETS])
     print(f"=== Prefetch start at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
-    print(f"Target: {len(ALL_TARGETS)} symbols (US:{us_count}, JP:{jp_count}), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
+    print(f"Target: {len(ALL_TARGETS)} symbols (US:{us_count} incl. NDX-only:{ndx_only_count}, JP:{jp_count}), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
 
     profiles = {}
     thumbs = {}
