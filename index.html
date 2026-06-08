@@ -567,6 +567,14 @@
     }
     .symbol-chip.nasdaq:hover { background: linear-gradient(135deg, #4a7fa8, #2b4a73); color: #fff; }
     .symbol-chip.nasdaq.active { background: linear-gradient(135deg, #2b4a73, #1c2e4a); color: #fff; }
+    /* 量子コンピュータ銘柄チップ（紫系配色） */
+    .symbol-chip.quantum {
+      background: linear-gradient(135deg, #f3edfc 0%, #c8b3eb 100%);
+      border-color: #7a5cc4;
+      color: #3a2870;
+    }
+    .symbol-chip.quantum:hover { background: linear-gradient(135deg, #7a5cc4, #4a3490); color: #fff; }
+    .symbol-chip.quantum.active { background: linear-gradient(135deg, #4a3490, #2a1f5c); color: #fff; }
 
     .no-result { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
     .count-info { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
@@ -983,6 +991,40 @@
           </div>
         </div>
         <div class="filter-group">
+          <div class="filter-group-title">対象グループ</div>
+          <div class="filter-color-row">
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="G1" checked>
+              <span class="filter-color-label">先物・米国株</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="G2" checked>
+              <span class="filter-color-label">セクター銘柄</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="G3" checked>
+              <span class="filter-color-label">暗号通貨</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="SP500" checked>
+              <span class="filter-color-label">S&amp;P500</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="NASDAQ100" checked>
+              <span class="filter-color-label">NASDAQ100</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="QUANTUM" checked>
+              <span class="filter-color-label">⚛️ 量子</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="NIKKEI225" checked>
+              <span class="filter-color-label">日経225</span>
+            </label>
+          </div>
+          <div class="filter-hint">チェックされたグループだけが検索対象になります</div>
+        </div>
+        <div class="filter-group">
           <div class="filter-group-title">1週間の変動率</div>
           <div class="filter-range-row">
             <input type="number" class="filter-num" id="changeMin" placeholder="最小%" step="0.5">
@@ -1000,6 +1042,7 @@
         <button class="tab" data-group="G3">暗号通貨</button>
         <button class="tab" data-group="SP500">S&amp;P 500</button>
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
+        <button class="tab" data-group="QUANTUM">⚛️ 量子コンピュータ</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
       </div>
 
@@ -1105,6 +1148,14 @@
         'WDAY','ROP','GEHC','CPRT','DXCM','KHC','CTSH','VRSK','ZS','INSM',
         'CHTR',
       ],
+      QUANTUM: [
+        // ピュアプレイ量子コンピュータ企業
+        'IONQ', 'RGTI', 'QBTS', 'QUBT',
+        // 量子セキュリティ
+        'LAES',
+        // ハイブリッド戦略（量子事業を持つ大手）
+        'IBM', 'GOOGL', 'MSFT', 'AMZN', 'NVDA', 'HON', 'INTC', 'MRVL',
+      ],
       NIKKEI225: [
         'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
         'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
@@ -1180,6 +1231,7 @@
     const FUTURES_SET = new Set(['NQ1!', 'ES1!']);
     const NIKKEI_SET = new Set(GROUPS.NIKKEI225);
     const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
+    const QUANTUM_SET = new Set(GROUPS.QUANTUM);
 
     // ===== 条件検索フィルタ =====
     let metaData = null;
@@ -1188,6 +1240,7 @@
       scoreMin: null, scoreMax: null,
       changeMin: null, changeMax: null,
       colors: new Set(['blue', 'green', 'red', 'yellow']),
+      groups: new Set(['G1', 'G2', 'G3', 'SP500', 'NASDAQ100', 'QUANTUM', 'NIKKEI225']),
     };
 
     function toggleFilterPanel() {
@@ -1233,10 +1286,15 @@
       document.querySelectorAll('.filter-color-check').forEach(cb => {
         if (cb.checked) filterState.colors.add(cb.value);
       });
+      filterState.groups.clear();
+      document.querySelectorAll('.filter-group-check').forEach(cb => {
+        if (cb.checked) filterState.groups.add(cb.value);
+      });
       filterActive = (
         filterState.scoreMin !== null || filterState.scoreMax !== null ||
         filterState.changeMin !== null || filterState.changeMax !== null ||
-        filterState.colors.size < 4
+        filterState.colors.size < 4 ||
+        filterState.groups.size < 7
       );
       document.getElementById('filterToggle').classList.toggle('active', filterActive);
       document.getElementById('filterClear').style.display = filterActive ? 'inline-block' : 'none';
@@ -1248,6 +1306,7 @@
       document.getElementById('changeMin').value = '';
       document.getElementById('changeMax').value = '';
       document.querySelectorAll('.filter-color-check').forEach(cb => cb.checked = true);
+      document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
       readFilterInputs();
       renderSymbolList();
     }
@@ -1284,6 +1343,9 @@
       document.querySelectorAll('.filter-color-check').forEach(cb => {
         cb.addEventListener('change', () => { readFilterInputs(); renderSymbolList(); });
       });
+      document.querySelectorAll('.filter-group-check').forEach(cb => {
+        cb.addEventListener('change', () => { readFilterInputs(); renderSymbolList(); });
+      });
     }
 
     let currentGroup = 'G1';
@@ -1318,7 +1380,9 @@
 
       if (filterActive) {
         const allSymbols = [], seen = new Set();
-        ['G1', 'G2', 'G3', 'NIKKEI225', 'SP500', 'NASDAQ100'].forEach(g => {
+        // 選択されたグループのみを対象にする
+        const targetGroups = Array.from(filterState.groups);
+        targetGroups.forEach(g => {
           (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
         });
         let pool = allSymbols.filter(s => passesFilter(s));
@@ -1327,7 +1391,7 @@
         totalCount = allSymbols.length;
       } else if (q) {
         const allSymbols = [], seen = new Set();
-        ['G1', 'G2', 'G3', 'NIKKEI225', 'SP500', 'NASDAQ100'].forEach(g => {
+        ['G1', 'G2', 'G3', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM'].forEach(g => {
           (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
         });
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
@@ -1351,6 +1415,7 @@
           if (sym === activeSymbol) cls += ' active';
           if (FUTURES_SET.has(sym)) cls += ' futures';
           else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
+          else if (QUANTUM_SET.has(sym) && currentGroup === 'QUANTUM') cls += ' quantum';
           else if (NASDAQ_SET.has(sym) && currentGroup === 'NASDAQ100') cls += ' nasdaq';
           chip.className = cls;
           // 日経銘柄はコード番号だけ表示（TSE:7203 → 7203）
