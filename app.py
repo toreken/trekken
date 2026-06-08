@@ -1858,7 +1858,7 @@ def parse_note_rss(xml_text):
         if channel is None:
             return []
         items = []
-        for item in channel.findall('item')[:3]:
+        for item in channel.findall('item')[:12]:
             title_el = item.find('title')
             link_el = item.find('link')
             pubdate_el = item.find('pubDate')
