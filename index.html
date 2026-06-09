@@ -1371,7 +1371,7 @@
             <span class="qf-icon">💎</span>
             <span class="qf-text">
               <strong>割安銘柄</strong>
-              <small>強い下落・反発候補（黄）</small>
+              <small>強い下落・反発候補（黄・赤）</small>
             </span>
           </button>
           <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend')" title="EMA20より上、上昇基調">
@@ -1768,7 +1768,7 @@
     function applyQuickFilter(type) {
       // 色チェックボックスのマッピング
       const colorMap = {
-        'undervalued': ['yellow'],          // 強い下落・反発候補
+        'undervalued': ['yellow', 'red'],   // 強い下落・反発候補
         'uptrend':     ['green', 'blue'],   // 上昇トレンド全般
         'overvalued':  ['blue'],            // 強い上昇・過熱
         'downtrend':   ['red', 'yellow'],   // 下落トレンド全般
