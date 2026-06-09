@@ -248,6 +248,12 @@
       animation: heroIn 0.9s cubic-bezier(0.22,1,0.36,1) 0.45s forwards;
     }
 
+    /* スマホでのみ改行を有効にするユーティリティ */
+    .sp-only { display: none; }
+    @media (max-width: 700px) {
+      .sp-only { display: inline; }
+    }
+
     .hero-tagline {
       margin-top: 24px;
       font-size: clamp(16px, 2.2vw, 20px);
@@ -1299,7 +1305,7 @@
   <section class="hero">
     <h1 class="hero-title-en">トレンド<span class="accent">研究所</span></h1>
     <div class="hero-sub-en">Candle Color Tells The Trend</div>
-    <div class="hero-tagline">ろうそく足の色でトレンド把握 — トレケン式分析で次の一手を掴め！</div>
+    <div class="hero-tagline">ーろうそく足の色でトレンド把握 — <br class="sp-only">トレケン式分析で次の一手を掴め！</div>
     <div class="hero-badge">投資判断のためのチャートデータベース</div>
   </section>
 
