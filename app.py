@@ -1857,6 +1857,11 @@ def parse_note_rss(xml_text):
         channel = root.find('channel')
         if channel is None:
             return []
+        # Media RSS の名前空間
+        ns = {
+            'media': 'http://search.yahoo.com/mrss/',
+            'content': 'http://purl.org/rss/1.0/modules/content/',
+        }
         items = []
         for item in channel.findall('item')[:12]:
             title_el = item.find('title')
@@ -1869,11 +1874,48 @@ def parse_note_rss(xml_text):
             pubdate = pubdate_el.text if pubdate_el is not None else ''
             desc = desc_el.text if desc_el is not None else ''
 
+            # ===== サムネイル取得（優先順位順に4箇所試す） =====
             thumb = ''
-            if desc:
+            # 1. <media:thumbnail url="..."/>（Media RSS、最優先）
+            try:
+                mt = item.find('media:thumbnail', ns)
+                if mt is not None and mt.get('url'):
+                    thumb = mt.get('url')
+            except Exception:
+                pass
+            # 2. <media:content url="..." medium="image"/>
+            if not thumb:
+                try:
+                    mc = item.find('media:content', ns)
+                    if mc is not None and mc.get('url'):
+                        thumb = mc.get('url')
+                except Exception:
+                    pass
+            # 3. <enclosure url="..." type="image/..."/>
+            if not thumb:
+                enc = item.find('enclosure')
+                if enc is not None and enc.get('url'):
+                    enc_type = (enc.get('type') or '').lower()
+                    if enc_type.startswith('image') or not enc_type:
+                        thumb = enc.get('url')
+            # 4. content:encoded 内のimg
+            if not thumb:
+                try:
+                    ce = item.find('content:encoded', ns)
+                    if ce is not None and ce.text:
+                        m = re.search(r'<img[^>]+src="([^"]+)"', ce.text)
+                        if m:
+                            thumb = m.group(1)
+                except Exception:
+                    pass
+            # 5. description内のimg（フォールバック）
+            if not thumb and desc:
                 m = re.search(r'<img[^>]+src="([^"]+)"', desc)
                 if m:
                     thumb = m.group(1)
+
+            # 本文プレビュー
+            if desc:
                 desc_text = re.sub(r'<[^>]+>', '', desc).strip()[:80]
             else:
                 desc_text = ''
