@@ -1514,11 +1514,29 @@ def prefetch_batch(symbols_batch):
             except Exception:
                 week_change = None
 
+            # 20EMA乖離率・50SMA乖離率
+            ema20_dev = None
+            sma50_dev = None
+            try:
+                last_close = float(df['close'].iloc[-1])
+                if 'ema_20' in df.columns:
+                    last_ema20 = df['ema_20'].iloc[-1]
+                    if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                        ema20_dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
+                if 'sma_50' in df.columns:
+                    last_sma50 = df['sma_50'].iloc[-1]
+                    if not pd.isna(last_sma50) and float(last_sma50) != 0:
+                        sma50_dev = (last_close - float(last_sma50)) / float(last_sma50) * 100
+            except Exception:
+                pass
+
             if thumb_b64:
                 thumb_cache[sym] = (now, {
                     'thumb': thumb_b64,
                     'score': last_score_val,
                     'week_change': week_change,
+                    'ema20_dev': ema20_dev,
+                    'sma50_dev': sma50_dev,
                 })
 
             commentary = generate_commentary(df)
@@ -1760,15 +1778,21 @@ def symbols_meta():
     for sym in all_syms:
         score = None
         week_change = None
+        ema20_dev = None
+        sma50_dev = None
         if sym in thumb_cache:
             _, data = thumb_cache[sym]
             score = data.get('score')
             week_change = data.get('week_change')
+            ema20_dev = data.get('ema20_dev')
+            sma50_dev = data.get('sma50_dev')
         items.append({
             'symbol': sym,
             'sector': get_sector(sym),
             'score': score,
             'week_change': week_change,
+            'ema20_dev': ema20_dev,
+            'sma50_dev': sma50_dev,
         })
 
     cached_count = sum(1 for it in items if it['score'] is not None)
