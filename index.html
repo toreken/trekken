@@ -1477,6 +1477,24 @@
           </div>
           <div class="filter-hint">例: +3%以上上昇 → 最小に「3」</div>
         </div>
+        <div class="filter-group">
+          <div class="filter-group-title">20EMAとの乖離率</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="ema20Min" placeholder="最小%" step="0.5">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="ema20Max" placeholder="最大%" step="0.5">
+          </div>
+          <div class="filter-hint">例: 20EMAより5%以上上 → 最小に「5」、下方乖離は最大に「-5」</div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title">50SMAとの乖離率</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="sma50Min" placeholder="最小%" step="0.5">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="sma50Max" placeholder="最大%" step="0.5">
+          </div>
+          <div class="filter-hint">中期トレンドからの乖離。例: -10%以下 → 最大に「-10」</div>
+        </div>
         <div class="filter-status" id="filterStatus"></div>
       </div>
 
@@ -1692,6 +1710,8 @@
     const filterState = {
       scoreMin: null, scoreMax: null,
       changeMin: null, changeMax: null,
+      ema20Min: null, ema20Max: null,
+      sma50Min: null, sma50Max: null,
       colors: new Set(['blue', 'green', 'red', 'yellow']),
       groups: new Set(['G1', 'G3', 'SP500', 'NASDAQ100', 'QUANTUM', 'NIKKEI225']),
     };
@@ -1731,10 +1751,18 @@
       const sMax = document.getElementById('scoreMax').value;
       const cMin = document.getElementById('changeMin').value;
       const cMax = document.getElementById('changeMax').value;
+      const eMin = document.getElementById('ema20Min').value;
+      const eMax = document.getElementById('ema20Max').value;
+      const smaMin = document.getElementById('sma50Min').value;
+      const smaMax = document.getElementById('sma50Max').value;
       filterState.scoreMin = sMin === '' ? null : parseFloat(sMin);
       filterState.scoreMax = sMax === '' ? null : parseFloat(sMax);
       filterState.changeMin = cMin === '' ? null : parseFloat(cMin);
       filterState.changeMax = cMax === '' ? null : parseFloat(cMax);
+      filterState.ema20Min = eMin === '' ? null : parseFloat(eMin);
+      filterState.ema20Max = eMax === '' ? null : parseFloat(eMax);
+      filterState.sma50Min = smaMin === '' ? null : parseFloat(smaMin);
+      filterState.sma50Max = smaMax === '' ? null : parseFloat(smaMax);
       filterState.colors.clear();
       document.querySelectorAll('.filter-color-check').forEach(cb => {
         if (cb.checked) filterState.colors.add(cb.value);
@@ -1746,6 +1774,8 @@
       filterActive = (
         filterState.scoreMin !== null || filterState.scoreMax !== null ||
         filterState.changeMin !== null || filterState.changeMax !== null ||
+        filterState.ema20Min !== null || filterState.ema20Max !== null ||
+        filterState.sma50Min !== null || filterState.sma50Max !== null ||
         filterState.colors.size < 4 ||
         filterState.groups.size < 6
       );
@@ -1758,6 +1788,10 @@
       document.getElementById('scoreMax').value = '';
       document.getElementById('changeMin').value = '';
       document.getElementById('changeMax').value = '';
+      document.getElementById('ema20Min').value = '';
+      document.getElementById('ema20Max').value = '';
+      document.getElementById('sma50Min').value = '';
+      document.getElementById('sma50Max').value = '';
       document.querySelectorAll('.filter-color-check').forEach(cb => cb.checked = true);
       document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
       document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
@@ -1831,10 +1865,15 @@
       const meta = metaData.items.find(it => it.symbol === sym);
       if (!meta) return false;
       const sc = meta.score, ch = meta.week_change;
+      const e20 = meta.ema20_dev, s50 = meta.sma50_dev;
       if (filterState.scoreMin !== null && (sc === null || sc === undefined || sc < filterState.scoreMin)) return false;
       if (filterState.scoreMax !== null && (sc === null || sc === undefined || sc > filterState.scoreMax)) return false;
       if (filterState.changeMin !== null && (ch === null || ch === undefined || ch < filterState.changeMin)) return false;
       if (filterState.changeMax !== null && (ch === null || ch === undefined || ch > filterState.changeMax)) return false;
+      if (filterState.ema20Min !== null && (e20 === null || e20 === undefined || e20 < filterState.ema20Min)) return false;
+      if (filterState.ema20Max !== null && (e20 === null || e20 === undefined || e20 > filterState.ema20Max)) return false;
+      if (filterState.sma50Min !== null && (s50 === null || s50 === undefined || s50 < filterState.sma50Min)) return false;
+      if (filterState.sma50Max !== null && (s50 === null || s50 === undefined || s50 > filterState.sma50Max)) return false;
       if (filterState.colors.size < 4) {
         const col = scoreColor(sc);
         if (col === null || !filterState.colors.has(col)) return false;
@@ -1843,7 +1882,7 @@
     }
 
     function attachFilterListeners() {
-      ['scoreMin', 'scoreMax', 'changeMin', 'changeMax'].forEach(id => {
+      ['scoreMin', 'scoreMax', 'changeMin', 'changeMax', 'ema20Min', 'ema20Max', 'sma50Min', 'sma50Max'].forEach(id => {
         document.getElementById(id).addEventListener('input', () => { readFilterInputs(); renderSymbolList(); });
       });
       document.querySelectorAll('.filter-color-check').forEach(cb => {
