@@ -660,10 +660,16 @@ def _process_us_batch(symbols, profiles, thumbs, failed):
 
             df = calculate_scores(df)
             thumb_b64 = make_thumbnail_b64(df, sym)
-            last_score_val, week_change = _extract_score_and_change(df)
+            last_score_val, week_change, ema20_dev, sma50_dev = _extract_score_and_change(df)
 
             if thumb_b64:
-                thumbs[sym] = {"thumb": thumb_b64, "score": last_score_val, "week_change": week_change}
+                thumbs[sym] = {
+                    "thumb": thumb_b64,
+                    "score": last_score_val,
+                    "week_change": week_change,
+                    "ema20_dev": ema20_dev,
+                    "sma50_dev": sma50_dev,
+                }
 
             profile = fetch_profile(sym)
             if profile is not None:
@@ -717,10 +723,16 @@ def _process_jp_batch(symbols, profiles, thumbs, failed):
             df = calculate_scores(df)
             # タイトルはTSE:XXXX形式で表示
             thumb_b64 = make_thumbnail_b64(df, tse_sym)
-            last_score_val, week_change = _extract_score_and_change(df)
+            last_score_val, week_change, ema20_dev, sma50_dev = _extract_score_and_change(df)
 
             if thumb_b64:
-                thumbs[tse_sym] = {"thumb": thumb_b64, "score": last_score_val, "week_change": week_change}
+                thumbs[tse_sym] = {
+                    "thumb": thumb_b64,
+                    "score": last_score_val,
+                    "week_change": week_change,
+                    "ema20_dev": ema20_dev,
+                    "sma50_dev": sma50_dev,
+                }
 
             profile = fetch_profile(tse_sym)
             if profile is not None:
@@ -749,7 +761,7 @@ def _build_df(sub):
 
 
 def _extract_score_and_change(df):
-    """totalScoreの最終値と1週間変動率を返す"""
+    """totalScoreの最終値、1週間変動率、20EMA乖離率、50SMA乖離率を返す"""
     last_score = df["totalScore"].iloc[-1] if "totalScore" in df.columns else None
     try:
         last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
@@ -767,7 +779,23 @@ def _extract_score_and_change(df):
     except Exception:
         week_change = None
 
-    return last_score_val, week_change
+    # 20EMA乖離率・50SMA乖離率
+    ema20_dev = None
+    sma50_dev = None
+    try:
+        last_close = float(df["close"].iloc[-1])
+        if "ema_20" in df.columns:
+            last_ema20 = df["ema_20"].iloc[-1]
+            if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                ema20_dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
+        if "sma_50" in df.columns:
+            last_sma50 = df["sma_50"].iloc[-1]
+            if not pd.isna(last_sma50) and float(last_sma50) != 0:
+                sma50_dev = (last_close - float(last_sma50)) / float(last_sma50) * 100
+    except Exception:
+        pass
+
+    return last_score_val, week_change, ema20_dev, sma50_dev
 
 
 def main():
