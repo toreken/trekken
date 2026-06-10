@@ -5,7 +5,7 @@ import base64
 import time
 import threading
 import xml.etree.ElementTree as ET
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 import requests as http_requests
 import pandas as pd
 import numpy as np
@@ -63,6 +63,88 @@ def get_interval():
 
 
 app = Flask(__name__)
+
+
+# ===== robots.txt（AI クローラーブロック） =====
+ROBOTS_TXT_CONTENT = """User-agent: *
+Allow: /
+
+# AI/LLM 学習クローラーを全面ブロック
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: cohere-ai
+Disallow: /
+
+User-agent: FacebookBot
+Disallow: /
+
+User-agent: Meta-ExternalAgent
+Disallow: /
+
+User-agent: Diffbot
+Disallow: /
+
+User-agent: ImagesiftBot
+Disallow: /
+
+User-agent: Omgilibot
+Disallow: /
+
+User-agent: YouBot
+Disallow: /
+
+User-agent: Applebot-Extended
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+"""
+
+
+@app.route('/robots.txt')
+def robots_txt():
+    return Response(ROBOTS_TXT_CONTENT, mimetype='text/plain')
+
+
+@app.after_request
+def add_security_headers(resp):
+    """技術スタック情報を隠す + AIブロックヘッダー + セキュリティ強化"""
+    # サーバー情報を隠す（Werkzeug/Python/Flask の表記を消す）
+    resp.headers['Server'] = 'Trekken'
+    # AI クローラーに学習禁止を明示
+    resp.headers['X-Robots-Tag'] = 'noai, noimageai'
+    # セキュリティ基本ヘッダー
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # X-Powered-By を念のため空に
+    resp.headers.pop('X-Powered-By', None)
+    return resp
+
 
 SYMBOLS = [
     'TONX', 'FRSH', 'PAYC', 'GCTS', 'PXLW',
