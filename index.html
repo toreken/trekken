@@ -750,6 +750,14 @@
     }
     .symbol-chip.quantum:hover { background: linear-gradient(135deg, #7a5cc4, #4a3490); color: #fff; }
     .symbol-chip.quantum.active { background: linear-gradient(135deg, #4a3490, #2a1f5c); color: #fff; }
+    /* 宇宙関連銘柄チップ（ディープブルー/ナイトスカイ配色） */
+    .symbol-chip.space {
+      background: linear-gradient(135deg, #e8f0fa 0%, #a8c4e3 100%);
+      border-color: #2a4a78;
+      color: #1a2e52;
+    }
+    .symbol-chip.space:hover { background: linear-gradient(135deg, #2a4a78, #15294a); color: #fff; }
+    .symbol-chip.space.active { background: linear-gradient(135deg, #15294a, #0a1729); color: #fff; }
 
     .no-result { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
     .count-info { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
@@ -1503,6 +1511,10 @@
               <span class="filter-color-label">⚛️ 量子</span>
             </label>
             <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="SPACE" checked>
+              <span class="filter-color-label">🚀 宇宙</span>
+            </label>
+            <label class="filter-color-chip">
               <input type="checkbox" class="filter-group-check" value="NIKKEI225" checked>
               <span class="filter-color-label">日経225</span>
             </label>
@@ -1545,6 +1557,7 @@
         <button class="tab" data-group="SP500">S&amp;P 500</button>
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="QUANTUM">⚛️ 量子コンピュータ</button>
+        <button class="tab" data-group="SPACE">🚀 宇宙関連</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
       </div>
 
@@ -1668,6 +1681,12 @@
         // ハイブリッド戦略（量子事業を持つ大手）
         'IBM', 'GOOGL', 'MSFT', 'AMZN', 'NVDA', 'HON', 'INTC', 'MRVL',
       ],
+      SPACE: [
+        // ピュアプレイ宇宙企業（打ち上げ・衛星・月面）
+        'RKLB', 'ASTS', 'LUNR', 'PL', 'BKSY', 'RDW', 'IRDM', 'SIDU',
+        // 関連大手（防衛・航空宇宙）
+        'LMT', 'BA', 'NOC', 'LHX', 'GE',
+      ],
       NIKKEI225: [
         'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
         'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
@@ -1744,6 +1763,7 @@
     const NIKKEI_SET = new Set(GROUPS.NIKKEI225);
     const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
     const QUANTUM_SET = new Set(GROUPS.QUANTUM);
+    const SPACE_SET = new Set(GROUPS.SPACE);
 
     // ===== 条件検索フィルタ =====
     let metaData = null;
@@ -1754,7 +1774,7 @@
       ema20Min: null, ema20Max: null,
       sma50Min: null, sma50Max: null,
       colors: new Set(['blue', 'green', 'red', 'yellow']),
-      groups: new Set(['G1', 'G3', 'SP500', 'NASDAQ100', 'QUANTUM', 'NIKKEI225']),
+      groups: new Set(['G1', 'G3', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'NIKKEI225']),
     };
 
     function toggleFilterPanel() {
@@ -1818,7 +1838,7 @@
         filterState.ema20Min !== null || filterState.ema20Max !== null ||
         filterState.sma50Min !== null || filterState.sma50Max !== null ||
         filterState.colors.size < 4 ||
-        filterState.groups.size < 6
+        filterState.groups.size < 7
       );
       document.getElementById('filterToggle').classList.toggle('active', filterActive);
       document.getElementById('filterClear').style.display = filterActive ? 'inline-block' : 'none';
@@ -1977,7 +1997,7 @@
         totalCount = allSymbols.length;
       } else if (q) {
         const allSymbols = [], seen = new Set();
-        ['G1', 'G3', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM'].forEach(g => {
+        ['G1', 'G3', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE'].forEach(g => {
           (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
         });
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
@@ -2002,6 +2022,7 @@
           if (FUTURES_SET.has(sym)) cls += ' futures';
           else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
           else if (QUANTUM_SET.has(sym) && currentGroup === 'QUANTUM') cls += ' quantum';
+          else if (SPACE_SET.has(sym) && currentGroup === 'SPACE') cls += ' space';
           else if (NASDAQ_SET.has(sym) && currentGroup === 'NASDAQ100') cls += ' nasdaq';
           chip.className = cls;
           chip.style.setProperty('--i', idx);
