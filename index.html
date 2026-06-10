@@ -758,6 +758,14 @@
     }
     .symbol-chip.space:hover { background: linear-gradient(135deg, #2a4a78, #15294a); color: #fff; }
     .symbol-chip.space.active { background: linear-gradient(135deg, #15294a, #0a1729); color: #fff; }
+    /* 為替銘柄チップ（ティール系配色） */
+    .symbol-chip.forex {
+      background: linear-gradient(135deg, #e8f5f0 0%, #99d4c2 100%);
+      border-color: #2a8a73;
+      color: #134a3e;
+    }
+    .symbol-chip.forex:hover { background: linear-gradient(135deg, #2a8a73, #155a48); color: #fff; }
+    .symbol-chip.forex.active { background: linear-gradient(135deg, #155a48, #0a3026); color: #fff; }
 
     .no-result { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
     .count-info { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
@@ -1499,6 +1507,10 @@
               <span class="filter-color-label">暗号通貨</span>
             </label>
             <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="FOREX" checked>
+              <span class="filter-color-label">💱 為替</span>
+            </label>
+            <label class="filter-color-chip">
               <input type="checkbox" class="filter-group-check" value="SP500" checked>
               <span class="filter-color-label">S&amp;P500</span>
             </label>
@@ -1554,6 +1566,7 @@
       <div class="tabs" id="tabs">
         <button class="tab active" data-group="G1">先物・指数</button>
         <button class="tab" data-group="G3">暗号通貨</button>
+        <button class="tab" data-group="FOREX">💱 為替</button>
         <button class="tab" data-group="SP500">S&amp;P 500</button>
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="QUANTUM">⚛️ 量子コンピュータ</button>
@@ -1660,6 +1673,14 @@
     const GROUPS = {
       G1: ['NQ1!','ES1!'],
       G3: ['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','ATOMC'],
+      FOREX: [
+        // メジャー通貨（USDペア）
+        'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
+        // クロス円
+        'EURJPY', 'GBPJPY', 'AUDJPY',
+        // その他人気ペア
+        'EURGBP',
+      ],
       NASDAQ100: [
         'NVDA','AAPL','MSFT','AMZN','GOOGL','GOOG','AVGO','META','TSLA','MU',
         'WMT','AMD','ASML','INTC','CSCO','COST','LRCX','ARM','AMAT','NFLX',
@@ -1764,6 +1785,7 @@
     const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
     const QUANTUM_SET = new Set(GROUPS.QUANTUM);
     const SPACE_SET = new Set(GROUPS.SPACE);
+    const FOREX_SET = new Set(GROUPS.FOREX);
 
     // ===== 条件検索フィルタ =====
     let metaData = null;
@@ -1774,7 +1796,7 @@
       ema20Min: null, ema20Max: null,
       sma50Min: null, sma50Max: null,
       colors: new Set(['blue', 'green', 'red', 'yellow']),
-      groups: new Set(['G1', 'G3', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'NIKKEI225']),
+      groups: new Set(['G1', 'G3', 'FOREX', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'NIKKEI225']),
     };
 
     function toggleFilterPanel() {
@@ -1838,7 +1860,7 @@
         filterState.ema20Min !== null || filterState.ema20Max !== null ||
         filterState.sma50Min !== null || filterState.sma50Max !== null ||
         filterState.colors.size < 4 ||
-        filterState.groups.size < 7
+        filterState.groups.size < 8
       );
       document.getElementById('filterToggle').classList.toggle('active', filterActive);
       document.getElementById('filterClear').style.display = filterActive ? 'inline-block' : 'none';
@@ -1997,7 +2019,7 @@
         totalCount = allSymbols.length;
       } else if (q) {
         const allSymbols = [], seen = new Set();
-        ['G1', 'G3', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE'].forEach(g => {
+        ['G1', 'G3', 'FOREX', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE'].forEach(g => {
           (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
         });
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
@@ -2021,6 +2043,7 @@
           if (sym === activeSymbol) cls += ' active';
           if (FUTURES_SET.has(sym)) cls += ' futures';
           else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
+          else if (FOREX_SET.has(sym) && currentGroup === 'FOREX') cls += ' forex';
           else if (QUANTUM_SET.has(sym) && currentGroup === 'QUANTUM') cls += ' quantum';
           else if (SPACE_SET.has(sym) && currentGroup === 'SPACE') cls += ' space';
           else if (NASDAQ_SET.has(sym) && currentGroup === 'NASDAQ100') cls += ' nasdaq';
