@@ -365,7 +365,9 @@ NASDAQ100_SECTOR_MAP = {
 
 
 def get_sector(sym):
-    """シンボルのセクター情報を取得する（SP500 → NASDAQ100追加分 → 日経225 の順で参照）。"""
+    """シンボルのセクター情報を取得する（為替・SP500 → NASDAQ100追加分 → 日経225 の順で参照）。"""
+    if sym in FOREX_NAMES:
+        return FOREX_NAMES[sym]
     return (SP500_SECTOR_MAP.get(sym)
             or NASDAQ100_SECTOR_MAP.get(sym)
             or NIKKEI225_SECTOR_MAP.get(sym)
@@ -623,6 +625,76 @@ CRYPTO_MAP = {
     'MATIC': ('POLUSDT',  'BINANCE'),
     'ATOMC': ('ATOMUSDT', 'BINANCE'),
 }
+
+
+# ===== 為替（FX）ペア =====
+FOREX_PAIRS = [
+    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
+    'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
+]
+
+FOREX_NAMES = {
+    'EURUSD': 'ユーロ/米ドル',
+    'GBPUSD': 'ポンド/米ドル',
+    'USDJPY': '米ドル/円',
+    'USDCHF': '米ドル/スイスフラン',
+    'AUDUSD': '豪ドル/米ドル',
+    'NZDUSD': 'NZドル/米ドル',
+    'USDCAD': '米ドル/カナダドル',
+    'EURJPY': 'ユーロ/円',
+    'GBPJPY': 'ポンド/円',
+    'AUDJPY': '豪ドル/円',
+    'EURGBP': 'ユーロ/ポンド',
+}
+
+
+def fetch_forex(symbol_key, period=CALC_PERIOD):
+    """yfinanceで為替ペアを取得しスコア計算する。
+    symbol_key は 'EURUSD' 'USDJPY' 形式、内部で 'EURUSD=X' に変換する。
+    為替には出来高がないため volDiffScore は実質ゼロ、20EMA乖離（discrepancyScore）が中心。
+    """
+    if symbol_key not in FOREX_PAIRS:
+        return None
+    yf_sym = symbol_key + '=X'
+    try:
+        ticker = yf.Ticker(yf_sym)
+        df_raw = ticker.history(period=period)
+        if df_raw is None or df_raw.empty:
+            return None
+        df = df_raw.rename(columns={'Open': 'open', 'High': 'high',
+                                    'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
+        # 為替のvolumeは0またはNaNなので0に統一
+        if 'volume' not in df.columns:
+            df['volume'] = 0
+        df['volume'] = df['volume'].fillna(0)
+        df = df[['open', 'high', 'low', 'close', 'volume']].copy()
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df.index = pd.to_datetime(df.index).tz_localize(None) if df.index.tz else pd.to_datetime(df.index)
+        df.index = df.index.normalize()
+
+        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['sma_50'] = df['close'].rolling(window=50).mean()
+        df['prev_close'] = df['close'].shift(1)
+        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
+        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
+        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
+        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
+        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+        df['discrepancyScore'] = df['discrepancyPercent'] / 2
+        df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
+        df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
+        df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
+        df['volDiffScore'] = np.where(
+            df['volDiff_std'] != 0,
+            (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
+            0
+        )
+        df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
+        return df
+    except Exception as e:
+        print(f"{symbol_key} (forex) error: {e}")
+        return None
 
 
 def fetch_crypto(symbol_key, n_bars=1000):
@@ -1098,6 +1170,11 @@ def chart(symbol):
             if df is None:
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
+        elif symbol_upper in FOREX_PAIRS:
+            df = fetch_forex(symbol_upper)
+            if df is None:
+                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
+            img_b64 = make_chart_image_stock(df, symbol_upper)
         elif is_jp_symbol(symbol_upper):
             df = fetch_jp(symbol_upper)
             if df is None:
@@ -1350,6 +1427,8 @@ def info(symbol):
             df = fetch_es1()
         elif symbol_upper in CRYPTO_MAP:
             df = fetch_crypto(symbol_upper)
+        elif symbol_upper in FOREX_PAIRS:
+            df = fetch_forex(symbol_upper)
         elif is_jp_symbol(symbol_upper):
             df = fetch_jp(symbol_upper)
         elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS or symbol_upper in NASDAQ100_SYMBOLS:
