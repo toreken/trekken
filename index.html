@@ -858,6 +858,14 @@
     }
     .symbol-chip.forex:hover { background: linear-gradient(135deg, #2a8a73, #155a48); color: #fff; }
     .symbol-chip.forex.active { background: linear-gradient(135deg, #155a48, #0a3026); color: #fff; }
+    /* ETF銘柄チップ（オリーブ/カーキ系配色） */
+    .symbol-chip.etf {
+      background: linear-gradient(135deg, #f4f1e0 0%, #d4d0a8 100%);
+      border-color: #7a7a4a;
+      color: #4a4528;
+    }
+    .symbol-chip.etf:hover { background: linear-gradient(135deg, #7a7a4a, #4a4528); color: #fff; }
+    .symbol-chip.etf.active { background: linear-gradient(135deg, #4a4528, #2a2818); color: #fff; }
 
     .no-result { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
     .count-info { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
@@ -1603,6 +1611,10 @@
               <span class="filter-color-label">💱 為替</span>
             </label>
             <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="ETF" checked>
+              <span class="filter-color-label">📦 ETF</span>
+            </label>
+            <label class="filter-color-chip">
               <input type="checkbox" class="filter-group-check" value="SP500" checked>
               <span class="filter-color-label">S&amp;P500</span>
             </label>
@@ -1659,6 +1671,7 @@
         <button class="tab active" data-group="G1">先物・指数</button>
         <button class="tab" data-group="G3">暗号通貨</button>
         <button class="tab" data-group="FOREX">💱 為替</button>
+        <button class="tab" data-group="ETF">📦 ETF</button>
         <button class="tab" data-group="SP500">S&amp;P 500</button>
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="QUANTUM">⚛️ 量子コンピュータ</button>
@@ -1776,6 +1789,22 @@
         // その他人気ペア
         'EURGBP',
       ],
+      ETF: [
+        // セクター別ETF（11セクター × 3ファミリー: SPDR / Vanguard / iShares）
+        'XLK', 'VGT', 'IYW',      // テクノロジー
+        'XLV', 'VHT', 'IYH',      // ヘルスケア
+        'XLF', 'VFH', 'IYF',      // 金融
+        'XLE', 'VDE', 'IYE',      // エネルギー
+        'XLY', 'VCR', 'IYC',      // 一般消費財
+        'XLP', 'VDC', 'IYK',      // 生活必需品
+        'XLI', 'VIS', 'IYJ',      // 資本財
+        'XLB', 'VAW', 'IYM',      // 素材
+        'XLU', 'VPU', 'IDU',      // 公益事業
+        'XLRE', 'VNQ', 'IYR',     // 不動産
+        'XLC', 'VOX', 'IYZ',      // 通信サービス
+        // 高配当ETF
+        'VYM', 'HDV', 'SPYD', 'VIG',
+      ],
       NASDAQ100: [
         'NVDA','AAPL','MSFT','AMZN','GOOGL','GOOG','AVGO','META','TSLA','MU',
         'WMT','AMD','ASML','INTC','CSCO','COST','LRCX','ARM','AMAT','NFLX',
@@ -1881,6 +1910,7 @@
     const QUANTUM_SET = new Set(GROUPS.QUANTUM);
     const SPACE_SET = new Set(GROUPS.SPACE);
     const FOREX_SET = new Set(GROUPS.FOREX);
+    const ETF_SET = new Set(GROUPS.ETF);
 
     // ===== 条件検索フィルタ =====
     let metaData = null;
@@ -1891,7 +1921,7 @@
       ema20Min: null, ema20Max: null,
       sma50Min: null, sma50Max: null,
       colors: new Set(['blue', 'green', 'red', 'yellow']),
-      groups: new Set(['G1', 'G3', 'FOREX', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'NIKKEI225']),
+      groups: new Set(['G1', 'G3', 'FOREX', 'ETF', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'NIKKEI225']),
     };
 
     function toggleFilterPanel() {
@@ -1956,7 +1986,7 @@
         filterState.ema20Min !== null || filterState.ema20Max !== null ||
         filterState.sma50Min !== null || filterState.sma50Max !== null ||
         filterState.colors.size < 4 ||
-        filterState.groups.size < 8
+        filterState.groups.size < 9
       );
       document.getElementById('filterToggle').classList.toggle('active', filterActive);
       document.getElementById('filterClear').style.display = filterActive ? 'inline-block' : 'none';
@@ -2178,7 +2208,7 @@
         totalCount = allSymbols.length;
       } else if (q) {
         const allSymbols = [], seen = new Set();
-        ['G1', 'G3', 'FOREX', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE'].forEach(g => {
+        ['G1', 'G3', 'FOREX', 'ETF', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE'].forEach(g => {
           (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
         });
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
@@ -2203,6 +2233,7 @@
           if (FUTURES_SET.has(sym)) cls += ' futures';
           else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
           else if (FOREX_SET.has(sym) && currentGroup === 'FOREX') cls += ' forex';
+          else if (ETF_SET.has(sym) && currentGroup === 'ETF') cls += ' etf';
           else if (QUANTUM_SET.has(sym) && currentGroup === 'QUANTUM') cls += ' quantum';
           else if (SPACE_SET.has(sym) && currentGroup === 'SPACE') cls += ' space';
           else if (NASDAQ_SET.has(sym) && currentGroup === 'NASDAQ100') cls += ' nasdaq';
