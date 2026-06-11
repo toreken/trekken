@@ -6,6 +6,8 @@ import time
 import threading
 import xml.etree.ElementTree as ET
 from flask import Flask, jsonify, request, Response
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import requests as http_requests
 import pandas as pd
 import numpy as np
@@ -63,6 +65,31 @@ def get_interval():
 
 
 app = Flask(__name__)
+
+
+# ===== レート制限（DDoS・大量スクレイピング対策） =====
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["300 per hour", "60 per minute"],
+    storage_uri="memory://",
+    strategy="fixed-window",
+)
+
+
+# ===== シンボル名バリデーション（インジェクション対策） =====
+# 許可文字: 英数字、ピリオド(.), ハイフン(-), コロン(:), 感嘆符(!), イコール(=)
+# 例: AAPL, BRK.B, BRK-B, TSE:7203, NQ1!, EURUSD
+SYMBOL_PATTERN = re.compile(r'^[A-Za-z0-9\.\-:!=]+$')
+
+
+def is_valid_symbol(symbol):
+    """シンボル名が安全かどうか判定。許可文字以外があれば False。"""
+    if not symbol or not isinstance(symbol, str):
+        return False
+    if len(symbol) > 30:
+        return False
+    return bool(SYMBOL_PATTERN.match(symbol))
 
 
 # ===== robots.txt（AI クローラーブロック） =====
@@ -141,6 +168,22 @@ def add_security_headers(resp):
     # セキュリティ基本ヘッダー
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # クリックジャッキング対策（iframeに埋め込めない）
+    resp.headers['X-Frame-Options'] = 'DENY'
+    # XSS Protection（古いブラウザ向け）
+    resp.headers['X-XSS-Protection'] = '1; mode=block'
+    # Content Security Policy（XSS対策の現代版）
+    resp.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
     # X-Powered-By を念のため空に
     resp.headers.pop('X-Powered-By', None)
     return resp
@@ -1190,7 +1233,10 @@ def make_thumbnail_image(df, symbol):
 
 
 @app.route('/chart/<symbol>')
+@limiter.limit("30 per minute")
 def chart(symbol):
+    if not is_valid_symbol(symbol):
+        return jsonify({'error': 'Invalid symbol'}), 400
     symbol_upper = symbol.upper()
     now = time.time()
 
@@ -1454,7 +1500,10 @@ def get_profile(symbol_upper):
 
 
 @app.route('/info/<symbol>')
+@limiter.limit("40 per minute")
 def info(symbol):
+    if not is_valid_symbol(symbol):
+        return jsonify({'error': 'Invalid symbol'}), 400
     symbol_upper = symbol.upper()
     now = time.time()
 
@@ -1605,6 +1654,7 @@ def make_compare_chart(symbols):
 
 
 @app.route('/compare')
+@limiter.limit("20 per minute")
 def compare():
     """クエリパラメータ symbols=NVDA,AMD,INTC で複数銘柄を比較"""
     symbols_param = request.args.get('symbols', '')
@@ -1613,6 +1663,10 @@ def compare():
         return jsonify({'error': '銘柄が指定されていません'}), 400
     if len(symbols) > 8:
         symbols = symbols[:8]
+    # 全銘柄のバリデーション
+    for s in symbols:
+        if not is_valid_symbol(s):
+            return jsonify({'error': 'Invalid symbol in list'}), 400
 
     cache_key = ','.join(symbols)
     now = time.time()
@@ -1940,6 +1994,7 @@ def cache_export():
 
 
 @app.route('/sp500-all')
+@limiter.limit("10 per minute")
 def sp500_all():
     """S&P500の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。"""
     items = []
@@ -2012,6 +2067,7 @@ def symbols_meta():
 
 
 @app.route('/nasdaq100-all')
+@limiter.limit("10 per minute")
 def nasdaq100_all():
     """NASDAQ100 の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。
     S&P500と重複する銘柄も、同じ thumb_cache から共有して表示する。"""
@@ -2044,6 +2100,7 @@ def nasdaq100_all():
 
 
 @app.route('/jp225-all')
+@limiter.limit("10 per minute")
 def jp225_all():
     """日経225 の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。"""
     items = []
