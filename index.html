@@ -579,6 +579,98 @@
     .tab.active { color: var(--brown-800); border-bottom-color: var(--gold-500); }
     .tab:hover { color: var(--brown-700); }
 
+    /* ===== トレンド要約バー（相場の強気/弱気を一目判定） ===== */
+    .trend-summary {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 18px;
+      margin: 10px auto;
+      max-width: 540px;
+      border-radius: 14px;
+      border: 2px solid;
+      background: rgba(255, 252, 245, 0.85);
+      backdrop-filter: blur(6px);
+      transition: border-color 0.4s, background 0.4s;
+    }
+    .trend-summary:empty { display: none; }
+    /* 強気相場 (70%+) */
+    .trend-summary.mood-strong {
+      border-color: #2e8b3a;
+      background: linear-gradient(135deg, #f0faf2, #d8f0dc);
+    }
+    /* やや強気 (55-70%) */
+    .trend-summary.mood-mid-up {
+      border-color: #6bb04a;
+      background: linear-gradient(135deg, #f5fbef, #e3f1d4);
+    }
+    /* 中立 (45-55%) */
+    .trend-summary.mood-neutral {
+      border-color: var(--brown-200);
+      background: linear-gradient(135deg, #fbf6e8, #f0e8d0);
+    }
+    /* やや弱気 (30-45%) */
+    .trend-summary.mood-mid-down {
+      border-color: #d97706;
+      background: linear-gradient(135deg, #fef3e2, #fbe2c2);
+    }
+    /* 弱気相場 (30%未満) */
+    .trend-summary.mood-weak {
+      border-color: #c4302b;
+      background: linear-gradient(135deg, #fdf1f0, #f6cfcc);
+    }
+    .trend-mood-icon {
+      font-size: 38px;
+      line-height: 1;
+      filter: drop-shadow(0 2px 4px rgba(60, 35, 15, 0.15));
+    }
+    .trend-mood-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .trend-mood-title {
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      line-height: 1.2;
+    }
+    .mood-strong   .trend-mood-title { color: #1f6e2a; }
+    .mood-mid-up   .trend-mood-title { color: #4d8a36; }
+    .mood-neutral  .trend-mood-title { color: var(--brown-800); }
+    .mood-mid-down .trend-mood-title { color: #b35906; }
+    .mood-weak     .trend-mood-title { color: #9b1f1a; }
+    .trend-mood-detail {
+      font-size: 12px;
+      color: var(--brown-700);
+      font-weight: 600;
+    }
+    .trend-mood-detail strong {
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .trend-summary-progress {
+      width: 100%;
+      height: 6px;
+      background: rgba(60, 35, 15, 0.12);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .trend-summary-progress-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .mood-strong   .trend-summary-progress-fill { background: linear-gradient(90deg, #32cd32, #2e8b3a); }
+    .mood-mid-up   .trend-summary-progress-fill { background: linear-gradient(90deg, #6bb04a, #4d8a36); }
+    .mood-neutral  .trend-summary-progress-fill { background: linear-gradient(90deg, var(--gold-500), var(--gold-600)); }
+    .mood-mid-down .trend-summary-progress-fill { background: linear-gradient(90deg, #f59e0b, #d97706); }
+    .mood-weak     .trend-summary-progress-fill { background: linear-gradient(90deg, #ef4444, #c4302b); }
+    .trend-summary-meta { opacity: 0.7; font-size: 11px; color: var(--muted); }
+
     .sp500-toolbar {
       margin-top: 14px;
       display: flex;
@@ -1574,6 +1666,9 @@
         <button class="tab" data-group="NIKKEI225">日経 225</button>
       </div>
 
+      <!-- トレンド要約バー（タブ別の銘柄数内訳） -->
+      <div class="trend-summary" id="trendSummary"></div>
+
       <div class="sp500-toolbar" id="sp500Toolbar" style="display:none;">
         <button class="overview-btn" id="overviewBtn" onclick="toggleOverview()">📊 全銘柄を一気見</button>
         <select class="overview-sort" id="overviewSort" onchange="renderOverview()" style="display:none;">
@@ -1813,6 +1908,7 @@
         const res = await fetch('/symbols-meta');
         metaData = await res.json();
         updateFilterStatus();
+        updateTrendSummary();
       } catch (e) {
         const st = document.getElementById('filterStatus');
         st.className = 'filter-status warn';
@@ -1994,6 +2090,69 @@
       nikkei.sort((a, b) => a.localeCompare(b));
       others.sort((a, b) => a.localeCompare(b));
       return [...futures, ...others, ...nikkei];
+    }
+
+    function updateTrendSummary() {
+      const summary = document.getElementById('trendSummary');
+      if (!summary) return;
+      if (!metaData || !metaData.items) {
+        summary.innerHTML = '';
+        summary.className = 'trend-summary';
+        return;
+      }
+      const groupSymbols = GROUPS[currentGroup] || [];
+      const total = groupSymbols.length;
+      let upCount = 0, evaluated = 0;
+      groupSymbols.forEach(sym => {
+        const meta = metaData.items.find(it => it.symbol === sym);
+        if (!meta || meta.score === null || meta.score === undefined) return;
+        evaluated++;
+        if (meta.score > 0) upCount++;
+      });
+      if (evaluated === 0) {
+        summary.className = 'trend-summary';
+        summary.innerHTML = '<span class="trend-summary-meta">朝の自動更新後に表示されます</span>';
+        return;
+      }
+      const percent = total > 0 ? Math.round((upCount / total) * 100) : 0;
+
+      // 5段階の相場判定
+      let moodClass, moodIcon, moodTitle;
+      if (percent >= 70) {
+        moodClass = 'mood-strong';
+        moodIcon = '🔥';
+        moodTitle = '強気相場';
+      } else if (percent >= 55) {
+        moodClass = 'mood-mid-up';
+        moodIcon = '📈';
+        moodTitle = 'やや強気';
+      } else if (percent >= 45) {
+        moodClass = 'mood-neutral';
+        moodIcon = '🌤';
+        moodTitle = '中立・様子見';
+      } else if (percent >= 30) {
+        moodClass = 'mood-mid-down';
+        moodIcon = '📉';
+        moodTitle = 'やや弱気';
+      } else {
+        moodClass = 'mood-weak';
+        moodIcon = '⚠️';
+        moodTitle = '弱気相場';
+      }
+
+      summary.className = 'trend-summary ' + moodClass;
+      summary.innerHTML = `
+        <div class="trend-mood-icon">${moodIcon}</div>
+        <div class="trend-mood-body">
+          <div class="trend-mood-title">${moodTitle}</div>
+          <div class="trend-mood-detail">
+            <strong>${upCount}</strong> / ${total} 銘柄が上昇中 (${percent}%)
+          </div>
+          <div class="trend-summary-progress">
+            <div class="trend-summary-progress-fill" style="width: ${percent}%"></div>
+          </div>
+        </div>
+      `;
     }
 
     function renderSymbolList() {
@@ -2349,6 +2508,7 @@
         btn.classList.add('active');
         updateTabIndicator(btn);
         currentGroup = btn.dataset.group;
+        updateTrendSummary();
         // SP500、NASDAQ100、NIKKEI225以外に切り替えた時はoverview解除
         if (currentGroup !== 'SP500' && currentGroup !== 'NIKKEI225' && currentGroup !== 'NASDAQ100' && overviewMode) {
           overviewMode = false;
@@ -2514,6 +2674,8 @@
     renderSymbolList();
     loadFeaturedSymbols();
     loadNoteArticles();
+    // トレンド要約バー用にメタデータを事前取得
+    fetchMetaData();
   </script>
 </body>
 </html>
