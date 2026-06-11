@@ -200,6 +200,8 @@ SYMBOLS = [
     'RGTI', 'QBTS', 'QUBT', 'LAES',
     # 宇宙関連（ピュアプレイ + 衛星通信）
     'ASTS', 'PL', 'BKSY', 'RDW', 'IRDM',
+    # 水素エネルギー関連（ピュアプレイ）
+    'PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN',
     # ETF（セクター別 + 高配当）
     'XLK', 'VGT', 'IYW',           # テクノロジー
     'XLV', 'VHT', 'IYH',           # ヘルスケア
@@ -1983,16 +1985,18 @@ def run_startup_prefetch():
     BATCH_SIZE = 15   # 旧50。yfinanceのレート制限回避のため縮小
     BATCH_WAIT = 8    # 旧3秒。バッチ間隔を延長してYahoo側の制限に引っかかりにくく
 
-    # フェーズ1: ETF（最優先）
+    # フェーズ1: ETF + 水素テーマ銘柄（最優先・短時間）
     etf_symbols = list(ETF_SECTOR_MAP.keys())
-    print(f"[Phase 1/2] ETF prefetch: {len(etf_symbols)} symbols")
+    hydrogen_us = ['PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN', 'LIN', 'APD', 'CMI']
+    phase1_targets = etf_symbols + [s for s in hydrogen_us if s not in etf_symbols]
+    print(f"[Phase 1/2] ETF + Hydrogen prefetch: {len(phase1_targets)} symbols")
     try:
-        res = prefetch_batch(etf_symbols)
+        res = prefetch_batch(phase1_targets)
         all_success.extend(res.get('success', []))
         all_failed.extend(res.get('failed', []))
-        print(f"[Phase 1/2] ETF done: success={len(res.get('success', []))}, failed={len(res.get('failed', []))}")
+        print(f"[Phase 1/2] done: success={len(res.get('success', []))}, failed={len(res.get('failed', []))}")
     except Exception as e:
-        print(f"[Phase 1/2] ETF error: {e}")
+        print(f"[Phase 1/2] error: {e}")
 
     # フェーズ2: S&P500 + NASDAQ100差分
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
