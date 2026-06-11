@@ -940,6 +940,33 @@
       font-size: 13px;
     }
 
+    /* ===== ETFタブ専用：セクターブロック2列レイアウト ===== */
+    .symbol-list.etf-mode {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 14px 12px !important;
+      max-height: 520px !important;
+    }
+    .etf-sector-block {
+      display: flex; flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .etf-sector-block .sector-header {
+      grid-column: auto;  /* etf-mode 内では auto に戻す */
+      margin: 0;
+    }
+    .etf-sector-block .sector-symbols {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+      gap: 5px;
+    }
+    @media (max-width: 700px) {
+      .symbol-list.etf-mode {
+        grid-template-columns: 1fr !important;
+      }
+    }
+
     .no-result { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
     .count-info { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
 
@@ -2553,21 +2580,29 @@
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
         totalCount = allSymbols.length;
       } else if (currentGroup === 'ETF') {
-        // ETF タブ専用：セクター見出し付きで元の順序を保ったままレンダリング
+        // ETF タブ専用：セクターブロックを2列で表示（見出し+3銘柄を1ブロックとする）
         const symbols = GROUPS.ETF || [];
         totalCount = symbols.length;
         displaySymbols = symbols; // ソートしない
 
         list.innerHTML = '';
+        list.classList.add('etf-mode');  // 2列モードを有効化
         let idx = 0;
         ETF_SECTORS.forEach(sector => {
-          // セクター見出しチップ
+          // セクターブロック（見出し + 銘柄まとめ）
+          const block = document.createElement('div');
+          block.className = 'etf-sector-block';
+
+          // セクター見出し
           const header = document.createElement('div');
           header.className = 'sector-header';
           header.innerHTML = `<span class="sector-header-name">${sector.name}</span><span class="sector-header-action">📊 一気見</span>`;
           header.onclick = () => loadSectorCompare(sector.name, sector.symbols);
-          list.appendChild(header);
-          // 銘柄チップ
+          block.appendChild(header);
+
+          // 銘柄まとめ
+          const symbolsWrap = document.createElement('div');
+          symbolsWrap.className = 'sector-symbols';
           sector.symbols.forEach(sym => {
             const chip = document.createElement('div');
             let cls = 'symbol-chip etf';
@@ -2576,8 +2611,11 @@
             chip.style.setProperty('--i', idx++);
             chip.textContent = sym;
             chip.onclick = () => loadChart(sym);
-            list.appendChild(chip);
+            symbolsWrap.appendChild(chip);
           });
+          block.appendChild(symbolsWrap);
+
+          list.appendChild(block);
         });
         countInfo.textContent = `${totalCount} / ${totalCount} 銘柄`;
         return;
