@@ -6,6 +6,11 @@ on:
     - cron: '30 23 * * *'
   workflow_dispatch:
 
+# 同時実行を1つに制限（複数走るとpush競合の原因に）
+concurrency:
+  group: prefetch
+  cancel-in-progress: false
+
 jobs:
   prefetch:
     runs-on: ubuntu-latest
@@ -15,6 +20,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # rebase時に履歴が必要
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,10 +48,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add cache/cache.json
+
           if git diff --staged --quiet; then
             echo "No changes to commit"
-          else
-            git commit -m "chore: update persistent cache [skip render]"
-            git push
-            echo "Cache committed and pushed"
+            exit 0
           fi
+
+          git commit -m "chore: update persistent cache [skip render]"
+
+          # push競合に備えてリトライ（pull --rebase してから再push）
+          for i in 1 2 3 4 5; do
+            echo "Push attempt $i/5..."
+            # リモートの最新を取得して自分のコミットを上に積み直す
+            git pull --rebase origin main || {
+              echo "Rebase failed, will retry..."
+              sleep 10
+              continue
+            }
+            if git push origin main; then
+              echo "✅ Cache committed and pushed (attempt $i)"
+              exit 0
+            fi
+            echo "Push failed, retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::Failed to push after 5 attempts"
+          exit 1
