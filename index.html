@@ -2528,6 +2528,7 @@
       const countInfo = document.getElementById('countInfo');
       const toolbar = document.getElementById('sp500Toolbar');
       const q = currentQuery.trim().toUpperCase();
+      list.classList.remove('etf-mode');  // ETFタブ以外では2列モードを解除
 
       toolbar.style.display = (currentGroup === 'SP500' || currentGroup === 'NIKKEI225' || currentGroup === 'NASDAQ100') ? 'flex' : 'none';
 
