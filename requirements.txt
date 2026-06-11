@@ -1,4 +1,5 @@
 flask
+Flask-Limiter==3.8.0
 yfinance
 pandas
 numpy
