@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-GitHub Actions上で実行される S&P500 + NASDAQ100差分 + 日経225 プリフェッチスクリプト。
+GitHub Actions上で実行される S&P500 + NASDAQ100差分 + ETF + 日経225 プリフェッチスクリプト。
 yfinanceでデータを取得し、サムネイル画像とprofile情報を生成して
 cache/cache.json として保存する。
 
 日経225銘柄はTSE:XXXX形式でキー管理し、yfinanceはXXXX.T形式で取得。
 NASDAQ100銘柄はS&P500と多くが重複するため、差分13銘柄(ARM, ASML, CCEPなど)のみ追加。
+ETF銘柄はセクター別11セクター×3ファミリー(SPDR/Vanguard/iShares)＋高配当4銘柄の計37銘柄。
 """
 
 import os
@@ -424,10 +425,32 @@ EXTRA_SYMBOLS = [
     'FSLR', 'SIDU', 'VRNS', 'TRVG', 'TZOO',
     'MAKO', 'HLP',
     'KOS', 'GOOGL', 'INTC', 'NVDA', 'IONQ', 'FIGS', 'MU',
-    'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA'
+    'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA',
+    # 量子コンピュータ関連
+    'RGTI', 'QBTS', 'QUBT', 'LAES',
+    # 宇宙関連
+    'ASTS', 'PL', 'BKSY', 'RDW', 'IRDM',
 ]
 
-# 全対象銘柄（S&P500 + Extra + 日経225、重複除く）
+# ETF銘柄（セクター別 + 高配当、37銘柄）
+ETF_SYMBOLS = [
+    # セクター別ETF（11セクター × 3ファミリー: SPDR / Vanguard / iShares）
+    'XLK', 'VGT', 'IYW',      # テクノロジー
+    'XLV', 'VHT', 'IYH',      # ヘルスケア
+    'XLF', 'VFH', 'IYF',      # 金融
+    'XLE', 'VDE', 'IYE',      # エネルギー
+    'XLY', 'VCR', 'IYC',      # 一般消費財
+    'XLP', 'VDC', 'IYK',      # 生活必需品
+    'XLI', 'VIS', 'IYJ',      # 資本財
+    'XLB', 'VAW', 'IYM',      # 素材
+    'XLU', 'VPU', 'IDU',      # 公益事業
+    'XLRE', 'VNQ', 'IYR',     # 不動産
+    'XLC', 'VOX', 'IYZ',      # 通信サービス
+    # 高配当ETF
+    'VYM', 'HDV', 'SPYD', 'VIG',
+]
+
+# 全対象銘柄（S&P500 + Extra + NASDAQ100差分 + ETF + 日経225、重複除く）
 def _build_all_targets():
     seen = set()
     out = []
@@ -440,6 +463,10 @@ def _build_all_targets():
             seen.add(s)
             out.append(s)
     for s in NASDAQ100_ONLY_SYMBOLS:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    for s in ETF_SYMBOLS:
         if s not in seen:
             seen.add(s)
             out.append(s)
@@ -803,8 +830,9 @@ def main():
     us_count = len([s for s in ALL_TARGETS if not is_jp_symbol(s)])
     jp_count = len([s for s in ALL_TARGETS if is_jp_symbol(s)])
     ndx_only_count = len([s for s in NASDAQ100_ONLY_SYMBOLS if s in ALL_TARGETS])
+    etf_count = len([s for s in ETF_SYMBOLS if s in ALL_TARGETS])
     print(f"=== Prefetch start at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
-    print(f"Target: {len(ALL_TARGETS)} symbols (US:{us_count} incl. NDX-only:{ndx_only_count}, JP:{jp_count}), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
+    print(f"Target: {len(ALL_TARGETS)} symbols (US:{us_count} incl. NDX-only:{ndx_only_count}, ETF:{etf_count}, JP:{jp_count}), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
 
     profiles = {}
     thumbs = {}
