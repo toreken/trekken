@@ -631,7 +631,8 @@ def get_wma(series, length):
 
 
 def fetch_and_calculate(symbol, period='max', max_retries=3):
-    """yfinanceでデータ取得＆スコア計算。失敗時は指数バックオフで最大3回リトライ。"""
+    """yfinanceでデータ取得＆スコア計算。失敗時は指数バックオフで最大3回リトライ。
+    YFRateLimitErrorは長めに待ってからリトライ。"""
     df = None
     for attempt in range(max_retries):
         try:
@@ -644,7 +645,7 @@ def fetch_and_calculate(symbol, period='max', max_retries=3):
                 df_dl.index = df_dl.index.tz_localize(None)
             if df_dl.empty or len(df_dl) < 2:
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(5 * (2 ** attempt))  # 5, 10, 20秒
                     continue
                 return None
             if 'close' not in df_dl.columns:
@@ -652,15 +653,19 @@ def fetch_and_calculate(symbol, period='max', max_retries=3):
                     df_dl['close'] = df_dl['adj close']
                 else:
                     if attempt < max_retries - 1:
-                        time.sleep(2 ** attempt)
+                        time.sleep(5 * (2 ** attempt))
                         continue
                     return None
             df = df_dl
             break
         except Exception as e:
+            err_str = str(e)
+            # YFRateLimitErrorは長めの待機（30秒、60秒、120秒）
+            is_rate_limit = 'RateLimit' in err_str or 'Too Many Requests' in err_str
+            wait = 30 * (2 ** attempt) if is_rate_limit else 5 * (2 ** attempt)
             if attempt < max_retries - 1:
-                print(f"fetch_and_calculate({symbol}) attempt {attempt+1} failed: {e}, retrying...")
-                time.sleep(2 ** attempt)
+                print(f"fetch_and_calculate({symbol}) attempt {attempt+1} failed: {e}, retrying in {wait}s...")
+                time.sleep(wait)
                 continue
             print(f"fetch_and_calculate({symbol}) failed after {max_retries} retries: {e}")
             return None
@@ -1919,8 +1924,8 @@ def run_prefetch_in_background():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 50
-    BATCH_WAIT = 3
+    BATCH_SIZE = 15   # 旧50。yfinanceのレート制限回避のため縮小
+    BATCH_WAIT = 8    # 旧3秒。バッチ間隔を延長してYahoo側の制限に引っかかりにくく
 
     # NASDAQ100のうち S&P500 に含まれない銘柄（追加で取得が必要な銘柄）
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
@@ -1956,8 +1961,8 @@ def run_startup_prefetch():
     tvDatafeedの初回ログイン待ちのため30秒待機してから開始。"""
     global prefetch_state
 
-    # tvDatafeedの初回ログイン完了を待つ
-    time.sleep(30)
+    # tvDatafeedの初回ログイン完了を待つ（余裕を持って60秒）
+    time.sleep(60)
 
     with prefetch_lock:
         if prefetch_state['running']:
@@ -1975,8 +1980,8 @@ def run_startup_prefetch():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 50
-    BATCH_WAIT = 3
+    BATCH_SIZE = 15   # 旧50。yfinanceのレート制限回避のため縮小
+    BATCH_WAIT = 8    # 旧3秒。バッチ間隔を延長してYahoo側の制限に引っかかりにくく
 
     # フェーズ1: ETF（最優先）
     etf_symbols = list(ETF_SECTOR_MAP.keys())
