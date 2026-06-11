@@ -630,23 +630,41 @@ def get_wma(series, length):
     return series.rolling(length).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
 
 
-def fetch_and_calculate(symbol, period='max'):
-    try:
-        df = yf.download(symbol, period=period, interval="1d", progress=False, auto_adjust=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        df.columns = df.columns.str.lower()
-        df = df.loc[:, ~df.columns.duplicated()].copy()
-        if df.index.tz is not None:
-            df.index = df.index.tz_localize(None)
-        if df.empty or len(df) < 2:
-            return None
-        if 'close' not in df.columns:
-            if 'adj close' in df.columns:
-                df['close'] = df['adj close']
-            else:
+def fetch_and_calculate(symbol, period='max', max_retries=3):
+    """yfinanceでデータ取得＆スコア計算。失敗時は指数バックオフで最大3回リトライ。"""
+    df = None
+    for attempt in range(max_retries):
+        try:
+            df_dl = yf.download(symbol, period=period, interval="1d", progress=False, auto_adjust=False)
+            if isinstance(df_dl.columns, pd.MultiIndex):
+                df_dl.columns = df_dl.columns.get_level_values(0)
+            df_dl.columns = df_dl.columns.str.lower()
+            df_dl = df_dl.loc[:, ~df_dl.columns.duplicated()].copy()
+            if df_dl.index.tz is not None:
+                df_dl.index = df_dl.index.tz_localize(None)
+            if df_dl.empty or len(df_dl) < 2:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
                 return None
-    except Exception:
+            if 'close' not in df_dl.columns:
+                if 'adj close' in df_dl.columns:
+                    df_dl['close'] = df_dl['adj close']
+                else:
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    return None
+            df = df_dl
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"fetch_and_calculate({symbol}) attempt {attempt+1} failed: {e}, retrying...")
+                time.sleep(2 ** attempt)
+                continue
+            print(f"fetch_and_calculate({symbol}) failed after {max_retries} retries: {e}")
+            return None
+    if df is None:
         return None
 
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -786,7 +804,7 @@ def fetch_forex(symbol_key, period=CALC_PERIOD):
 
 
 def fetch_crypto(symbol_key, n_bars=1000):
-    """tvDatafeedで暗号通貨を取得し、個別株と同じスコア計算を適用する"""
+    """tvDatafeedで暗号通貨を取得し、個別株と同じスコア計算を適用する。失敗時は最大3回リトライ。"""
     tv_local = get_tv()
     if tv_local is None:
         return None
@@ -796,11 +814,27 @@ def fetch_crypto(symbol_key, n_bars=1000):
     if symbol_key not in CRYPTO_MAP:
         return None
     tv_symbol, tv_exchange = CRYPTO_MAP[symbol_key]
-    try:
-        df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
-                                   interval=Interval.in_daily, n_bars=n_bars)
-        if df_raw is None or df_raw.empty:
+    df_raw = None
+    for attempt in range(3):
+        try:
+            df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
+                                       interval=Interval.in_daily, n_bars=n_bars)
+            if df_raw is None or df_raw.empty:
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                return None
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"fetch_crypto({symbol_key}) attempt {attempt+1} failed: {e}, retrying...")
+                time.sleep(2 ** attempt)
+                continue
+            print(f"fetch_crypto({symbol_key}) failed after 3 retries: {e}")
             return None
+    if df_raw is None:
+        return None
+    try:
 
         df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
                                     'close':'close','volume':'volume'})
@@ -835,7 +869,7 @@ def fetch_crypto(symbol_key, n_bars=1000):
 
 def fetch_jp(symbol_key, n_bars=1000):
     """tvDatafeedで日経225銘柄を取得し、個別株と同じスコア計算を適用する。
-    symbol_key は 'TSE:7203' 形式。
+    symbol_key は 'TSE:7203' 形式。失敗時は最大3回リトライ。
     """
     tv_local = get_tv()
     if tv_local is None:
@@ -849,11 +883,27 @@ def fetch_jp(symbol_key, n_bars=1000):
     if len(parts) != 2:
         return None
     tv_exchange, tv_symbol = parts[0], parts[1]
-    try:
-        df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
-                                   interval=Interval.in_daily, n_bars=n_bars)
-        if df_raw is None or df_raw.empty:
+    df_raw = None
+    for attempt in range(3):
+        try:
+            df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
+                                       interval=Interval.in_daily, n_bars=n_bars)
+            if df_raw is None or df_raw.empty:
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                return None
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"fetch_jp({symbol_key}) attempt {attempt+1} failed: {e}, retrying...")
+                time.sleep(2 ** attempt)
+                continue
+            print(f"fetch_jp({symbol_key}) failed after 3 retries: {e}")
             return None
+    if df_raw is None:
+        return None
+    try:
 
         df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
                                     'close':'close','volume':'volume'})
@@ -1245,46 +1295,74 @@ def chart(symbol):
         if now - cached_time < CACHE_SECONDS:
             return jsonify({'image': cached_img, 'symbol': symbol_upper, 'cached': True})
 
+    def _fallback_to_stale_cache(reason):
+        """新規取得に失敗した場合、期限切れキャッシュがあればそれを返す。"""
+        if symbol_upper in chart_cache:
+            _, cached_img = chart_cache[symbol_upper]
+            print(f"/chart/{symbol_upper}: serving stale cache ({reason})")
+            return jsonify({
+                'image': cached_img, 'symbol': symbol_upper,
+                'cached': True, 'stale': True,
+                'note': f'最新データ取得失敗のため、前回のチャートを表示中（{reason}）'
+            })
+        return None
+
     try:
         if symbol_upper == 'NQ1!':
             df = fetch_nq1()
             if df is None:
+                stale = _fallback_to_stale_cache('NQ1! 取得失敗')
+                if stale: return stale
                 return jsonify({'error': 'NQ1! のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_nq(df, 'NASDAQ Futures')
         elif symbol_upper == 'ES1!':
             df = fetch_es1()
             if df is None:
+                stale = _fallback_to_stale_cache('ES1! 取得失敗')
+                if stale: return stale
                 return jsonify({'error': 'ES1! のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_nq(df, 'S&P 500 Futures')
         elif symbol_upper in CRYPTO_MAP:
             df = fetch_crypto(symbol_upper)
             if df is None:
+                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
+                if stale: return stale
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
         elif symbol_upper in FOREX_PAIRS:
             df = fetch_forex(symbol_upper)
             if df is None:
+                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
+                if stale: return stale
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
         elif is_jp_symbol(symbol_upper):
             df = fetch_jp(symbol_upper)
             if df is None:
+                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
+                if stale: return stale
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
         elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS or symbol_upper in NASDAQ100_SYMBOLS:
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
             if df is None:
+                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
+                if stale: return stale
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
         else:
             return jsonify({'error': f'{symbol_upper} は対象外です'}), 400
 
         if img_b64 is None:
+            stale = _fallback_to_stale_cache('チャート生成失敗')
+            if stale: return stale
             return jsonify({'error': 'チャート生成に失敗しました'}), 500
 
         chart_cache[symbol_upper] = (now, img_b64)
         return jsonify({'image': img_b64, 'symbol': symbol_upper, 'cached': False})
     except Exception as e:
+        stale = _fallback_to_stale_cache(str(e)[:50])
+        if stale: return stale
         return jsonify({'error': str(e)}), 500
 
 
