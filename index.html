@@ -1369,6 +1369,100 @@
       margin-right: 6px;
     }
 
+    /* ===== ポリシー系モーダル ===== */
+    .policy-modal-overlay {
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(43, 26, 12, 0.55);
+      backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+      padding: 20px;
+      animation: policyOverlayIn 0.25s ease;
+    }
+    .policy-modal-overlay.active { display: flex; }
+    @keyframes policyOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+    .policy-modal {
+      background: var(--cream-50);
+      border-radius: 16px;
+      max-width: 720px; width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 60px rgba(43, 26, 12, 0.4);
+      animation: policyModalIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      border: 1px solid var(--brown-100);
+    }
+    @keyframes policyModalIn { from { opacity: 0; transform: translateY(20px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .policy-modal-header {
+      position: sticky; top: 0;
+      background: linear-gradient(135deg, var(--brown-800), var(--brown-700));
+      color: var(--cream-50);
+      padding: 18px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-radius: 16px 16px 0 0;
+      z-index: 1;
+    }
+    .policy-modal-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: 0.5px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .policy-modal-close {
+      background: rgba(255, 255, 255, 0.15);
+      border: none;
+      color: var(--cream-50);
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+      font-size: 16px;
+    }
+    .policy-modal-close:hover { background: rgba(255, 255, 255, 0.3); }
+    .policy-modal-body {
+      padding: 24px 28px;
+      color: var(--brown-800);
+      font-size: 13px;
+      line-height: 1.85;
+    }
+    .policy-modal-body h3 {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--brown-800);
+      margin: 18px 0 6px;
+      padding-bottom: 4px;
+      border-bottom: 2px solid var(--gold-400);
+      display: inline-block;
+    }
+    .policy-modal-body h3:first-child { margin-top: 0; }
+    .policy-modal-body p { margin: 6px 0 10px; }
+    .policy-modal-body ul { padding-left: 22px; margin: 4px 0 10px; }
+    .policy-modal-body li { margin-bottom: 4px; }
+    .policy-modal-body strong { color: var(--brown-900); }
+    .policy-updated {
+      margin-top: 20px; padding-top: 12px;
+      border-top: 1px solid var(--brown-100);
+      font-size: 11px; color: var(--brown-500); text-align: right;
+    }
+
+    /* フッター ポリシーリンク */
+    .footer-links {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      gap: 8px 18px;
+      margin: 18px 0 12px;
+      font-size: 12px;
+    }
+    .footer-link {
+      color: var(--cream-200);
+      background: none; border: none;
+      cursor: pointer;
+      font-family: inherit; font-size: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(212, 168, 90, 0.4);
+      text-underline-offset: 3px;
+      transition: color 0.2s;
+      padding: 0;
+    }
+    .footer-link:hover { color: var(--gold-400); }
+
     /* ===== フッター ===== */
     .footer { margin-top: 60px; padding: 40px 28px 30px; background: var(--brown-800); color: var(--cream-100); text-align: center; font-size: 12px; }
     .footer-logo { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 900; margin-bottom: 8px; }
@@ -1529,8 +1623,8 @@
   <section class="hero">
     <h1 class="hero-title-en">トレンド<span class="accent">研究所</span></h1>
     <div class="hero-sub-en">Candle Color Tells The Trend</div>
-    <div class="hero-tagline">ーろうそく足の色でトレンド把握 — <br class="sp-only">トレケン式分析で次の一手を掴め！</div>
-    <div class="hero-badge">投資判断のためのチャートデータベース</div>
+    <div class="hero-tagline">ーろうそく足の色でトレンド可視化 — <br class="sp-only">独自スコアでチャートを多角的に分析</div>
+    <div class="hero-badge">投資判断の参考情報としてのチャートデータベース</div>
   </section>
 
   <!-- ② 色凡例バナー（2行構成） -->
@@ -1833,12 +1927,167 @@
     <div class="footer-logo">Tore<span>ken</span></div>
     <div class="footer-disclaimer">
       <span class="footer-disclaimer-label">⚠️ 免責事項</span>
-      当サイトは投資判断のための情報提供のみを目的としており、特定銘柄の売買を推奨するものではありません。
-      掲載情報の正確性・完全性は保証されません。投資には元本割れリスクがあり、最終的な投資判断はご自身の責任で行ってください。
+      当サイトは投資判断の参考となる情報提供のみを目的としており、特定銘柄の売買を推奨・勧誘するものではありません。
+      掲載情報の正確性・完全性・適時性は保証されません。投資には元本割れリスクがあり、最終的な投資判断はご自身の責任で行ってください。
       過去のチャート・スコアは将来の結果を保証するものではありません。
+      運営者は金融商品取引業者ではなく、本サイトは金融商品取引法上の投資助言・代理業に該当する助言を行うものではありません。
     </div>
+
+    <div class="footer-links">
+      <button class="footer-link" onclick="openPolicy('disclaimer')">📜 免責事項（詳細）</button>
+      <button class="footer-link" onclick="openPolicy('privacy')">🔒 プライバシーポリシー</button>
+      <button class="footer-link" onclick="openPolicy('terms')">📋 利用規約</button>
+      <a class="footer-link" href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener">📧 お問い合わせ (X)</a>
+    </div>
+
     <div>© 2026 トレケン / トレンド研究所</div>
   </footer>
+
+  <!-- ===== ポリシー系モーダル ===== -->
+  <div class="policy-modal-overlay" id="policyOverlay" onclick="closePolicyOnOverlay(event)">
+    <div class="policy-modal" id="policyModal">
+      <div class="policy-modal-header">
+        <div class="policy-modal-title" id="policyTitle">タイトル</div>
+        <button class="policy-modal-close" onclick="closePolicy()" aria-label="閉じる">✕</button>
+      </div>
+      <div class="policy-modal-body" id="policyBody"></div>
+    </div>
+  </div>
+
+  <!-- ポリシー内容データ -->
+  <script>
+    const POLICY_CONTENT = {
+      disclaimer: {
+        title: '⚠️ 免責事項',
+        body: `
+          <h3>1. 情報提供の目的</h3>
+          <p>当サイト「トレンド研究所」（以下「当サイト」）は、株式・ETF・暗号通貨・為替・先物等の金融商品に関するチャート、独自スコア、関連データを <strong>客観的な参考情報</strong> として提供するものです。</p>
+          <p>当サイトは特定の金融商品の売買を <strong>推奨・勧誘するものではありません</strong>。</p>
+
+          <h3>2. 投資助言業に関する位置づけ</h3>
+          <p>当サイト運営者は <strong>金融商品取引法上の金融商品取引業者（投資助言・代理業）として登録しておりません</strong>。当サイトの情報は、特定の投資判断を勧めるものではなく、個別の助言にも該当しません。投資判断は利用者ご自身の責任と判断で行ってください。</p>
+
+          <h3>3. データの正確性</h3>
+          <p>当サイトの株価データ、企業情報、スコア計算結果等は、第三者データソース（Yahoo Finance、TradingView 等）から取得した情報を加工して表示しています。これらの情報には以下のリスクがあります：</p>
+          <ul>
+            <li>データソース側の遅延・誤り・欠落</li>
+            <li>計算ロジック上の誤差</li>
+            <li>表示時点と現在の市場価格との乖離</li>
+          </ul>
+          <p>当サイト運営者は、情報の正確性、完全性、適時性、有用性について <strong>一切の保証を行いません</strong>。</p>
+
+          <h3>4. リスクと自己責任</h3>
+          <p>株式・ETF・暗号通貨・為替・先物等への投資は、市場変動により <strong>元本を上回る損失が発生する可能性</strong> があります。過去のチャート・スコア・分析結果は、将来の運用成果や価格動向を保証するものではありません。</p>
+          <p>利用者は、自身の知識・経験・財務状況・投資目的等を十分考慮した上で、自己責任により投資判断を行うものとし、当サイトの情報を理由とする一切の損害・損失について、当サイト運営者は責任を負いません。</p>
+
+          <h3>5. 著作権・知的財産</h3>
+          <p>当サイトに掲載されている文章、画像、ロゴ、独自スコア計算ロジック等の著作権は、運営者または各権利者に帰属します。無断転載・無断複製は禁止します。</p>
+
+          <h3>6. サービスの変更・停止</h3>
+          <p>当サイトは予告なく内容を変更、または運営を停止することがあります。これに伴い利用者に発生した損害について、運営者は責任を負いません。</p>
+
+          <div class="policy-updated">最終更新日：2026年6月</div>
+        `,
+      },
+      privacy: {
+        title: '🔒 プライバシーポリシー',
+        body: `
+          <h3>1. 取得する情報</h3>
+          <p>当サイトでは、サービス改善および不正アクセス防止のため、以下の情報を取得する場合があります：</p>
+          <ul>
+            <li>アクセスログ（IPアドレス、アクセス日時、ブラウザ情報、リファラ等）</li>
+            <li>Cookie（一部機能の動作やアクセス解析のため）</li>
+          </ul>
+          <p>当サイトでは、氏名・住所・電話番号等の <strong>個人を直接特定する情報を取得していません</strong>。</p>
+
+          <h3>2. 情報の利用目的</h3>
+          <ul>
+            <li>サービスの提供・改善・新機能の検討</li>
+            <li>不正アクセス・サイバー攻撃の検知・防御</li>
+            <li>アクセス傾向の統計分析</li>
+          </ul>
+
+          <h3>3. 第三者提供</h3>
+          <p>取得した情報を <strong>第三者に販売・提供することはありません</strong>。ただし、法令に基づく場合（裁判所・警察等からの正式な要請等）はこの限りではありません。</p>
+
+          <h3>4. Cookie の管理</h3>
+          <p>利用者はブラウザの設定により Cookie の受け入れを拒否することができます。ただし、その場合、一部機能が正常に動作しない可能性があります。</p>
+
+          <h3>5. 外部サービス</h3>
+          <p>当サイトはホスティング、データ取得等で以下の外部サービスを利用しています。各サービスのプライバシーポリシーが適用される場合があります：</p>
+          <ul>
+            <li>Render（ホスティング）</li>
+            <li>GitHub（ソースコード管理、永続キャッシュ）</li>
+            <li>Yahoo Finance / TradingView（金融データ取得）</li>
+            <li>note（記事フィード取得）</li>
+          </ul>
+
+          <h3>6. お問い合わせ</h3>
+          <p>本ポリシーに関するご質問は X (旧 Twitter) <a href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener" style="color:var(--brown-700);text-decoration:underline;">@Trade_CFD_FX</a> までご連絡ください。</p>
+
+          <div class="policy-updated">最終更新日：2026年6月</div>
+        `,
+      },
+      terms: {
+        title: '📋 利用規約',
+        body: `
+          <h3>第1条（適用）</h3>
+          <p>本規約は、当サイト「トレンド研究所」の利用に関する条件を、利用者と運営者の間で定めるものです。利用者は本規約に同意したうえで当サイトを利用するものとします。</p>
+
+          <h3>第2条（利用目的）</h3>
+          <p>当サイトは、個人投資家が金融商品の動向を参考情報として確認することを目的としています。商用利用、再配布、データの転用は別途禁止規定が適用されます。</p>
+
+          <h3>第3条（禁止事項）</h3>
+          <p>利用者は当サイトの利用にあたり、以下の行為を行ってはいけません：</p>
+          <ul>
+            <li>当サイト掲載情報を、運営者の事前同意なく <strong>商用目的で転載・再配布</strong> すること</li>
+            <li>大量・自動・連続的アクセス（スクレイピング、ボット、過度なAPI呼出し等）</li>
+            <li>当サイトのサーバ、ネットワーク、システムに過大な負荷を与える行為</li>
+            <li>不正アクセス、システム改竄、リバースエンジニアリング</li>
+            <li>他の利用者・第三者・運営者に不利益・損害を与える行為</li>
+            <li>法令・公序良俗に違反する行為</li>
+            <li>当サイトの情報を投資助言・運用助言・推奨として第三者に提供する行為</li>
+          </ul>
+
+          <h3>第4条（リンクについて）</h3>
+          <p>当サイトへのリンクは原則自由ですが、当サイトを誤解させるような表記、または当サイトの信用・名誉を損なう文脈でのリンクは禁止します。</p>
+
+          <h3>第5条（免責）</h3>
+          <p>当サイトの利用に関する免責事項は別途「免責事項」に定めるところによります。投資判断は利用者ご自身の責任と判断で行うものとし、運営者は一切の責任を負いません。</p>
+
+          <h3>第6条（サービスの変更・停止）</h3>
+          <p>運営者は、利用者への事前通知なく、当サイトの内容変更・一時停止・終了を行うことができ、これに起因する損害について責任を負いません。</p>
+
+          <h3>第7条（準拠法・管轄）</h3>
+          <p>本規約の解釈および当サイトの利用に関する一切の紛争は、日本法を準拠法とし、運営者所在地を管轄する裁判所を第一審の専属的合意管轄とします。</p>
+
+          <h3>第8条（規約の変更）</h3>
+          <p>運営者は必要に応じて本規約を変更できます。変更後の規約は当サイトに掲載した時点で効力を生じます。利用者は定期的に本規約をご確認ください。</p>
+
+          <div class="policy-updated">最終更新日：2026年6月</div>
+        `,
+      },
+    };
+
+    function openPolicy(key) {
+      const data = POLICY_CONTENT[key];
+      if (!data) return;
+      document.getElementById('policyTitle').innerHTML = data.title;
+      document.getElementById('policyBody').innerHTML = data.body;
+      document.getElementById('policyOverlay').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+    function closePolicy() {
+      document.getElementById('policyOverlay').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+    function closePolicyOnOverlay(e) {
+      if (e.target.id === 'policyOverlay') closePolicy();
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closePolicy();
+    });
+  </script>
 
   <script>
 
