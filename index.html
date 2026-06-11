@@ -867,6 +867,79 @@
     .symbol-chip.etf:hover { background: linear-gradient(135deg, #7a7a4a, #4a4528); color: #fff; }
     .symbol-chip.etf.active { background: linear-gradient(135deg, #4a4528, #2a2818); color: #fff; }
 
+    /* ===== ETFタブ専用: セクター見出し ===== */
+    .sector-header {
+      grid-column: 1 / -1;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px;
+      margin: 6px 0 2px;
+      background: linear-gradient(135deg, var(--brown-100), var(--cream-200));
+      border-left: 4px solid var(--gold-500);
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--brown-800);
+      cursor: pointer;
+      transition: background 0.25s, transform 0.15s, box-shadow 0.25s;
+      user-select: none;
+    }
+    .sector-header:hover {
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-500));
+      color: #fff;
+      transform: translateX(2px);
+      box-shadow: 0 3px 8px rgba(196, 154, 74, 0.35);
+    }
+    .sector-header-name { letter-spacing: 0.5px; }
+    .sector-header-action {
+      font-size: 11px;
+      padding: 3px 8px;
+      background: rgba(255, 255, 255, 0.4);
+      border-radius: 999px;
+      font-weight: 700;
+      transition: background 0.25s;
+    }
+    .sector-header:hover .sector-header-action {
+      background: rgba(255, 255, 255, 0.6);
+      color: var(--brown-800);
+    }
+
+    /* ===== セクター一気見：チャート縦並び ===== */
+    .sector-compare {
+      display: flex; flex-direction: column; gap: 16px;
+      padding: 8px 0;
+    }
+    .sector-compare-item {
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid var(--brown-100);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 2px 8px rgba(93, 58, 31, 0.06);
+    }
+    .sector-compare-symbol {
+      font-family: 'Playfair Display', serif;
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--brown-800);
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sector-compare-symbol::before {
+      content: '📈';
+      font-size: 16px;
+    }
+    .sector-compare-item img {
+      width: 100%; height: auto; display: block;
+      border-radius: 8px;
+      background: #131722;
+    }
+    .sector-compare-error {
+      padding: 20px;
+      text-align: center;
+      color: #c4302b;
+      font-size: 13px;
+    }
+
     .no-result { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
     .count-info { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
 
@@ -1912,6 +1985,22 @@
     const FOREX_SET = new Set(GROUPS.FOREX);
     const ETF_SET = new Set(GROUPS.ETF);
 
+    // ETF タブ用：セクター構造（見出し + 銘柄）
+    const ETF_SECTORS = [
+      { name: 'テクノロジー',   symbols: ['XLK', 'VGT', 'IYW'] },
+      { name: 'ヘルスケア',     symbols: ['XLV', 'VHT', 'IYH'] },
+      { name: '金融',           symbols: ['XLF', 'VFH', 'IYF'] },
+      { name: 'エネルギー',     symbols: ['XLE', 'VDE', 'IYE'] },
+      { name: '一般消費財',     symbols: ['XLY', 'VCR', 'IYC'] },
+      { name: '生活必需品',     symbols: ['XLP', 'VDC', 'IYK'] },
+      { name: '資本財',         symbols: ['XLI', 'VIS', 'IYJ'] },
+      { name: '素材',           symbols: ['XLB', 'VAW', 'IYM'] },
+      { name: '公益事業',       symbols: ['XLU', 'VPU', 'IDU'] },
+      { name: '不動産',         symbols: ['XLRE', 'VNQ', 'IYR'] },
+      { name: '通信サービス',   symbols: ['XLC', 'VOX', 'IYZ'] },
+      { name: '高配当',         symbols: ['VYM', 'HDV', 'SPYD', 'VIG'] },
+    ];
+
     // ===== 条件検索フィルタ =====
     let metaData = null;
     let filterActive = false;
@@ -2213,6 +2302,35 @@
         });
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
         totalCount = allSymbols.length;
+      } else if (currentGroup === 'ETF') {
+        // ETF タブ専用：セクター見出し付きで元の順序を保ったままレンダリング
+        const symbols = GROUPS.ETF || [];
+        totalCount = symbols.length;
+        displaySymbols = symbols; // ソートしない
+
+        list.innerHTML = '';
+        let idx = 0;
+        ETF_SECTORS.forEach(sector => {
+          // セクター見出しチップ
+          const header = document.createElement('div');
+          header.className = 'sector-header';
+          header.innerHTML = `<span class="sector-header-name">${sector.name}</span><span class="sector-header-action">📊 一気見</span>`;
+          header.onclick = () => loadSectorCompare(sector.name, sector.symbols);
+          list.appendChild(header);
+          // 銘柄チップ
+          sector.symbols.forEach(sym => {
+            const chip = document.createElement('div');
+            let cls = 'symbol-chip etf';
+            if (sym === activeSymbol) cls += ' active';
+            chip.className = cls;
+            chip.style.setProperty('--i', idx++);
+            chip.textContent = sym;
+            chip.onclick = () => loadChart(sym);
+            list.appendChild(chip);
+          });
+        });
+        countInfo.textContent = `${totalCount} / ${totalCount} 銘柄`;
+        return;
       } else {
         const symbols = GROUPS[currentGroup] || [];
         displaySymbols = sortSymbols(symbols);
@@ -2253,6 +2371,59 @@
       } else {
         countInfo.textContent = `${displaySymbols.length} / ${totalCount} 銘柄`;
       }
+    }
+
+    async function loadSectorCompare(sectorName, symbols) {
+      activeSymbol = null;
+      compareMode = false;
+      lastChartImage = null;
+      lastPeerSymbols = [];
+      renderSymbolList();
+
+      const area = document.getElementById('chartArea');
+      const title = document.getElementById('chartTitle');
+      const body = document.getElementById('chartBody');
+      const commentaryList = document.getElementById('commentaryList');
+      const peerSectorName = document.getElementById('peerSectorName');
+      const peerList = document.getElementById('peerList');
+      const compareBtn = document.getElementById('compareBtn');
+      const restoreBtn = document.getElementById('restoreBtn');
+      const profileCard = document.getElementById('profileCard');
+
+      area.classList.add('active');
+      title.textContent = `📊 ${sectorName}セクター（${symbols.join(' / ')}）`;
+      body.innerHTML = `<div class="chart-loading">${symbols.length}銘柄のチャート取得中...</div>`;
+      commentaryList.innerHTML = `<li class="info-empty">${escapeHtml(sectorName)}セクターの${symbols.length}つのETFを並べて比較中</li>`;
+      peerSectorName.textContent = '';
+      peerList.innerHTML = '<li class="info-empty">セクター一気見モード</li>';
+      compareBtn.style.display = 'none';
+      restoreBtn.style.display = 'none';
+      profileCard.style.display = 'none';
+
+      setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+
+      // 各銘柄を並列で取得
+      const promises = symbols.map(s =>
+        fetch(`/chart/${encodeURIComponent(s)}`)
+          .then(r => r.json())
+          .then(d => ({ symbol: s, image: d.image, error: d.error }))
+          .catch(e => ({ symbol: s, error: String(e) }))
+      );
+      const results = await Promise.all(promises);
+
+      let chartsHtml = '<div class="sector-compare">';
+      for (const r of results) {
+        chartsHtml += `<div class="sector-compare-item">`;
+        chartsHtml += `<div class="sector-compare-symbol">${escapeHtml(r.symbol)}</div>`;
+        if (r.image) {
+          chartsHtml += `<img src="data:image/png;base64,${r.image}" alt="${escapeHtml(r.symbol)}チャート">`;
+        } else {
+          chartsHtml += `<div class="sector-compare-error">⚠️ ${escapeHtml(r.error || '取得失敗')}</div>`;
+        }
+        chartsHtml += `</div>`;
+      }
+      chartsHtml += '</div>';
+      body.innerHTML = chartsHtml;
     }
 
     async function loadChart(sym) {
