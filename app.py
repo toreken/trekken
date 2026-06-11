@@ -157,6 +157,19 @@ SYMBOLS = [
     'RGTI', 'QBTS', 'QUBT', 'LAES',
     # 宇宙関連（ピュアプレイ + 衛星通信）
     'ASTS', 'PL', 'BKSY', 'RDW', 'IRDM',
+    # ETF（セクター別 + 高配当）
+    'XLK', 'VGT', 'IYW',           # テクノロジー
+    'XLV', 'VHT', 'IYH',           # ヘルスケア
+    'XLF', 'VFH', 'IYF',           # 金融
+    'XLE', 'VDE', 'IYE',           # エネルギー
+    'XLY', 'VCR', 'IYC',           # 一般消費財
+    'XLP', 'VDC', 'IYK',           # 生活必需品
+    'XLI', 'VIS', 'IYJ',           # 資本財
+    'XLB', 'VAW', 'IYM',           # 素材
+    'XLU', 'VPU', 'IDU',           # 公益事業
+    'XLRE', 'VNQ', 'IYR',          # 不動産
+    'XLC', 'VOX', 'IYZ',           # 通信サービス
+    'VYM', 'HDV', 'SPYD', 'VIG',   # 高配当
 ]
 
 # S&P500 構成銘柄（yfinance形式: BRK.B → BRK-B 等に変換済み）
@@ -365,9 +378,11 @@ NASDAQ100_SECTOR_MAP = {
 
 
 def get_sector(sym):
-    """シンボルのセクター情報を取得する（為替・SP500 → NASDAQ100追加分 → 日経225 の順で参照）。"""
+    """シンボルのセクター情報を取得する（為替・ETF・SP500 → NASDAQ100追加分 → 日経225 の順で参照）。"""
     if sym in FOREX_NAMES:
         return FOREX_NAMES[sym]
+    if sym in ETF_SECTOR_MAP:
+        return ETF_SECTOR_MAP[sym]
     return (SP500_SECTOR_MAP.get(sym)
             or NASDAQ100_SECTOR_MAP.get(sym)
             or NIKKEI225_SECTOR_MAP.get(sym)
@@ -645,6 +660,36 @@ FOREX_NAMES = {
     'GBPJPY': 'ポンド/円',
     'AUDJPY': '豪ドル/円',
     'EURGBP': 'ユーロ/ポンド',
+}
+
+
+# ===== ETF（セクター別 + 高配当） =====
+ETF_SECTOR_MAP = {
+    # テクノロジー
+    'XLK': 'テクノロジー(SPDR)', 'VGT': 'テクノロジー(Vanguard)', 'IYW': 'テクノロジー(iShares)',
+    # ヘルスケア
+    'XLV': 'ヘルスケア(SPDR)', 'VHT': 'ヘルスケア(Vanguard)', 'IYH': 'ヘルスケア(iShares)',
+    # 金融
+    'XLF': '金融(SPDR)', 'VFH': '金融(Vanguard)', 'IYF': '金融(iShares)',
+    # エネルギー
+    'XLE': 'エネルギー(SPDR)', 'VDE': 'エネルギー(Vanguard)', 'IYE': 'エネルギー(iShares)',
+    # 一般消費財
+    'XLY': '一般消費財(SPDR)', 'VCR': '一般消費財(Vanguard)', 'IYC': '一般消費財(iShares)',
+    # 生活必需品
+    'XLP': '生活必需品(SPDR)', 'VDC': '生活必需品(Vanguard)', 'IYK': '生活必需品(iShares)',
+    # 資本財
+    'XLI': '資本財(SPDR)', 'VIS': '資本財(Vanguard)', 'IYJ': '資本財(iShares)',
+    # 素材
+    'XLB': '素材(SPDR)', 'VAW': '素材(Vanguard)', 'IYM': '素材(iShares)',
+    # 公益事業
+    'XLU': '公益事業(SPDR)', 'VPU': '公益事業(Vanguard)', 'IDU': '公益事業(iShares)',
+    # 不動産
+    'XLRE': '不動産(SPDR)', 'VNQ': '不動産(Vanguard)', 'IYR': '不動産(iShares)',
+    # 通信サービス
+    'XLC': '通信サービス(SPDR)', 'VOX': '通信サービス(Vanguard)', 'IYZ': '通信サービス(iShares)',
+    # 高配当
+    'VYM': '高配当(Vanguard)', 'HDV': '高配当(iShares Core)',
+    'SPYD': '高配当(SPDR S&P 500)', 'VIG': '配当成長(Vanguard)',
 }
 
 
