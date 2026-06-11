@@ -1949,6 +1949,76 @@ def run_prefetch_in_background():
     print(f"Prefetch done: success={len(all_success)} failed={len(all_failed)} elapsed={elapsed:.1f}s")
 
 
+def run_startup_prefetch():
+    """起動時に自動で走るプリフェッチ。
+    フェーズ1: ETF（最優先・短時間で完了）
+    フェーズ2: S&P500 + NASDAQ100差分（既存ロジックと同じ）
+    tvDatafeedの初回ログイン待ちのため30秒待機してから開始。"""
+    global prefetch_state
+
+    # tvDatafeedの初回ログイン完了を待つ
+    time.sleep(30)
+
+    with prefetch_lock:
+        if prefetch_state['running']:
+            print("Startup prefetch: skipped (already running)")
+            return
+        prefetch_state['running'] = True
+        prefetch_state['started_at'] = time.time()
+        prefetch_state['finished_at'] = None
+
+    print("=" * 60)
+    print("STARTUP PREFETCH: starting (ETF → S&P500 → NASDAQ100 diff)")
+    print("=" * 60)
+
+    start_time = time.time()
+    all_success = []
+    all_failed = []
+
+    BATCH_SIZE = 50
+    BATCH_WAIT = 3
+
+    # フェーズ1: ETF（最優先）
+    etf_symbols = list(ETF_SECTOR_MAP.keys())
+    print(f"[Phase 1/2] ETF prefetch: {len(etf_symbols)} symbols")
+    try:
+        res = prefetch_batch(etf_symbols)
+        all_success.extend(res.get('success', []))
+        all_failed.extend(res.get('failed', []))
+        print(f"[Phase 1/2] ETF done: success={len(res.get('success', []))}, failed={len(res.get('failed', []))}")
+    except Exception as e:
+        print(f"[Phase 1/2] ETF error: {e}")
+
+    # フェーズ2: S&P500 + NASDAQ100差分
+    nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
+    targets = list(SP500_SYMBOLS) + nasdaq_only
+    print(f"[Phase 2/2] S&P500+NASDAQ100diff prefetch: {len(targets)} symbols")
+
+    try:
+        for i in range(0, len(targets), BATCH_SIZE):
+            batch = targets[i:i+BATCH_SIZE]
+            print(f"[Phase 2/2] batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
+            res = prefetch_batch(batch)
+            all_success.extend(res.get('success', []))
+            all_failed.extend(res.get('failed', []))
+            if i + BATCH_SIZE < len(targets):
+                time.sleep(BATCH_WAIT)
+    except Exception as e:
+        print(f"[Phase 2/2] error: {e}")
+
+    elapsed = time.time() - start_time
+    with prefetch_lock:
+        prefetch_state['running'] = False
+        prefetch_state['finished_at'] = time.time()
+        prefetch_state['success_count'] = len(all_success)
+        prefetch_state['failed_count'] = len(all_failed)
+        prefetch_state['failed_symbols'] = all_failed
+        prefetch_state['elapsed_seconds'] = round(elapsed, 1)
+    print("=" * 60)
+    print(f"STARTUP PREFETCH DONE: success={len(all_success)} failed={len(all_failed)} elapsed={elapsed:.1f}s")
+    print("=" * 60)
+
+
 @app.route('/prefetch')
 def prefetch():
     """S&P500 + NASDAQ100差分 を一括プリフェッチ。バックグラウンドで実行し、即座にレスポンスを返す。"""
@@ -2050,6 +2120,18 @@ def apply_translation(profile):
 
 load_persistent_cache()
 load_translations()
+
+
+# ===== 起動時自動プリフェッチ =====
+# Renderコールドスタート対策：起動時にバックグラウンドでチャートをプリフェッチする
+# 環境変数 STARTUP_PREFETCH=0 で無効化可能
+ENABLE_STARTUP_PREFETCH = os.environ.get('STARTUP_PREFETCH', '1') == '1'
+if ENABLE_STARTUP_PREFETCH:
+    startup_prefetch_thread = threading.Thread(target=run_startup_prefetch, daemon=True)
+    startup_prefetch_thread.start()
+    print("Startup prefetch scheduled (will start in 30 seconds, after tvDatafeed login)")
+else:
+    print("Startup prefetch disabled by STARTUP_PREFETCH=0")
 
 
 @app.route('/cache-export')
