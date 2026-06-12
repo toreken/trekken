@@ -153,6 +153,13 @@ Disallow: /
 """
 
 
+@app.route('/ping')
+def ping():
+    """軽量ヘルスチェック。Renderスリープ防止用にGitHub Actions等から定期的に叩く。
+    DBアクセスや外部API呼び出しを一切行わず、即座に200を返す。"""
+    return jsonify({'status': 'ok', 'time': int(time.time())}), 200
+
+
 @app.route('/robots.txt')
 def robots_txt():
     return Response(ROBOTS_TXT_CONTENT, mimetype='text/plain')
