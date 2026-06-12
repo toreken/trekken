@@ -2,22 +2,23 @@ name: Keep Render Alive
 
 on:
   schedule:
-    # 14分ごとに実行（Renderのスリープ閾値は15分なので、それより短く）
-    - cron: '*/14 * * * *'
+    # 10分ごとに実行（cronの遅延を見越して14分→10分に短縮）
+    # GitHub Actionsのcronは遅延しやすく、15分スリープに間に合わないケースがあるため
+    - cron: '*/10 * * * *'
   workflow_dispatch:  # 手動実行も可能
 
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Ping trekken.onrender.com
         run: |
           echo "Pinging trekken.onrender.com/ping..."
-          # 軽量な /ping エンドポイントを叩く（index.htmlを毎回取得しない）
-          # 最大3回リトライ、各90秒タイムアウト（コールドスタート時の起動待ちに余裕）
+          # コールドスタート時はサーバー起動に60〜90秒かかるため、タイムアウトを180秒に延長
+          # 最大3回リトライ、リトライ間隔30秒（前回の起動完了を待つ）
           for i in 1 2 3; do
-            response=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 90 \
+            response=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 180 \
               -H "User-Agent: GitHub-Actions-Keepalive" \
               https://trekken.onrender.com/ping)
             echo "Attempt $i: HTTP $response"
@@ -26,10 +27,9 @@ jobs:
               exit 0
             fi
             if [ $i -lt 3 ]; then
-              echo "Retrying in 10s..."
-              sleep 10
+              echo "Retrying in 30s..."
+              sleep 30
             fi
           done
           echo "::warning::Site returned non-200 after 3 attempts"
-          # 失敗してもワークフロー全体は失敗にしない（次の実行に賭ける）
           exit 0
