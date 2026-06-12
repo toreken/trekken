@@ -209,6 +209,8 @@ SYMBOLS = [
     'ASTS', 'PL', 'BKSY', 'RDW', 'IRDM',
     # 水素エネルギー関連（ピュアプレイ）
     'PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN',
+    # 太陽光関連（純プレイ＋中国ADR、FSLRは既出）
+    'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY', 'JKS', 'CSIQ', 'DQ',
     # ETF（セクター別 + 高配当）
     'XLK', 'VGT', 'IYW',           # テクノロジー
     'XLV', 'VHT', 'IYH',           # ヘルスケア
@@ -1995,8 +1997,10 @@ def run_startup_prefetch():
     # フェーズ1: ETF + 水素テーマ銘柄（最優先・短時間）
     etf_symbols = list(ETF_SECTOR_MAP.keys())
     hydrogen_us = ['PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN', 'LIN', 'APD', 'CMI']
-    phase1_targets = etf_symbols + [s for s in hydrogen_us if s not in etf_symbols]
-    print(f"[Phase 1/2] ETF + Hydrogen prefetch: {len(phase1_targets)} symbols")
+    solar_us = ['FSLR', 'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY', 'JKS', 'CSIQ', 'DQ']
+    extras = list(set(hydrogen_us + solar_us) - set(etf_symbols))
+    phase1_targets = etf_symbols + extras
+    print(f"[Phase 1/2] ETF + Hydrogen + Solar prefetch: {len(phase1_targets)} symbols")
     try:
         res = prefetch_batch(phase1_targets)
         all_success.extend(res.get('success', []))
