@@ -613,6 +613,27 @@ def is_jp_symbol(sym):
     return isinstance(sym, str) and sym.startswith('TSE:')
 
 
+# ===== 色判定（フロントには露出させない内部ロジック）=====
+# スコアから色を判定する関数。閾値はサーバー側だけが知っている。
+# フロントへは color 文字列（'blue'|'green'|'yellow'|'red'|None）のみ返す。
+_SCORE_COLOR_THRESHOLDS = (7, 0, -7)  # 内部閾値
+def score_to_color(score):
+    """スコアから色を判定。フロントには露出させない。"""
+    if score is None:
+        return None
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return None
+    if s >= _SCORE_COLOR_THRESHOLDS[0]:
+        return 'blue'
+    if s > _SCORE_COLOR_THRESHOLDS[1]:
+        return 'green'
+    if s <= _SCORE_COLOR_THRESHOLDS[2]:
+        return 'yellow'
+    return 'red'
+
+
 def jp_to_yfinance(sym):
     """'TSE:7203' → '7203.T'（yfinanceの日本株表記）"""
     if not is_jp_symbol(sym):
@@ -1496,7 +1517,7 @@ def get_peers(symbol_upper):
                 if p in thumb_cache:
                     _, thumb_data = thumb_cache[p]
                     peer_score = thumb_data.get('score')
-                peer_data.append({'symbol': p, 'change': None, 'score': peer_score})
+                peer_data.append({'symbol': p, 'change': None, 'score': peer_score, 'color': score_to_color(peer_score)})
 
         return {'sector': sub_industry, 'peers': peer_data}
 
@@ -1549,7 +1570,7 @@ def get_peers(symbol_upper):
             if p in thumb_cache:
                 _, thumb_data = thumb_cache[p]
                 peer_score = thumb_data.get('score')
-            peer_data.append({'symbol': p, 'change': None, 'score': peer_score})
+            peer_data.append({'symbol': p, 'change': None, 'score': peer_score, 'color': score_to_color(peer_score)})
 
     return {'sector': sub_industry, 'peers': peer_data}
 
@@ -2194,6 +2215,7 @@ def sp500_all():
                 'sector': SP500_SECTOR_MAP.get(sym, ''),
                 'thumb': data.get('thumb'),
                 'score': data.get('score'),
+                'color': score_to_color(data.get('score')),
                 'week_change': data.get('week_change'),
             })
         else:
@@ -2241,6 +2263,7 @@ def symbols_meta():
             'symbol': sym,
             'sector': get_sector(sym),
             'score': score,
+            'color': score_to_color(score),
             'week_change': week_change,
             'ema20_dev': ema20_dev,
             'sma50_dev': sma50_dev,
@@ -2268,6 +2291,7 @@ def nasdaq100_all():
                 'sector': get_sector(sym),
                 'thumb': data.get('thumb'),
                 'score': data.get('score'),
+                'color': score_to_color(data.get('score')),
                 'week_change': data.get('week_change'),
             })
         else:
@@ -2300,6 +2324,7 @@ def jp225_all():
                 'sector': NIKKEI225_SECTOR_MAP.get(sym, ''),
                 'thumb': data.get('thumb'),
                 'score': data.get('score'),
+                'color': score_to_color(data.get('score')),
                 'week_change': data.get('week_change'),
             })
         else:
