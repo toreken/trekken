@@ -909,6 +909,23 @@
       color: #fff;
       border-color: #00838f;
     }
+
+    /* 太陽光銘柄チップ（イエロー〜オレンジ系配色） */
+    .symbol-chip.solar {
+      background: linear-gradient(135deg, #fff9c4, #fff176);
+      border-color: #ffd54f;
+      color: #5d4037;
+    }
+    .symbol-chip.solar:hover {
+      background: linear-gradient(135deg, #fff176, #ffd54f);
+      border-color: #ffa726;
+      box-shadow: 0 4px 12px rgba(255, 167, 38, 0.3);
+    }
+    .symbol-chip.solar.active {
+      background: linear-gradient(135deg, #f57c00, #e65100);
+      color: #fff;
+      border-color: #ef6c00;
+    }
     /* 為替銘柄チップ（ティール系配色） */
     .symbol-chip.forex {
       background: linear-gradient(135deg, #e8f5f0 0%, #99d4c2 100%);
@@ -1888,6 +1905,10 @@
               <span class="filter-color-label">💧 水素</span>
             </label>
             <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="SOLAR" checked>
+              <span class="filter-color-label">☀️ 太陽光</span>
+            </label>
+            <label class="filter-color-chip">
               <input type="checkbox" class="filter-group-check" value="NIKKEI225" checked>
               <span class="filter-color-label">日経225</span>
             </label>
@@ -1940,6 +1961,7 @@
         <button class="sub-tab" data-subgroup="QUANTUM">⚛️ 量子コンピュータ</button>
         <button class="sub-tab" data-subgroup="SPACE">🚀 宇宙関連</button>
         <button class="sub-tab" data-subgroup="HYDROGEN">💧 水素</button>
+        <button class="sub-tab" data-subgroup="SOLAR">☀️ 太陽光</button>
       </div>
 
       <!-- トレンド要約バー（タブ別の銘柄数内訳） -->
@@ -2258,6 +2280,14 @@
         // 日本（水素ピュアプレイ）
         'TSE:8088', 'TSE:1407',
       ],
+      SOLAR: [
+        // 米国（純プレイ：パネル・インバーター・架台・住宅リース）
+        'FSLR', 'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY',
+        // 中国系ADR
+        'JKS', 'CSIQ', 'DQ',
+        // 日本
+        'TSE:3856', 'TSE:1407',
+      ],
       NIKKEI225: [
         'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
         'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
@@ -2336,6 +2366,7 @@
     const QUANTUM_SET = new Set(GROUPS.QUANTUM);
     const SPACE_SET = new Set(GROUPS.SPACE);
     const HYDROGEN_SET = new Set(GROUPS.HYDROGEN);
+    const SOLAR_SET = new Set(GROUPS.SOLAR);
     const FOREX_SET = new Set(GROUPS.FOREX);
     const ETF_SET = new Set(GROUPS.ETF);
 
@@ -2364,7 +2395,7 @@
       ema20Min: null, ema20Max: null,
       sma50Min: null, sma50Max: null,
       colors: new Set(['blue', 'green', 'red', 'yellow']),
-      groups: new Set(['G1', 'G3', 'FOREX', 'ETF', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'NIKKEI225']),
+      groups: new Set(['G1', 'G3', 'FOREX', 'ETF', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR', 'NIKKEI225']),
     };
 
     function toggleFilterPanel() {
@@ -2652,7 +2683,7 @@
         totalCount = allSymbols.length;
       } else if (q) {
         const allSymbols = [], seen = new Set();
-        ['G1', 'G3', 'FOREX', 'ETF', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN'].forEach(g => {
+        ['G1', 'G3', 'FOREX', 'ETF', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR'].forEach(g => {
           (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
         });
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
@@ -2719,6 +2750,7 @@
           else if (FOREX_SET.has(sym) && currentGroup === 'FOREX') cls += ' forex';
           else if (ETF_SET.has(sym) && currentGroup === 'ETF') cls += ' etf';
           else if (HYDROGEN_SET.has(sym) && currentGroup === 'HYDROGEN') cls += ' hydrogen';
+          else if (SOLAR_SET.has(sym) && currentGroup === 'SOLAR') cls += ' solar';
           else if (QUANTUM_SET.has(sym) && currentGroup === 'QUANTUM') cls += ' quantum';
           else if (SPACE_SET.has(sym) && currentGroup === 'SPACE') cls += ' space';
           else if (NASDAQ_SET.has(sym) && currentGroup === 'NASDAQ100') cls += ' nasdaq';
@@ -3072,7 +3104,7 @@
     }
 
     // note銘柄テーマの順序（左から）と最後に選択したサブタブを記憶
-    const NOTE_SUBGROUPS = ['QUANTUM', 'SPACE', 'HYDROGEN'];
+    const NOTE_SUBGROUPS = ['QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR'];
     let lastNoteSubgroup = 'QUANTUM';
 
     function setActiveSubTab(subgroup) {
