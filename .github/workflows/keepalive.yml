@@ -2,10 +2,8 @@ name: Keep Render Alive
 
 on:
   schedule:
-    # 10分ごとに実行（cronの遅延を見越して14分→10分に短縮）
-    # GitHub Actionsのcronは遅延しやすく、15分スリープに間に合わないケースがあるため
     - cron: '*/10 * * * *'
-  workflow_dispatch:  # 手動実行も可能
+  workflow_dispatch:
 
 jobs:
   ping:
@@ -15,8 +13,6 @@ jobs:
       - name: Ping trekken.onrender.com
         run: |
           echo "Pinging trekken.onrender.com/ping..."
-          # コールドスタート時はサーバー起動に60〜90秒かかるため、タイムアウトを180秒に延長
-          # 最大3回リトライ、リトライ間隔30秒（前回の起動完了を待つ）
           for i in 1 2 3; do
             response=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 180 \
               -H "User-Agent: GitHub-Actions-Keepalive" \
