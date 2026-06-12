@@ -13,10 +13,13 @@ jobs:
     steps:
       - name: Ping trekken.onrender.com
         run: |
-          echo "Pinging trekken.onrender.com..."
-          # 最大3回リトライ、各60秒タイムアウト
+          echo "Pinging trekken.onrender.com/ping..."
+          # 軽量な /ping エンドポイントを叩く（index.htmlを毎回取得しない）
+          # 最大3回リトライ、各90秒タイムアウト（コールドスタート時の起動待ちに余裕）
           for i in 1 2 3; do
-            response=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 60 https://trekken.onrender.com/)
+            response=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 90 \
+              -H "User-Agent: GitHub-Actions-Keepalive" \
+              https://trekken.onrender.com/ping)
             echo "Attempt $i: HTTP $response"
             if [ "$response" = "200" ]; then
               echo "✅ Site is alive"
