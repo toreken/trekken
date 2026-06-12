@@ -1359,15 +1359,24 @@ def chart(symbol):
                 if stale: return stale
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
-        elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS or symbol_upper in NASDAQ100_SYMBOLS:
+        elif symbol_upper.isdigit() and len(symbol_upper) == 4:
+            # 4桁数字は日本株として扱う（例: 7203 → TSE:7203）
+            jp_sym = f'TSE:{symbol_upper}'
+            df = fetch_jp(jp_sym)
+            if df is None:
+                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
+                if stale: return stale
+                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
+            img_b64 = make_chart_image_stock(df, jp_sym)
+            symbol_upper = jp_sym  # キャッシュキー統一
+        else:
+            # 登録済み銘柄 or 未登録銘柄でも yfinance で取得を試みる
             df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
             if df is None:
                 stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
                 if stale: return stale
                 return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_stock(df, symbol_upper)
-        else:
-            return jsonify({'error': f'{symbol_upper} は対象外です'}), 400
 
         if img_b64 is None:
             stale = _fallback_to_stale_cache('チャート生成失敗')
@@ -1563,11 +1572,7 @@ def get_profile(symbol_upper):
     if symbol_upper in ('NQ1!', 'ES1!') or symbol_upper in CRYPTO_MAP:
         return None
 
-    if (symbol_upper not in SYMBOLS
-            and symbol_upper not in SP500_SYMBOLS
-            and symbol_upper not in NASDAQ100_SYMBOLS
-            and not is_jp_symbol(symbol_upper)):
-        return None
+    # 登録銘柄優先だが、未登録でも yfinance で試す（失敗時は None を返す）
 
     yf_ticker = jp_to_yfinance(symbol_upper) if is_jp_symbol(symbol_upper) else symbol_upper
 
@@ -1619,10 +1624,13 @@ def info(symbol):
             df = fetch_forex(symbol_upper)
         elif is_jp_symbol(symbol_upper):
             df = fetch_jp(symbol_upper)
-        elif symbol_upper in SYMBOLS or symbol_upper in SP500_SYMBOLS or symbol_upper in NASDAQ100_SYMBOLS:
-            df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
+        elif symbol_upper.isdigit() and len(symbol_upper) == 4:
+            # 4桁数字 → 日本株として扱う
+            symbol_upper = f'TSE:{symbol_upper}'
+            df = fetch_jp(symbol_upper)
         else:
-            return jsonify({'error': f'{symbol_upper} は対象外です'}), 400
+            # 登録済み銘柄 or 未登録銘柄でも yfinance で取得を試みる
+            df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
 
         if df is None or df.empty:
             return jsonify({'error': 'データ取得に失敗しました'}), 500
