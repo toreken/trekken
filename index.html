@@ -711,6 +711,29 @@
     .mood-neutral  .trend-summary-progress-fill { background: linear-gradient(90deg, var(--gold-500), var(--gold-600)); }
     .mood-mid-down .trend-summary-progress-fill { background: linear-gradient(90deg, #f59e0b, #d97706); }
     .mood-weak     .trend-summary-progress-fill { background: linear-gradient(90deg, #ef4444, #c4302b); }
+
+    /* ===== トレンドサマリー：クリック可能＆フィルタON状態 ===== */
+    .trend-summary { transition: transform 0.2s, box-shadow 0.3s, filter 0.2s; user-select: none; }
+    .trend-summary[style*="pointer"]:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+    .trend-summary.filter-active {
+      box-shadow: 0 0 0 3px var(--gold-500), 0 6px 20px rgba(196, 154, 74, 0.3);
+      transform: scale(1.005);
+    }
+    .trend-summary-hint {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--brown-700);
+      opacity: 0.85;
+      letter-spacing: 0.3px;
+    }
+    .trend-summary.filter-active .trend-summary-hint {
+      color: var(--brown-800);
+      font-weight: 700;
+      opacity: 1;
+    }
     .trend-summary-meta { opacity: 0.7; font-size: 11px; color: var(--muted); }
 
     .sp500-toolbar {
@@ -2625,6 +2648,7 @@
 
     let currentGroup = 'G1';
     let currentQuery = '';
+    let trendFilterActive = false;  // 上昇中銘柄フィルタ ON/OFF
 
     // ===== ウォッチリスト（localStorage永続化） =====
     const WATCHLIST_KEY = 'trekken_watchlist_v1';
@@ -2721,7 +2745,11 @@
         moodTitle = '弱気相場';
       }
 
-      summary.className = 'trend-summary ' + moodClass;
+      let extraClass = trendFilterActive ? ' filter-active' : '';
+      summary.className = 'trend-summary ' + moodClass + extraClass;
+      const hint = trendFilterActive
+        ? `<div class="trend-summary-hint">📋 上昇中銘柄をスコア順で表示中（タップで解除）</div>`
+        : (upCount > 0 ? `<div class="trend-summary-hint">👆 タップで上昇中銘柄のみ表示</div>` : '');
       summary.innerHTML = `
         <div class="trend-mood-icon">${moodIcon}</div>
         <div class="trend-mood-body">
@@ -2732,8 +2760,17 @@
           <div class="trend-summary-progress">
             <div class="trend-summary-progress-fill" style="width: ${percent}%"></div>
           </div>
+          ${hint}
         </div>
       `;
+      // クリックでフィルタON/OFF
+      summary.style.cursor = upCount > 0 || trendFilterActive ? 'pointer' : 'default';
+      summary.onclick = () => {
+        if (upCount === 0 && !trendFilterActive) return;
+        trendFilterActive = !trendFilterActive;
+        updateTrendSummary();
+        renderSymbolList();
+      };
     }
 
     function renderSymbolList() {
@@ -2746,6 +2783,58 @@
       toolbar.style.display = (currentGroup === 'SP500' || currentGroup === 'NIKKEI225' || currentGroup === 'NASDAQ100') ? 'flex' : 'none';
 
       let displaySymbols, totalCount;
+
+      // === 上昇中銘柄フィルタ（トレンドサマリーで有効化）===
+      if (trendFilterActive) {
+        const groupSymbols = GROUPS[currentGroup] || [];
+        // メタデータからscore > 0の銘柄だけ抽出
+        const rising = [];
+        if (metaData && metaData.items) {
+          groupSymbols.forEach(sym => {
+            const meta = metaData.items.find(it => it.symbol === sym);
+            if (meta && typeof meta.score === 'number' && meta.score > 0) {
+              rising.push({ sym, score: meta.score });
+            }
+          });
+        }
+        // スコア降順ソート
+        rising.sort((a, b) => b.score - a.score);
+        const sortedSymbols = rising.map(r => r.sym);
+        totalCount = sortedSymbols.length;
+        displaySymbols = sortedSymbols;
+
+        list.innerHTML = '';
+        if (sortedSymbols.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--brown-500); font-size: 13px;';
+          empty.innerHTML = 'このタブには上昇中の銘柄がありません';
+          list.appendChild(empty);
+        } else {
+          sortedSymbols.forEach((sym, idx) => {
+            const chip = document.createElement('div');
+            let cls = 'symbol-chip';
+            if (sym === activeSymbol) cls += ' active';
+            // カテゴリクラスも維持
+            if (FUTURES_SET.has(sym)) cls += ' futures';
+            else if (HYDROGEN_SET.has(sym)) cls += ' hydrogen';
+            else if (SOLAR_SET.has(sym)) cls += ' solar';
+            else if (QUANTUM_SET.has(sym)) cls += ' quantum';
+            else if (SPACE_SET.has(sym)) cls += ' space';
+            else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
+            else if (FOREX_SET.has(sym)) cls += ' forex';
+            else if (ETF_SET.has(sym)) cls += ' etf';
+            else if (NASDAQ_SET.has(sym)) cls += ' nasdaq';
+            chip.className = cls;
+            chip.style.setProperty('--i', idx);
+            chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+            chip.title = `スコア: ${rising[idx].score}`;
+            chip.onclick = () => loadChart(sym);
+            list.appendChild(chip);
+          });
+        }
+        countInfo.textContent = `${totalCount} 銘柄 (上昇中)`;
+        return;
+      }
 
       if (filterActive) {
         const allSymbols = [], seen = new Set();
@@ -3258,6 +3347,7 @@
         document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         updateTabIndicator(btn);
+        trendFilterActive = false;  // タブ切替で上昇中フィルタを解除
         const group = btn.dataset.group;
 
         // 📝 note銘柄タブ：最後のサブタブ（または初期値QUANTUM）を表示
@@ -3290,6 +3380,7 @@
         if (!NOTE_SUBGROUPS.includes(sub)) return;
         lastNoteSubgroup = sub;
         currentGroup = sub;
+        trendFilterActive = false;  // サブタブ切替でフィルタ解除
         setActiveSubTab(sub);
         updateTrendSummary();
         renderSymbolList();
