@@ -577,6 +577,48 @@
       transition: color 0.2s, border-color 0.2s;
     }
     .tab.active { color: var(--brown-800); border-bottom-color: var(--gold-500); }
+
+    /* ===== note銘柄サブタブ ===== */
+    .sub-tabs {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px 8px;
+      background: linear-gradient(to bottom, rgba(196, 154, 74, 0.08), transparent);
+      border-bottom: 1px solid var(--brown-100);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .sub-tabs::before {
+      content: '📝 テーマ:';
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--brown-700);
+      letter-spacing: 0.5px;
+      margin-right: 4px;
+    }
+    .sub-tab {
+      background: var(--cream-100);
+      border: 1px solid var(--brown-100);
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-700);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+      font-family: inherit;
+    }
+    .sub-tab:hover {
+      background: var(--brown-100);
+      color: var(--brown-800);
+      transform: translateY(-1px);
+    }
+    .sub-tab.active {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      color: #fff;
+      border-color: var(--gold-600);
+      box-shadow: 0 2px 8px rgba(196, 154, 74, 0.35);
+    }
     .tab:hover { color: var(--brown-700); }
 
     /* ===== トレンド要約バー（相場の強気/弱気を一目判定） ===== */
@@ -1889,10 +1931,15 @@
         <button class="tab" data-group="ETF">📦 ETF</button>
         <button class="tab" data-group="SP500">S&amp;P 500</button>
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
-        <button class="tab" data-group="QUANTUM">⚛️ 量子コンピュータ</button>
-        <button class="tab" data-group="SPACE">🚀 宇宙関連</button>
-        <button class="tab" data-group="HYDROGEN">💧 水素</button>
+        <button class="tab" data-group="NOTE">📝 note銘柄</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
+      </div>
+
+      <!-- note銘柄サブタブ（テーマ切替） -->
+      <div class="sub-tabs" id="subTabs" style="display:none;">
+        <button class="sub-tab" data-subgroup="QUANTUM">⚛️ 量子コンピュータ</button>
+        <button class="sub-tab" data-subgroup="SPACE">🚀 宇宙関連</button>
+        <button class="sub-tab" data-subgroup="HYDROGEN">💧 水素</button>
       </div>
 
       <!-- トレンド要約バー（タブ別の銘柄数内訳） -->
@@ -3024,14 +3071,34 @@
       tabs.style.setProperty('--tab-left', (rect.left - parentRect.left + tabs.scrollLeft) + 'px');
     }
 
+    // note銘柄テーマの順序（左から）と最後に選択したサブタブを記憶
+    const NOTE_SUBGROUPS = ['QUANTUM', 'SPACE', 'HYDROGEN'];
+    let lastNoteSubgroup = 'QUANTUM';
+
+    function setActiveSubTab(subgroup) {
+      document.querySelectorAll('.sub-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.subgroup === subgroup);
+      });
+    }
+
     document.querySelectorAll('.tab').forEach(btn => {
       btn.onclick = () => {
         document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         updateTabIndicator(btn);
-        currentGroup = btn.dataset.group;
+        const group = btn.dataset.group;
+
+        // 📝 note銘柄タブ：最後のサブタブ（または初期値QUANTUM）を表示
+        if (group === 'NOTE') {
+          document.getElementById('subTabs').style.display = 'flex';
+          currentGroup = lastNoteSubgroup;
+          setActiveSubTab(currentGroup);
+        } else {
+          document.getElementById('subTabs').style.display = 'none';
+          currentGroup = group;
+        }
+
         updateTrendSummary();
-        // SP500、NASDAQ100、NIKKEI225以外に切り替えた時はoverview解除
         if (currentGroup !== 'SP500' && currentGroup !== 'NIKKEI225' && currentGroup !== 'NASDAQ100' && overviewMode) {
           overviewMode = false;
           document.getElementById('overviewGrid').style.display = 'none';
@@ -3040,6 +3107,19 @@
           document.getElementById('overviewSort').style.display = 'none';
           document.getElementById('overviewBtn').textContent = '📊 全銘柄を一気見';
         }
+        renderSymbolList();
+      };
+    });
+
+    // サブタブクリックハンドラ
+    document.querySelectorAll('.sub-tab').forEach(btn => {
+      btn.onclick = () => {
+        const sub = btn.dataset.subgroup;
+        if (!NOTE_SUBGROUPS.includes(sub)) return;
+        lastNoteSubgroup = sub;
+        currentGroup = sub;
+        setActiveSubTab(sub);
+        updateTrendSummary();
         renderSymbolList();
       };
     });
