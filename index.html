@@ -926,6 +926,35 @@
       color: #fff;
       border-color: #ef6c00;
     }
+
+    /* ウォッチリスト銘柄チップ（金/茶系） */
+    .symbol-chip.watchlist-chip {
+      background: linear-gradient(135deg, #fff4e0, #ffe0b3);
+      border-color: var(--gold-400);
+      color: var(--brown-800);
+      position: relative;
+    }
+    .symbol-chip.watchlist-chip::after {
+      content: '⭐';
+      position: absolute;
+      top: -4px; right: -4px;
+      font-size: 10px;
+      background: var(--gold-500);
+      color: #fff;
+      border-radius: 50%;
+      width: 14px; height: 14px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 3px rgba(196, 154, 74, 0.4);
+    }
+    .symbol-chip.watchlist-chip:hover {
+      background: linear-gradient(135deg, #ffe0b3, #ffcc80);
+      border-color: var(--gold-500);
+      box-shadow: 0 4px 12px rgba(196, 154, 74, 0.3);
+    }
+    .symbol-chip.watchlist-chip.active {
+      background: linear-gradient(135deg, var(--brown-800), var(--brown-900));
+      color: #fff;
+    }
     /* 為替銘柄チップ（ティール系配色） */
     .symbol-chip.forex {
       background: linear-gradient(135deg, #e8f5f0 0%, #99d4c2 100%);
@@ -1135,6 +1164,22 @@
       background: var(--brown-700); color: #fff; border: none; padding: 6px 12px;
       border-radius: 999px; font-size: 11px; font-weight: 700; cursor: pointer;
       font-family: 'Noto Sans JP', sans-serif; white-space: nowrap; transition: background 0.2s;
+    }
+
+    /* ⭐ ウォッチリスト追加ボタン */
+    .watchlist-btn {
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-500)) !important;
+      color: #fff !important;
+      border: none !important;
+      font-weight: 700;
+      transition: all 0.2s;
+    }
+    .watchlist-btn:hover {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600)) !important;
+      transform: translateY(-1px);
+    }
+    .watchlist-btn.active {
+      background: linear-gradient(135deg, var(--brown-700), var(--brown-800)) !important;
     }
     .compare-btn:hover { background: var(--brown-800); }
     .compare-btn:disabled { background: #aaa; cursor: not-allowed; }
@@ -1789,7 +1834,7 @@
     <div class="section-divider"></div>
 
     <div class="search-card">
-      <input type="text" class="search-box" id="searchBox" placeholder="🔍 全銘柄から検索（例: NVDA, AAPL, 7203）">
+      <input type="text" class="search-box" id="searchBox" placeholder="🔍 銘柄名を入力してEnter（例: TSLA, 7203, BTC-USD）">
 
       <div class="quick-filter-row">
         <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）</div>
@@ -1953,6 +1998,7 @@
         <button class="tab" data-group="SP500">S&amp;P 500</button>
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="NOTE">📝 note銘柄</button>
+        <button class="tab" data-group="WATCHLIST">⭐ ウォッチリスト</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
       </div>
 
@@ -1990,6 +2036,7 @@
         <span id="chartTitle">📈 ---</span>
         <div class="chart-header-actions">
           <button class="chart-action" id="restoreBtn" style="display:none" onclick="restoreSingleChart()">📈 元のチャートに戻す</button>
+          <button class="chart-action watchlist-btn" id="watchlistBtn" style="display:none" onclick="toggleWatchlist()">⭐ ウォッチリストに追加</button>
           <button class="chart-close" onclick="closeChart()" title="閉じる">✕</button>
         </div>
       </div>
@@ -2395,7 +2442,7 @@
       ema20Min: null, ema20Max: null,
       sma50Min: null, sma50Max: null,
       colors: new Set(['blue', 'green', 'red', 'yellow']),
-      groups: new Set(['G1', 'G3', 'FOREX', 'ETF', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR', 'NIKKEI225']),
+      groups: new Set(['G1', 'G3', 'FOREX', 'ETF', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR', 'NIKKEI225', 'WATCHLIST']),
     };
 
     function toggleFilterPanel() {
@@ -2578,6 +2625,36 @@
 
     let currentGroup = 'G1';
     let currentQuery = '';
+
+    // ===== ウォッチリスト（localStorage永続化） =====
+    const WATCHLIST_KEY = 'trekken_watchlist_v1';
+    function loadWatchlist() {
+      try {
+        const raw = localStorage.getItem(WATCHLIST_KEY);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+      } catch (e) { return []; }
+    }
+    function saveWatchlist(list) {
+      try {
+        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+      } catch (e) { console.warn('watchlist save failed:', e); }
+    }
+    function isInWatchlist(sym) {
+      return loadWatchlist().includes(sym);
+    }
+    function addToWatchlist(sym) {
+      const list = loadWatchlist();
+      if (!list.includes(sym)) {
+        list.push(sym);
+        saveWatchlist(list);
+      }
+    }
+    function removeFromWatchlist(sym) {
+      const list = loadWatchlist().filter(s => s !== sym);
+      saveWatchlist(list);
+    }
     let activeSymbol = null;
     let lastPeerSymbols = [];
     let lastChartImage = null;
@@ -2688,6 +2765,41 @@
         });
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
         totalCount = allSymbols.length;
+      } else if (currentGroup === 'WATCHLIST') {
+        // ウォッチリスト（localStorageから読込）
+        const watchlist = loadWatchlist();
+        totalCount = watchlist.length;
+        displaySymbols = watchlist;
+
+        list.innerHTML = '';
+        if (watchlist.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--brown-500); font-size: 13px; line-height: 1.8;';
+          empty.innerHTML = '⭐ ウォッチリストは空です<br><span style="font-size:11px;">検索バーで銘柄を表示し、「⭐ 追加」ボタンを押すと登録できます</span>';
+          list.appendChild(empty);
+        } else {
+          watchlist.forEach((sym, idx) => {
+            const chip = document.createElement('div');
+            let cls = 'symbol-chip watchlist-chip';
+            if (sym === activeSymbol) cls += ' active';
+            chip.className = cls;
+            chip.style.setProperty('--i', idx);
+            chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+            chip.onclick = () => loadChart(sym);
+            // 右クリックで削除確認
+            chip.oncontextmenu = (e) => {
+              e.preventDefault();
+              if (confirm(`${sym} をウォッチリストから外しますか？`)) {
+                removeFromWatchlist(sym);
+                renderSymbolList();
+              }
+            };
+            chip.title = `${sym}  (右クリックで削除)`;
+            list.appendChild(chip);
+          });
+        }
+        countInfo.textContent = `${totalCount} 銘柄`;
+        return;
       } else if (currentGroup === 'ETF') {
         // ETF タブ専用：セクターブロックを2列で表示（見出し+3銘柄を1ブロックとする）
         const symbols = GROUPS.ETF || [];
@@ -2778,6 +2890,7 @@
       lastChartImage = null;
       lastPeerSymbols = [];
       renderSymbolList();
+      const wbtn = document.getElementById('watchlistBtn'); if (wbtn) wbtn.style.display = 'none';
 
       const area = document.getElementById('chartArea');
       const title = document.getElementById('chartTitle');
@@ -2825,8 +2938,34 @@
       body.innerHTML = chartsHtml;
     }
 
+    function toggleWatchlist() {
+      if (!activeSymbol) return;
+      if (isInWatchlist(activeSymbol)) {
+        removeFromWatchlist(activeSymbol);
+      } else {
+        addToWatchlist(activeSymbol);
+      }
+      updateWatchlistBtn();
+      // ウォッチリストタブを表示中なら再描画
+      if (currentGroup === 'WATCHLIST') renderSymbolList();
+    }
+
+    function updateWatchlistBtn() {
+      const btn = document.getElementById('watchlistBtn');
+      if (!btn || !activeSymbol) return;
+      btn.style.display = '';
+      if (isInWatchlist(activeSymbol)) {
+        btn.textContent = '⭐ 登録済み（外す）';
+        btn.classList.add('active');
+      } else {
+        btn.textContent = '⭐ ウォッチリストに追加';
+        btn.classList.remove('active');
+      }
+    }
+
     async function loadChart(sym) {
       activeSymbol = sym;
+      updateWatchlistBtn();
       compareMode = false;
       lastChartImage = null;
       lastPeerSymbols = [];
@@ -2997,6 +3136,7 @@
       document.getElementById('chartArea').classList.remove('active');
       activeSymbol = null;
       renderSymbolList();
+      const wbtn = document.getElementById('watchlistBtn'); if (wbtn) wbtn.style.display = 'none';
     }
 
     // ===== 一気見モード =====
@@ -3170,6 +3310,14 @@
     document.getElementById('searchBox').addEventListener('input', e => {
       currentQuery = e.target.value;
       renderSymbolList();
+    });
+    document.getElementById('searchBox').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const q = e.target.value.trim().toUpperCase();
+        if (!q) return;
+        // 入力した銘柄をそのまま loadChart に渡す（未登録銘柄でもバックエンドが取得を試みる）
+        loadChart(q);
+      }
     });
 
     // ===== ① 注目銘柄（割安TOP3 / 上昇TOP3） =====
