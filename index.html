@@ -2605,11 +2605,13 @@
     }
 
     function scoreColor(score) {
-      if (score === null || score === undefined) return null;
-      if (score >= 7) return 'blue';
-      if (score > 0) return 'green';
-      if (score <= -7) return 'yellow';
-      return 'red';
+      // フロント側では色判定の閾値ロジックを持たない（サーバー側で判定済み）
+      // 互換性のため、metaオブジェクトから取り出して返す関数として残す
+      return null;
+    }
+    // meta オブジェクトから color を取り出すヘルパー
+    function colorOf(meta) {
+      return meta && meta.color ? meta.color : null;
     }
 
     function passesFilter(sym) {
@@ -3129,9 +3131,11 @@
               }
               let scCls = 'peer-score-na', scLabel = '—';
               if (sc !== null && sc !== undefined) {
-                if (sc >= 7) scCls = 'peer-score-blue';
-                else if (sc > 0) scCls = 'peer-score-green';
-                else if (sc <= -7) scCls = 'peer-score-yellow';
+                // サーバーが判定した色を使う
+                const pColor = peer.color || null;
+                if (pColor === 'blue') scCls = 'peer-score-blue';
+                else if (pColor === 'green') scCls = 'peer-score-green';
+                else if (pColor === 'yellow') scCls = 'peer-score-yellow';
                 else scCls = 'peer-score-red';
                 const scInt = Math.trunc(sc);
                 scLabel = (scInt >= 0 ? '+' : '') + scInt;
@@ -3286,9 +3290,11 @@
         const sc = it.score;
         let scoreCls = 'ts-na', scoreLabel = '—';
         if (sc !== null && sc !== undefined) {
-          if (sc >= 7) scoreCls = 'ts-blue';
-          else if (sc > 0) scoreCls = 'ts-green';
-          else if (sc <= -7) scoreCls = 'ts-yellow';
+          // サーバー側でcolor判定済み（item.color）
+          const tsColor = item.color || null;
+          if (tsColor === 'blue') scoreCls = 'ts-blue';
+          else if (tsColor === 'green') scoreCls = 'ts-green';
+          else if (tsColor === 'yellow') scoreCls = 'ts-yellow';
           else scoreCls = 'ts-red';
           scoreLabel = (sc >= 0 ? '+' : '') + sc.toFixed(1);
         }
@@ -3450,10 +3456,12 @@
       }
       container.innerHTML = items.map((it, idx) => {
         const sc = it.score;
+        // サーバー側で判定済みの color を使う
+        const fcColor = item.color || null;
         let scCls = 'fc-red';
-        if (sc >= 7) scCls = 'fc-blue';
-        else if (sc > 0) scCls = 'fc-green';
-        else if (sc <= -7) scCls = 'fc-yellow';
+        if (fcColor === 'blue') scCls = 'fc-blue';
+        else if (fcColor === 'green') scCls = 'fc-green';
+        else if (fcColor === 'yellow') scCls = 'fc-yellow';
         const scInt = Math.trunc(sc);
         const scLabel = (scInt >= 0 ? '+' : '') + scInt;
 
