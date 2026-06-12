@@ -1964,8 +1964,8 @@ def run_prefetch_in_background():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 15   # 旧50。yfinanceのレート制限回避のため縮小
-    BATCH_WAIT = 8    # 旧3秒。バッチ間隔を延長してYahoo側の制限に引っかかりにくく
+    BATCH_SIZE = 3    # 旧5。起動直後の高負荷を更に抑制
+    BATCH_WAIT = 20   # 旧15秒。バッチ間に余裕を作り /ping 応答を最優先
 
     # NASDAQ100のうち S&P500 に含まれない銘柄（追加で取得が必要な銘柄）
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
@@ -2001,8 +2001,8 @@ def run_startup_prefetch():
     tvDatafeedの初回ログイン待ちのため30秒待機してから開始。"""
     global prefetch_state
 
-    # tvDatafeedの初回ログイン完了を待つ（余裕を持って60秒）
-    time.sleep(60)
+    # tvDatafeedの初回ログイン完了 + サーバー安定化を待つ（120秒）
+    time.sleep(120)
 
     with prefetch_lock:
         if prefetch_state['running']:
@@ -2020,8 +2020,8 @@ def run_startup_prefetch():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 15   # 旧50。yfinanceのレート制限回避のため縮小
-    BATCH_WAIT = 8    # 旧3秒。バッチ間隔を延長してYahoo側の制限に引っかかりにくく
+    BATCH_SIZE = 3    # 旧5。起動直後の高負荷を更に抑制
+    BATCH_WAIT = 20   # 旧15秒。バッチ間に余裕を作り /ping 応答を最優先
 
     # フェーズ1: ETF + 水素テーマ銘柄（最優先・短時間）
     etf_symbols = list(ETF_SECTOR_MAP.keys())
@@ -2037,6 +2037,10 @@ def run_startup_prefetch():
         print(f"[Phase 1/2] done: success={len(res.get('success', []))}, failed={len(res.get('failed', []))}")
     except Exception as e:
         print(f"[Phase 1/2] error: {e}")
+
+    # Phase1とPhase2の間に60秒の休憩（CPU・APIレートを完全にリセット）
+    print("[Inter-Phase] cooldown 60s")
+    time.sleep(60)
 
     # フェーズ2: S&P500 + NASDAQ100差分
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
