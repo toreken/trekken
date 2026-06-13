@@ -3457,7 +3457,7 @@
       container.innerHTML = items.map((it, idx) => {
         const sc = it.score;
         // サーバー側で判定済みの color を使う
-        const fcColor = item.color || null;
+        const fcColor = it.color || null;
         let scCls = 'fc-red';
         if (fcColor === 'blue') scCls = 'fc-blue';
         else if (fcColor === 'green') scCls = 'fc-green';
