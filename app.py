@@ -1419,8 +1419,9 @@ info_cache = {}
 profile_cache = {}
 
 
-def generate_commentary(df):
-    """直近データから簡潔なトレンド解説を3行程度で生成する（スコア・乖離率は整数表示）"""
+def generate_commentary(df, is_futures=False):
+    """直近データから簡潔なトレンド解説を3行程度で生成する（スコア・乖離率は整数表示）
+    is_futures=True の場合は先物・指数用の3色判定（緑=上昇 / 黄=レンジ / 赤=下降）。"""
     try:
         last = df.iloc[-1]
         close_col = 'close' if 'close' in df.columns else 'Close'
@@ -1433,7 +1434,18 @@ def generate_commentary(df):
         if pd.isna(score):
             return ['スコアがまだ計算できていません']
 
-        if score >= 7:
+        if is_futures:
+            # 先物・指数（NQ1!, ES1!）は3色判定（青なし）
+            if score > 0:
+                zone = '上昇トレンド'
+                zone_emoji = '🟢'
+            elif score > -7:
+                zone = 'レンジ'
+                zone_emoji = '🟡'
+            else:
+                zone = '下降トレンド'
+                zone_emoji = '🔴'
+        elif score >= 7:
             zone = '強い上昇トレンド'
             zone_emoji = '🟦'
         elif score > 0:
@@ -1656,7 +1668,8 @@ def info(symbol):
         if df is None or df.empty:
             return jsonify({'error': 'データ取得に失敗しました'}), 500
 
-        commentary = generate_commentary(df)
+        is_futures_symbol = symbol_upper in ('NQ1!', 'ES1!')
+        commentary = generate_commentary(df, is_futures=is_futures_symbol)
         peers_info = get_peers(symbol_upper)
 
         profile = None
