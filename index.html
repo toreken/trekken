@@ -2691,7 +2691,8 @@
       if (filterState.sma50Min !== null && (s50 === null || s50 === undefined || s50 < filterState.sma50Min)) return false;
       if (filterState.sma50Max !== null && (s50 === null || s50 === undefined || s50 > filterState.sma50Max)) return false;
       if (filterState.colors.size < 4) {
-        const col = scoreColor(sc);
+        // サーバー側で判定済みの meta.color を使う
+        const col = meta.color || null;
         if (col === null || !filterState.colors.has(col)) return false;
       }
       return true;
