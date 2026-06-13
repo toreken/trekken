@@ -544,6 +544,36 @@
     }
     .filter-group { display: flex; flex-direction: column; gap: 6px; }
     .filter-group-title { font-size: 12px; font-weight: 700; color: var(--gold-600); letter-spacing: 0.5px; }
+    .filter-group-title-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .filter-group-title-row .filter-group-title { margin-bottom: 0; }
+    .filter-toggle-actions {
+      display: flex; gap: 4px;
+    }
+    .filter-toggle-btn {
+      background: var(--cream-100);
+      border: 1px solid var(--brown-200);
+      color: var(--brown-700);
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 999px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .filter-toggle-btn:hover {
+      background: var(--gold-400);
+      color: #fff;
+      border-color: var(--gold-500);
+      transform: translateY(-1px);
+    }
+    .filter-toggle-btn:active {
+      transform: translateY(0);
+    }
     .filter-range-row { display: flex; gap: 6px; align-items: center; }
     .filter-num {
       padding: 7px 10px;
@@ -1910,7 +1940,13 @@
           <div class="filter-hint">例: 5以上 → 最小に「5」　空欄で無制限</div>
         </div>
         <div class="filter-group">
-          <div class="filter-group-title">トレンド色</div>
+          <div class="filter-group-title-row">
+            <div class="filter-group-title">トレンド色</div>
+            <div class="filter-toggle-actions">
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('color', true)">全選択</button>
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('color', false)">全解除</button>
+            </div>
+          </div>
           <div class="filter-color-row">
             <label class="filter-color-chip">
               <input type="checkbox" class="filter-color-check" value="blue" checked>
@@ -1931,7 +1967,13 @@
           </div>
         </div>
         <div class="filter-group">
-          <div class="filter-group-title">対象グループ</div>
+          <div class="filter-group-title-row">
+            <div class="filter-group-title">対象グループ</div>
+            <div class="filter-toggle-actions">
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('group', true)">全選択</button>
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('group', false)">全解除</button>
+            </div>
+          </div>
           <div class="filter-color-row">
             <label class="filter-color-chip">
               <input type="checkbox" class="filter-group-check" value="G1" checked>
@@ -2653,6 +2695,14 @@
         if (col === null || !filterState.colors.has(col)) return false;
       }
       return true;
+    }
+
+    function toggleAllFilters(kind, checked) {
+      // kind: 'color' or 'group'
+      const selector = kind === 'color' ? '.filter-color-check' : '.filter-group-check';
+      document.querySelectorAll(selector).forEach(cb => { cb.checked = checked; });
+      readFilterInputs();
+      renderSymbolList();
     }
 
     function attachFilterListeners() {
