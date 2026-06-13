@@ -623,6 +623,54 @@
       margin-bottom: -2px;
       transition: color 0.2s, border-color 0.2s;
     }
+
+    /* note銘柄タブの「テーマ別銘柄はこちら」メモ風ヒント */
+    .tab-with-note-hint { position: relative; overflow: visible; }
+    .tab-note-hint {
+      position: absolute;
+      top: -22px;
+      left: 50%;
+      transform: translateX(-50%) rotate(-3deg);
+      background: linear-gradient(135deg, #fff9c4, #fff176);
+      color: #5d4037;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 4px;
+      white-space: nowrap;
+      box-shadow: 0 2px 5px rgba(93, 64, 55, 0.18), 0 0 0 1px rgba(196, 154, 74, 0.3);
+      pointer-events: none;
+      letter-spacing: 0.3px;
+      animation: noteHintBob 3s ease-in-out infinite;
+      z-index: 5;
+    }
+    /* 付箋下端の三角矢印（タブを指す） */
+    .tab-note-hint::after {
+      content: '';
+      position: absolute;
+      bottom: -4px; left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 6px; height: 6px;
+      background: #fff176;
+      box-shadow: 1px 1px 2px rgba(93, 64, 55, 0.15);
+    }
+    @keyframes noteHintBob {
+      0%, 100% { transform: translateX(-50%) rotate(-3deg) translateY(0); }
+      50% { transform: translateX(-50%) rotate(-3deg) translateY(-3px); }
+    }
+    /* タブが選択中はヒントを少し控えめに */
+    .tab-with-note-hint.active .tab-note-hint {
+      opacity: 0.6;
+      animation: none;
+    }
+    /* スマホ：ヒントを少し小さく */
+    @media (max-width: 600px) {
+      .tab-note-hint {
+        font-size: 9px;
+        padding: 2px 7px;
+        top: -20px;
+      }
+    }
     .tab.active { color: var(--brown-800); border-bottom-color: var(--gold-500); }
 
     /* ===== note銘柄サブタブ ===== */
@@ -2081,7 +2129,7 @@
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
         <button class="tab" data-group="ETF">📦 ETF</button>
-        <button class="tab" data-group="NOTE">📝 note銘柄</button>
+        <button class="tab tab-with-note-hint" data-group="NOTE"><span class="tab-note-hint">📌テーマ別銘柄はこちら</span>📝 note銘柄</button>
         <button class="tab" data-group="WATCHLIST">⭐ ウォッチリスト</button>
       </div>
 
