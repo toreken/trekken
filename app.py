@@ -1160,7 +1160,7 @@ def make_chart_image_stock(df, symbol):
         return None
 
     current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-    ax_main.set_title(f"{symbol} (Score: {current_score:+.1f})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
+    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
     ax_main.xaxis.grid(False)
     xmin, xmax = ax_main.get_xlim()
     ax_main.set_xlim(xmin, xmax + 5)
@@ -1220,7 +1220,7 @@ def make_chart_image_nq(df, symbol):
         return None
 
     current_score = plot_df['totalScore'].iloc[-1] if 'totalScore' in plot_df.columns and not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-    ax_main.set_title(f"{symbol} (Score: {current_score:+.1f})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
+    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
     ax_main.xaxis.grid(False)
     xmin, xmax = ax_main.get_xlim()
     ax_main.set_xlim(xmin, xmax + 5)
@@ -1289,7 +1289,7 @@ def make_thumbnail_image(df, symbol):
             return None
 
         current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-        ax_main.set_title(f"{symbol} (Score: {current_score:+.1f})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
+        ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
         ax_main.xaxis.grid(False)
         xmin, xmax = ax_main.get_xlim()
         ax_main.set_xlim(xmin, xmax + 5)
@@ -1458,7 +1458,7 @@ def generate_commentary(df, is_futures=False):
             zone = '下落トレンド'
             zone_emoji = '🔴'
 
-        lines = [f'{zone_emoji} 現在: {zone}(スコア {score:+.1f})']
+        lines = [f'{zone_emoji} 現在: {zone}(スコア {int(score):+d})']
 
         if 'discrepancyPercent' in df.columns and not pd.isna(last['discrepancyPercent']):
             disc = last['discrepancyPercent']
