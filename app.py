@@ -1136,7 +1136,7 @@ def make_chart_image_stock(df, symbol):
         }
     )
 
-    fig = plt.figure(figsize=(14, 8), facecolor=BG_COLOR)
+    fig = plt.figure(figsize=(12, 7), facecolor=BG_COLOR)
     fig.subplots_adjust(top=0.92, bottom=0.15, left=0.05, right=0.90)
     ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
     ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
@@ -1180,7 +1180,7 @@ def make_chart_image_stock(df, symbol):
         ax_main.add_patch(rect)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
+    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
@@ -1206,7 +1206,7 @@ def make_chart_image_nq(df, symbol):
         }
     )
 
-    fig = plt.figure(figsize=(14, 8), facecolor=BG_COLOR)
+    fig = plt.figure(figsize=(12, 7), facecolor=BG_COLOR)
     fig.subplots_adjust(top=0.92, bottom=0.15, left=0.05, right=0.90)
     ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
     ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
@@ -1236,7 +1236,7 @@ def make_chart_image_nq(df, symbol):
         ax_main.add_patch(rect)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
+    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
@@ -1309,7 +1309,7 @@ def make_thumbnail_image(df, symbol):
             ax_main.add_patch(rect)
 
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
+        plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
         buf.seek(0)
         img_b64 = base64.b64encode(buf.read()).decode('utf-8')
         plt.close(fig)
@@ -1755,7 +1755,7 @@ def make_compare_chart(symbols):
     base = df.iloc[0]
     norm = df.divide(base) * 100
 
-    fig = plt.figure(figsize=(14, 8), facecolor=BG_COLOR)
+    fig = plt.figure(figsize=(12, 7), facecolor=BG_COLOR)
     fig.subplots_adjust(top=0.92, bottom=0.15, left=0.06, right=0.92)
     ax = fig.add_subplot(111, facecolor=BG_COLOR)
     ax.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
@@ -1781,7 +1781,7 @@ def make_compare_chart(symbols):
     ax.set_ylabel('正規化価格', color=TEXT_COLOR)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight')
+    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close(fig)
