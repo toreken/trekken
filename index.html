@@ -769,6 +769,27 @@
       box-shadow: 0 0 0 3px var(--gold-500), 0 6px 20px rgba(196, 154, 74, 0.3);
       transform: scale(1.005);
     }
+
+    /* スコアデータ未取得時：枠なし、控えめ表示 */
+    .trend-summary.trend-summary-empty {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 12px 16px;
+      text-align: center;
+      animation: none;
+      transform: none !important;
+    }
+    .trend-summary.trend-summary-empty:hover {
+      transform: none !important;
+      filter: none;
+    }
+    .trend-summary.trend-summary-empty .trend-summary-meta {
+      color: var(--brown-500);
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0.75;
+    }
     .trend-summary-hint {
       margin-top: 6px;
       font-size: 11px;
@@ -2787,8 +2808,10 @@
         if (meta.score > 0) upCount++;
       });
       if (evaluated === 0) {
-        summary.className = 'trend-summary';
-        summary.innerHTML = '<span class="trend-summary-meta">朝の自動更新後に表示されます</span>';
+        summary.className = 'trend-summary trend-summary-empty';
+        summary.innerHTML = '<span class="trend-summary-meta">⏳ スコアデータ読込中... しばらくお待ちください</span>';
+        summary.style.cursor = 'default';
+        summary.onclick = null;
         return;
       }
       const percent = total > 0 ? Math.round((upCount / total) * 100) : 0;
