@@ -66,7 +66,7 @@
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    html { scroll-behavior: smooth; }
+    html { scroll-behavior: smooth; overflow-x: hidden; }
 
     body {
       min-height: 100vh;
@@ -430,60 +430,47 @@
       box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.15);
     }
 
-    .tabs-wrapper {
-      position: relative;
-      margin-top: 32px;  /* 付箋分の上余白を親で確保 */
-    }
     .tabs {
       display: flex;
       gap: 4px;
+      margin-top: 18px;
       border-bottom: 2px solid var(--brown-100);
       overflow-x: auto;
-      overflow-y: hidden;  /* 縦スクロール完全禁止 */
+      overflow-y: hidden;
     }
-    /* 付箋：wrapper 直下に絶対配置（tabs の外）。位置は JS で note タブに合わせて動的更新 */
-    .note-tab-hint {
-      position: absolute;
-      top: -24px;
-      left: 0;
-      transform: translate3d(0,0,0) translateX(-50%) rotate(-3deg);  /* 初期値、JSが上書き */
+    /* note タブの「📌テーマ別」付箋をタブ内に inline 配置（横スワイプ問題を回避） */
+    .note-tab {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .note-hint-inline {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
       background: linear-gradient(135deg, #fff9c4, #fff176);
       color: #5d4037;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 3px 9px;
-      border-radius: 4px;
-      white-space: nowrap;
-      box-shadow: 0 2px 5px rgba(93, 64, 55, 0.18), 0 0 0 1px rgba(196, 154, 74, 0.3);
-      pointer-events: none;
-      letter-spacing: 0.3px;
-      animation: noteHintBob 3s ease-in-out infinite;
-      z-index: 5;
-      will-change: left, opacity;
+      padding: 1px 6px;
+      border-radius: 3px;
+      letter-spacing: 0;
+      box-shadow: 0 1px 2px rgba(93, 64, 55, 0.18), 0 0 0 1px rgba(196, 154, 74, 0.25);
+      transform: rotate(-2deg);
+      animation: noteHintPulse 3s ease-in-out infinite;
+      line-height: 1.1;
     }
-    .note-tab-hint::after {
-      content: '';
-      position: absolute;
-      bottom: -4px; left: 50%;
-      transform: translateX(-50%) rotate(45deg);
-      width: 6px; height: 6px;
-      background: #fff176;
-      box-shadow: 1px 1px 2px rgba(93, 64, 55, 0.15);
+    .note-tab-label {
+      display: inline-block;
+      line-height: 1.2;
     }
-    /* JS が transform を制御するので、アニメーションは別プロパティで（pulse 効果） */
-    @keyframes noteHintBob {
-      0%, 100% { filter: brightness(1) drop-shadow(0 1px 2px rgba(0,0,0,0.1)); }
-      50% { filter: brightness(1.05) drop-shadow(0 3px 5px rgba(0,0,0,0.18)); }
+    @keyframes noteHintPulse {
+      0%, 100% { transform: rotate(-2deg) translateY(0); }
+      50%      { transform: rotate(-2deg) translateY(-1px) scale(1.02); }
     }
-    /* スマホ：付箋を少しコンパクトに */
-    @media (max-width: 600px) {
-      .tabs-wrapper { margin-top: 28px; }
-      .note-tab-hint {
-        font-size: 9px;
-        padding: 2px 7px;
-        top: -20px;
-        letter-spacing: 0;
-      }
+    /* note タブが選択中は付箋を少し控えめに */
+    .note-tab.active .note-hint-inline {
+      opacity: 0.6;
+      animation: none;
     }
 
     /* ===== 条件検索 ===== */
@@ -2121,7 +2108,7 @@
         <div class="filter-status" id="filterStatus"></div>
       </div>
 
-      <div class="tabs-wrapper"><div class="note-tab-hint" id="noteTabHint">📌テーマ別銘柄はこちら</div><div class="tabs" id="tabs">
+      <div class="tabs" id="tabs">
         <button class="tab active" data-group="G1">先物・指数</button>
         <button class="tab" data-group="G3">暗号通貨</button>
         <button class="tab" data-group="FOREX">💱 為替</button>
@@ -2129,9 +2116,8 @@
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
         <button class="tab" data-group="ETF">📦 ETF</button>
-        <button class="tab" id="noteTabBtn" data-group="NOTE">📝 note銘柄</button>
+        <button class="tab note-tab" id="noteTabBtn" data-group="NOTE"><span class="note-hint-inline">📌テーマ別</span><span class="note-tab-label">📝 note銘柄</span></button>
         <button class="tab" data-group="WATCHLIST">⭐ ウォッチリスト</button>
-      </div>
       </div>
 
       <!-- note銘柄サブタブ（テーマ切替） -->
@@ -3490,53 +3476,6 @@
       });
     }
 
-    // === 付箋（note銘柄ヒント）を note タブの位置に追従させる（軽量版） ===
-    // 重い getBoundingClientRect を毎スクロールで呼ばないように、note タブの相対位置をキャッシュ。
-    // スクロール時は scrollLeft の差分だけで left を更新する（GPU合成、軽量）。
-    let _noteTabCenterX = 0;       // tabs コンテンツ内における note タブ中央 X
-    let _hintRafScheduled = false;
-
-    function recalcNoteTabCenter() {
-      const noteTab = document.getElementById('noteTabBtn');
-      if (!noteTab) return;
-      _noteTabCenterX = noteTab.offsetLeft + noteTab.offsetWidth / 2;
-    }
-
-    function applyNoteTabHintPosition() {
-      _hintRafScheduled = false;
-      const hint = document.getElementById('noteTabHint');
-      const tabs = document.getElementById('tabs');
-      if (!hint || !tabs) return;
-      // scrollLeft 差分で付箋の left を即計算（軽量）
-      const x = _noteTabCenterX - tabs.scrollLeft;
-      const tabsWidth = tabs.clientWidth;
-      const outOfView = (x < 8) || (x > tabsWidth - 8);
-      // transform で GPU 合成（reflow を避ける）
-      hint.style.transform = `translate3d(${x}px, 0, 0) translateX(-50%) rotate(-3deg)`;
-      hint.style.opacity = outOfView ? '0' : '1';
-    }
-
-    function scheduleNoteTabHintUpdate() {
-      if (_hintRafScheduled) return;
-      _hintRafScheduled = true;
-      requestAnimationFrame(applyNoteTabHintPosition);
-    }
-
-    window.addEventListener('load', () => {
-      recalcNoteTabCenter();
-      applyNoteTabHintPosition();
-      const tabs = document.getElementById('tabs');
-      if (tabs) {
-        tabs.addEventListener('scroll', scheduleNoteTabHintUpdate, { passive: true });
-      }
-      window.addEventListener('resize', () => {
-        recalcNoteTabCenter();
-        scheduleNoteTabHintUpdate();
-      });
-    });
-    // 念のため遅延発火（DOMが完全描画された後）
-    setTimeout(() => { recalcNoteTabCenter(); applyNoteTabHintPosition(); }, 100);
-    setTimeout(() => { recalcNoteTabCenter(); applyNoteTabHintPosition(); }, 500);
 
     document.querySelectorAll('.tab').forEach(btn => {
       btn.onclick = () => {
