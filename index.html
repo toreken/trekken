@@ -445,8 +445,8 @@
     .note-tab-hint {
       position: absolute;
       top: -24px;
-      left: 0;  /* JS で更新 */
-      transform: translateX(-50%) rotate(-3deg);
+      left: 0;
+      transform: translate3d(0,0,0) translateX(-50%) rotate(-3deg);  /* 初期値、JSが上書き */
       background: linear-gradient(135deg, #fff9c4, #fff176);
       color: #5d4037;
       font-size: 10px;
@@ -470,9 +470,10 @@
       background: #fff176;
       box-shadow: 1px 1px 2px rgba(93, 64, 55, 0.15);
     }
+    /* JS が transform を制御するので、アニメーションは別プロパティで（pulse 効果） */
     @keyframes noteHintBob {
-      0%, 100% { transform: translateX(-50%) rotate(-3deg) translateY(0); }
-      50% { transform: translateX(-50%) rotate(-3deg) translateY(-3px); }
+      0%, 100% { filter: brightness(1) drop-shadow(0 1px 2px rgba(0,0,0,0.1)); }
+      50% { filter: brightness(1.05) drop-shadow(0 3px 5px rgba(0,0,0,0.18)); }
     }
     /* スマホ：付箋を少しコンパクトに */
     @media (max-width: 600px) {
@@ -3489,30 +3490,53 @@
       });
     }
 
-    // === 付箋（note銘柄ヒント）を note タブの位置に追従させる ===
-    function updateNoteTabHintPosition() {
+    // === 付箋（note銘柄ヒント）を note タブの位置に追従させる（軽量版） ===
+    // 重い getBoundingClientRect を毎スクロールで呼ばないように、note タブの相対位置をキャッシュ。
+    // スクロール時は scrollLeft の差分だけで left を更新する（GPU合成、軽量）。
+    let _noteTabCenterX = 0;       // tabs コンテンツ内における note タブ中央 X
+    let _hintRafScheduled = false;
+
+    function recalcNoteTabCenter() {
+      const noteTab = document.getElementById('noteTabBtn');
+      if (!noteTab) return;
+      _noteTabCenterX = noteTab.offsetLeft + noteTab.offsetWidth / 2;
+    }
+
+    function applyNoteTabHintPosition() {
+      _hintRafScheduled = false;
       const hint = document.getElementById('noteTabHint');
       const tabs = document.getElementById('tabs');
-      const noteTab = document.getElementById('noteTabBtn');
-      if (!hint || !tabs || !noteTab) return;
-      const tabsRect = tabs.getBoundingClientRect();
-      const noteRect = noteTab.getBoundingClientRect();
-      // tabs ボックス内における note タブ中央の x 位置
-      const centerX = noteRect.left + noteRect.width / 2 - tabsRect.left;
-      hint.style.left = centerX + 'px';
-      // note タブが tabs の表示範囲外に出たら付箋を非表示にする
-      const outOfView = (noteRect.right < tabsRect.left + 8) || (noteRect.left > tabsRect.right - 8);
+      if (!hint || !tabs) return;
+      // scrollLeft 差分で付箋の left を即計算（軽量）
+      const x = _noteTabCenterX - tabs.scrollLeft;
+      const tabsWidth = tabs.clientWidth;
+      const outOfView = (x < 8) || (x > tabsWidth - 8);
+      // transform で GPU 合成（reflow を避ける）
+      hint.style.transform = `translate3d(${x}px, 0, 0) translateX(-50%) rotate(-3deg)`;
       hint.style.opacity = outOfView ? '0' : '1';
     }
+
+    function scheduleNoteTabHintUpdate() {
+      if (_hintRafScheduled) return;
+      _hintRafScheduled = true;
+      requestAnimationFrame(applyNoteTabHintPosition);
+    }
+
     window.addEventListener('load', () => {
-      updateNoteTabHintPosition();
+      recalcNoteTabCenter();
+      applyNoteTabHintPosition();
       const tabs = document.getElementById('tabs');
-      if (tabs) tabs.addEventListener('scroll', updateNoteTabHintPosition);
-      window.addEventListener('resize', updateNoteTabHintPosition);
+      if (tabs) {
+        tabs.addEventListener('scroll', scheduleNoteTabHintUpdate, { passive: true });
+      }
+      window.addEventListener('resize', () => {
+        recalcNoteTabCenter();
+        scheduleNoteTabHintUpdate();
+      });
     });
     // 念のため遅延発火（DOMが完全描画された後）
-    setTimeout(updateNoteTabHintPosition, 100);
-    setTimeout(updateNoteTabHintPosition, 500);
+    setTimeout(() => { recalcNoteTabCenter(); applyNoteTabHintPosition(); }, 100);
+    setTimeout(() => { recalcNoteTabCenter(); applyNoteTabHintPosition(); }, 500);
 
     document.querySelectorAll('.tab').forEach(btn => {
       btn.onclick = () => {
