@@ -430,14 +430,59 @@
       box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.15);
     }
 
+    .tabs-wrapper {
+      position: relative;
+      margin-top: 38px;  /* 付箋分の余白を親で確保（縦動かない） */
+    }
     .tabs {
       display: flex;
       gap: 4px;
-      margin-top: 18px;
-      padding-top: 20px;
       border-bottom: 2px solid var(--brown-100);
       overflow-x: auto;
-      overflow-y: visible;
+      overflow-y: hidden;  /* 縦スクロール完全禁止 */
+    }
+    /* noteタブの上の付箋：wrapper 内に絶対配置、固定位置（スクロールしてもタブの動きに連動しない） */
+    .note-tab-hint {
+      position: absolute;
+      top: -24px;
+      right: 14%;  /* おおよそ note タブの位置に来るよう（PCタブ並びを想定） */
+      background: linear-gradient(135deg, #fff9c4, #fff176);
+      color: #5d4037;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 4px;
+      white-space: nowrap;
+      box-shadow: 0 2px 5px rgba(93, 64, 55, 0.18), 0 0 0 1px rgba(196, 154, 74, 0.3);
+      pointer-events: none;
+      letter-spacing: 0.3px;
+      transform: rotate(-3deg);
+      animation: noteHintBob 3s ease-in-out infinite;
+      z-index: 5;
+    }
+    .note-tab-hint::after {
+      content: '';
+      position: absolute;
+      bottom: -4px; left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 6px; height: 6px;
+      background: #fff176;
+      box-shadow: 1px 1px 2px rgba(93, 64, 55, 0.15);
+    }
+    @keyframes noteHintBob {
+      0%, 100% { transform: rotate(-3deg) translateY(0); }
+      50% { transform: rotate(-3deg) translateY(-3px); }
+    }
+    /* スマホ：付箋を更にコンパクトに */
+    @media (max-width: 600px) {
+      .tabs-wrapper { margin-top: 32px; }
+      .note-tab-hint {
+        font-size: 9px;
+        padding: 2px 7px;
+        top: -20px;
+        right: 8%;
+        letter-spacing: 0;
+      }
     }
 
     /* ===== 条件検索 ===== */
@@ -624,58 +669,6 @@
       border-bottom: 2px solid transparent;
       margin-bottom: -2px;
       transition: color 0.2s, border-color 0.2s;
-    }
-
-    /* note銘柄タブの「テーマ別銘柄はこちら」メモ風ヒント */
-    .tab-with-note-hint { position: relative; overflow: visible; }
-    .tab-note-hint {
-      position: absolute;
-      top: -18px;
-      left: 50%;
-      transform: translateX(-50%) rotate(-3deg);
-      background: linear-gradient(135deg, #fff9c4, #fff176);
-      color: #5d4037;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 3px 9px;
-      border-radius: 4px;
-      white-space: nowrap;
-      box-shadow: 0 2px 5px rgba(93, 64, 55, 0.18), 0 0 0 1px rgba(196, 154, 74, 0.3);
-      pointer-events: none;
-      letter-spacing: 0.3px;
-      animation: noteHintBob 3s ease-in-out infinite;
-      z-index: 5;
-    }
-    /* 付箋下端の三角矢印（タブを指す） */
-    .tab-note-hint::after {
-      content: '';
-      position: absolute;
-      bottom: -4px; left: 50%;
-      transform: translateX(-50%) rotate(45deg);
-      width: 6px; height: 6px;
-      background: #fff176;
-      box-shadow: 1px 1px 2px rgba(93, 64, 55, 0.15);
-    }
-    @keyframes noteHintBob {
-      0%, 100% { transform: translateX(-50%) rotate(-3deg) translateY(0); }
-      50% { transform: translateX(-50%) rotate(-3deg) translateY(-3px); }
-    }
-    /* タブが選択中はヒントを少し控えめに */
-    .tab-with-note-hint.active .tab-note-hint {
-      opacity: 0.6;
-      animation: none;
-    }
-    /* スマホ：付箋を少しコンパクトに、タブ上に確実に収まるよう調整 */
-    @media (max-width: 600px) {
-      .tabs {
-        padding-top: 18px;
-      }
-      .tab-note-hint {
-        font-size: 9px;
-        padding: 2px 6px;
-        top: -16px;
-        letter-spacing: 0;
-      }
     }
     .tab.active { color: var(--brown-800); border-bottom-color: var(--gold-500); }
 
@@ -2127,7 +2120,7 @@
         <div class="filter-status" id="filterStatus"></div>
       </div>
 
-      <div class="tabs" id="tabs">
+      <div class="tabs-wrapper"><div class="note-tab-hint" id="noteTabHint">📌テーマ別銘柄はこちら</div><div class="tabs" id="tabs">
         <button class="tab active" data-group="G1">先物・指数</button>
         <button class="tab" data-group="G3">暗号通貨</button>
         <button class="tab" data-group="FOREX">💱 為替</button>
@@ -2135,8 +2128,9 @@
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
         <button class="tab" data-group="ETF">📦 ETF</button>
-        <button class="tab tab-with-note-hint" data-group="NOTE"><span class="tab-note-hint">📌テーマ別銘柄はこちら</span>📝 note銘柄</button>
+        <button class="tab" id="noteTabBtn" data-group="NOTE">📝 note銘柄</button>
         <button class="tab" data-group="WATCHLIST">⭐ ウォッチリスト</button>
+      </div>
       </div>
 
       <!-- note銘柄サブタブ（テーマ切替） -->
