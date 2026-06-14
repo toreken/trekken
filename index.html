@@ -434,8 +434,10 @@
       display: flex;
       gap: 4px;
       margin-top: 18px;
+      padding-top: 20px;
       border-bottom: 2px solid var(--brown-100);
       overflow-x: auto;
+      overflow-y: visible;
     }
 
     /* ===== 条件検索 ===== */
@@ -628,7 +630,7 @@
     .tab-with-note-hint { position: relative; overflow: visible; }
     .tab-note-hint {
       position: absolute;
-      top: -22px;
+      top: -18px;
       left: 50%;
       transform: translateX(-50%) rotate(-3deg);
       background: linear-gradient(135deg, #fff9c4, #fff176);
@@ -663,12 +665,16 @@
       opacity: 0.6;
       animation: none;
     }
-    /* スマホ：ヒントを少し小さく */
+    /* スマホ：付箋を少しコンパクトに、タブ上に確実に収まるよう調整 */
     @media (max-width: 600px) {
+      .tabs {
+        padding-top: 18px;
+      }
       .tab-note-hint {
         font-size: 9px;
-        padding: 2px 7px;
-        top: -20px;
+        padding: 2px 6px;
+        top: -16px;
+        letter-spacing: 0;
       }
     }
     .tab.active { color: var(--brown-800); border-bottom-color: var(--gold-500); }
