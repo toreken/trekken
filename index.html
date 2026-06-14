@@ -3211,6 +3211,78 @@
       }
     }
 
+    // ===== チャート/info キャッシュ（localStorage 永続化、24時間TTL、最大30銘柄）=====
+    const _PERSIST_KEY_CHART = 'trekken_chart_cache_v1';
+    const _PERSIST_KEY_INFO  = 'trekken_info_cache_v1';
+    const _CACHE_TTL = 24 * 60 * 60 * 1000;  // 24時間
+    const _MAX_CHART_ITEMS = 30;             // chart は画像が大きい（~100KB/件）
+    const _MAX_INFO_ITEMS  = 1000;           // info はテキストのみ軽量（~5KB/件）
+
+    // localStorage からキャッシュを復元（期限切れは自動で除外）
+    function _loadPersistCache(storageKey) {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return new Map();
+        const obj = JSON.parse(raw);
+        const now = Date.now();
+        const map = new Map();
+        Object.entries(obj).forEach(([k, v]) => {
+          if (v && typeof v.ts === 'number' && (now - v.ts) < _CACHE_TTL) {
+            map.set(k, v);
+          }
+        });
+        return map;
+      } catch (e) {
+        console.warn('cache load failed:', e);
+        return new Map();
+      }
+    }
+
+    // localStorage に保存（容量オーバー時は古いものから削除して再試行）
+    function _savePersistCache(storageKey, map) {
+      try {
+        const obj = {};
+        map.forEach((v, k) => { obj[k] = v; });
+        localStorage.setItem(storageKey, JSON.stringify(obj));
+      } catch (e) {
+        if (e.name === 'QuotaExceededError' && map.size > 5) {
+          // 古いエントリを削除して再試行
+          const firstKey = map.keys().next().value;
+          map.delete(firstKey);
+          _savePersistCache(storageKey, map);
+        }
+      }
+    }
+
+    // 起動時にlocalStorageから復元
+    const _chartMemCache = _loadPersistCache(_PERSIST_KEY_CHART);
+    const _infoMemCache  = _loadPersistCache(_PERSIST_KEY_INFO);
+
+    function _getMemCached(map, key) {
+      const c = map.get(key);
+      if (!c) return null;
+      if (Date.now() - c.ts > _CACHE_TTL) {
+        map.delete(key);
+        return null;
+      }
+      // LRU：アクセスされたものを末尾に移動
+      map.delete(key);
+      map.set(key, c);
+      return c.value;
+    }
+
+    function _setMemCached(map, key, value, storageKey, maxItems) {
+      map.set(key, { value, ts: Date.now() });
+      const limit = maxItems || _MAX_CHART_ITEMS;
+      // LRU上限超過時：古いものから削除
+      while (map.size > limit) {
+        const firstKey = map.keys().next().value;
+        map.delete(firstKey);
+      }
+      // localStorage に永続化（容量オーバー時は最小限の保存を試みる）
+      if (storageKey) _savePersistCache(storageKey, map);
+    }
+
     async function loadChart(sym) {
       activeSymbol = sym;
       updateWatchlistBtn();
@@ -3241,38 +3313,63 @@
 
       setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 
-      // fetch にタイムアウト（45秒）を仕込む
-      const chartController = new AbortController();
-      const chartTimeoutId = setTimeout(() => chartController.abort(), 45000);
-      const chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`, { signal: chartController.signal })
-        .then(r => r.json())
-        .then(data => {
-          clearTimeout(chartTimeoutId);
-          if (data.image) {
-            lastChartImage = data.image;
-            body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
-          } else {
+      // フロント側メモリキャッシュ確認（同セッション中の再表示は瞬時）
+      const cachedChartImg = _getMemCached(_chartMemCache, sym);
+      let chartPromise;
+      if (cachedChartImg) {
+        lastChartImage = cachedChartImg;
+        body.innerHTML = `<img src="data:image/png;base64,${cachedChartImg}" alt="${sym}チャート">`;
+        chartPromise = Promise.resolve();
+      } else {
+        const chartController = new AbortController();
+        const chartTimeoutId = setTimeout(() => chartController.abort(), 45000);
+        chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`, { signal: chartController.signal })
+          .then(r => r.json())
+          .then(data => {
+            clearTimeout(chartTimeoutId);
+            if (data.image) {
+              lastChartImage = data.image;
+              _setMemCached(_chartMemCache, sym, data.image, _PERSIST_KEY_CHART, _MAX_CHART_ITEMS);
+              body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
+            } else {
+              body.innerHTML = `
+                <div class="chart-error">
+                  <div>⚠️ ${data.error || '取得失敗'}</div>
+                  <button class="chart-retry-btn" onclick="loadChart('${sym.replace(/'/g, "\\'")}')">🔄 もう一度試す</button>
+                </div>`;
+            }
+          })
+          .catch((err) => {
+            clearTimeout(chartTimeoutId);
+            const msg = (err && err.name === 'AbortError') ? 'サーバー応答が遅すぎます（タイムアウト）' : 'サーバーに接続できません';
             body.innerHTML = `
               <div class="chart-error">
-                <div>⚠️ ${data.error || '取得失敗'}</div>
+                <div>⚠️ ${msg}</div>
+                <div class="chart-error-hint">起動中の可能性があります。10〜30秒待ってから再試行してください。</div>
                 <button class="chart-retry-btn" onclick="loadChart('${sym.replace(/'/g, "\\'")}')">🔄 もう一度試す</button>
               </div>`;
-          }
-        })
-        .catch((err) => {
-          clearTimeout(chartTimeoutId);
-          const msg = (err && err.name === 'AbortError') ? 'サーバー応答が遅すぎます（タイムアウト）' : 'サーバーに接続できません';
-          body.innerHTML = `
-            <div class="chart-error">
-              <div>⚠️ ${msg}</div>
-              <div class="chart-error-hint">起動中の可能性があります。10〜30秒待ってから再試行してください。</div>
-              <button class="chart-retry-btn" onclick="loadChart('${sym.replace(/'/g, "\\'")}')">🔄 もう一度試す</button>
-            </div>`;
-        });
+          });
+      }
 
-      const infoPromise = fetch(`/info/${encodeURIComponent(sym)}`)
-        .then(r => r.json())
-        .then(data => {
+      // info もメモリキャッシュ層を通す（同セッションの再表示は瞬時）
+      let cachedInfo = _getMemCached(_infoMemCache, sym);
+      // bulk preload で peers が null の場合、表示後に peers だけ別途 fetch
+      const needsPeersUpdate = cachedInfo && cachedInfo._bulkPreloaded && cachedInfo.peers === null;
+      if (needsPeersUpdate) {
+        // バックグラウンドで peers を補完
+        fetch(`/info/${encodeURIComponent(sym)}`)
+          .then(r => r.json())
+          .then(fullData => {
+            if (fullData && !fullData.error) {
+              // 完全データに上書き
+              _setMemCached(_infoMemCache, sym, fullData, _PERSIST_KEY_INFO, _MAX_INFO_ITEMS);
+              // 現在表示中の銘柄なら peers 欄を再描画
+              if (activeSymbol === sym) _renderInfoData(fullData);
+            }
+          })
+          .catch(() => {});
+      }
+      const _renderInfoData = (data) => {
           if (data.profile && data.profile.name) {
             const p = data.profile;
             document.getElementById('profileName').textContent = p.name;
@@ -3327,7 +3424,14 @@
             peerList.innerHTML = '<li class="info-empty">同業他社情報なし</li>';
             lastPeerSymbols = [];
           }
-        })
+        };
+      const infoPromise = (cachedInfo
+        ? Promise.resolve(cachedInfo)
+        : fetch(`/info/${encodeURIComponent(sym)}`)
+            .then(r => r.json())
+            .then(d => { if (d && !d.error) _setMemCached(_infoMemCache, sym, d, _PERSIST_KEY_INFO, _MAX_INFO_ITEMS); return d; })
+      )
+        .then(_renderInfoData)
         .catch(() => {
           commentaryList.innerHTML = '<li class="info-empty">情報を取得できません</li>';
           peerList.innerHTML = '<li class="info-empty">情報を取得できません</li>';
@@ -3729,6 +3833,49 @@
     attachFilterListeners();
     renderSymbolList();
     loadFeaturedSymbols();
+
+    // === S&P500 / NASDAQ100 の info を事前ロード（バックグラウンドで非同期）===
+    // 起動時に1回だけ取得 → localStorage に保存。次回以降は瞬時表示。
+    async function preloadBulkInfo() {
+      const _PRELOAD_FLAG_KEY = 'trekken_info_preload_ts_v1';
+      try {
+        const lastTs = parseInt(localStorage.getItem(_PRELOAD_FLAG_KEY) || '0', 10);
+        // 12時間以内に preload 済みならスキップ
+        if (lastTs && (Date.now() - lastTs) < 12 * 60 * 60 * 1000) {
+          console.log('[preload] skipped (recent)');
+          return;
+        }
+        console.log('[preload] starting bulk info fetch...');
+        for (const group of ['SP500', 'NASDAQ100']) {
+          try {
+            const res = await fetch(`/info-bulk/${group}`);
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data.items && Array.isArray(data.items)) {
+              data.items.forEach(item => {
+                if (!item.symbol) return;
+                // peers は省略しているので、別の info キャッシュ形式で保存
+                _setMemCached(_infoMemCache, item.symbol, {
+                  commentary: item.commentary,
+                  profile: item.profile,
+                  peers: null,  // 個別 /info で取得
+                  _bulkPreloaded: true,
+                }, _PERSIST_KEY_INFO, _MAX_INFO_ITEMS);
+              });
+              console.log(`[preload] ${group}: ${data.items.length} items cached`);
+            }
+          } catch (e) {
+            console.warn(`[preload] ${group} failed:`, e);
+          }
+        }
+        localStorage.setItem(_PRELOAD_FLAG_KEY, String(Date.now()));
+        console.log('[preload] done');
+      } catch (e) {
+        console.warn('[preload] error:', e);
+      }
+    }
+    // 起動2秒後にバックグラウンドで実行（メインUI操作を邪魔しない）
+    setTimeout(preloadBulkInfo, 2000);
     loadNoteArticles();
     // トレンド要約バー用にメタデータを事前取得
     fetchMetaData();
