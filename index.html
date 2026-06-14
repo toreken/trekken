@@ -3703,7 +3703,14 @@
         const data = await res.json();
         if (!data.items) return;
 
-        const valid = data.items.filter(it => it.score !== null && it.score !== undefined);
+        // 異常値（株式分割や取得異常で歪んだデータ）を除外
+        // 1週間で ±50% 超動く銘柄はランキングから除外
+        const valid = data.items.filter(it => {
+          if (it.score === null || it.score === undefined) return false;
+          const wc = it.week_change;
+          if (typeof wc === 'number' && Math.abs(wc) > 50) return false;
+          return true;
+        });
         if (valid.length === 0) {
           document.getElementById('undervaluedFeatured').innerHTML =
             '<div class="featured-loading">朝の自動更新後に表示されます</div>';
