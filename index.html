@@ -439,18 +439,13 @@
       gap: 4px;
       border-bottom: 2px solid var(--brown-100);
       overflow-x: auto;
-      overflow-y: visible;  /* 付箋がはみ出るので縦は visible */
+      overflow-y: hidden;  /* 縦スクロール完全禁止 */
     }
-    /* note タブ：付箋分の余白を内側で確保 */
-    .note-tab {
-      position: relative;
-      overflow: visible;
-    }
-    /* note タブ内に付箋を absolute 配置（タブと一緒にスクロールする） */
-    .note-tab-hint-inner {
+    /* 付箋：wrapper 直下に絶対配置（tabs の外）。位置は JS で note タブに合わせて動的更新 */
+    .note-tab-hint {
       position: absolute;
-      top: -22px;
-      left: 50%;
+      top: -24px;
+      left: 0;  /* JS で更新 */
       transform: translateX(-50%) rotate(-3deg);
       background: linear-gradient(135deg, #fff9c4, #fff176);
       color: #5d4037;
@@ -464,8 +459,9 @@
       letter-spacing: 0.3px;
       animation: noteHintBob 3s ease-in-out infinite;
       z-index: 5;
+      will-change: left, opacity;
     }
-    .note-tab-hint-inner::after {
+    .note-tab-hint::after {
       content: '';
       position: absolute;
       bottom: -4px; left: 50%;
@@ -478,18 +474,13 @@
       0%, 100% { transform: translateX(-50%) rotate(-3deg) translateY(0); }
       50% { transform: translateX(-50%) rotate(-3deg) translateY(-3px); }
     }
-    /* note タブが選択中は付箋を少し控えめに */
-    .note-tab.active .note-tab-hint-inner {
-      opacity: 0.6;
-      animation: none;
-    }
     /* スマホ：付箋を少しコンパクトに */
     @media (max-width: 600px) {
       .tabs-wrapper { margin-top: 28px; }
-      .note-tab-hint-inner {
+      .note-tab-hint {
         font-size: 9px;
         padding: 2px 7px;
-        top: -19px;
+        top: -20px;
         letter-spacing: 0;
       }
     }
@@ -2129,7 +2120,7 @@
         <div class="filter-status" id="filterStatus"></div>
       </div>
 
-      <div class="tabs-wrapper"><div class="tabs" id="tabs">
+      <div class="tabs-wrapper"><div class="note-tab-hint" id="noteTabHint">📌テーマ別銘柄はこちら</div><div class="tabs" id="tabs">
         <button class="tab active" data-group="G1">先物・指数</button>
         <button class="tab" data-group="G3">暗号通貨</button>
         <button class="tab" data-group="FOREX">💱 為替</button>
@@ -2137,7 +2128,7 @@
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
         <button class="tab" data-group="ETF">📦 ETF</button>
-        <button class="tab note-tab" id="noteTabBtn" data-group="NOTE"><span class="note-tab-hint-inner">📌テーマ別銘柄はこちら</span>📝 note銘柄</button>
+        <button class="tab" id="noteTabBtn" data-group="NOTE">📝 note銘柄</button>
         <button class="tab" data-group="WATCHLIST">⭐ ウォッチリスト</button>
       </div>
       </div>
@@ -3497,6 +3488,31 @@
         b.classList.toggle('active', b.dataset.subgroup === subgroup);
       });
     }
+
+    // === 付箋（note銘柄ヒント）を note タブの位置に追従させる ===
+    function updateNoteTabHintPosition() {
+      const hint = document.getElementById('noteTabHint');
+      const tabs = document.getElementById('tabs');
+      const noteTab = document.getElementById('noteTabBtn');
+      if (!hint || !tabs || !noteTab) return;
+      const tabsRect = tabs.getBoundingClientRect();
+      const noteRect = noteTab.getBoundingClientRect();
+      // tabs ボックス内における note タブ中央の x 位置
+      const centerX = noteRect.left + noteRect.width / 2 - tabsRect.left;
+      hint.style.left = centerX + 'px';
+      // note タブが tabs の表示範囲外に出たら付箋を非表示にする
+      const outOfView = (noteRect.right < tabsRect.left + 8) || (noteRect.left > tabsRect.right - 8);
+      hint.style.opacity = outOfView ? '0' : '1';
+    }
+    window.addEventListener('load', () => {
+      updateNoteTabHintPosition();
+      const tabs = document.getElementById('tabs');
+      if (tabs) tabs.addEventListener('scroll', updateNoteTabHintPosition);
+      window.addEventListener('resize', updateNoteTabHintPosition);
+    });
+    // 念のため遅延発火（DOMが完全描画された後）
+    setTimeout(updateNoteTabHintPosition, 100);
+    setTimeout(updateNoteTabHintPosition, 500);
 
     document.querySelectorAll('.tab').forEach(btn => {
       btn.onclick = () => {
