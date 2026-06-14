@@ -608,6 +608,14 @@ NIKKEI225_SECTOR_MAP = {
 }
 
 
+def _cached_json(payload, max_age=1800):
+    """Cache-Control: private, max-age=XXX を付けた JSON レスポンスを返す。"""
+    resp = jsonify(payload)
+    # private: 各ユーザーのブラウザにのみキャッシュ。CDNなどには保存しない。
+    resp.headers['Cache-Control'] = f'private, max-age={max_age}'
+    return resp
+
+
 def is_jp_symbol(sym):
     """日経225銘柄か判定する。'TSE:XXXX' 形式。"""
     return isinstance(sym, str) and sym.startswith('TSE:')
@@ -1330,18 +1338,18 @@ def chart(symbol):
     if symbol_upper in chart_cache:
         cached_time, cached_img = chart_cache[symbol_upper]
         if now - cached_time < CACHE_SECONDS:
-            return jsonify({'image': cached_img, 'symbol': symbol_upper, 'cached': True})
+            return _cached_json({'image': cached_img, 'symbol': symbol_upper, 'cached': True}, max_age=1800)
 
     def _fallback_to_stale_cache(reason):
         """新規取得に失敗した場合、期限切れキャッシュがあればそれを返す。"""
         if symbol_upper in chart_cache:
             _, cached_img = chart_cache[symbol_upper]
             print(f"/chart/{symbol_upper}: serving stale cache ({reason})")
-            return jsonify({
+            return _cached_json({
                 'image': cached_img, 'symbol': symbol_upper,
                 'cached': True, 'stale': True,
                 'note': f'最新データ取得失敗のため、前回のチャートを表示中（{reason}）'
-            })
+            }, max_age=300)
         return None
 
     try:
@@ -1405,7 +1413,7 @@ def chart(symbol):
             return jsonify({'error': 'チャート生成に失敗しました'}), 500
 
         chart_cache[symbol_upper] = (now, img_b64)
-        return jsonify({'image': img_b64, 'symbol': symbol_upper, 'cached': False})
+        return _cached_json({'image': img_b64, 'symbol': symbol_upper, 'cached': False}, max_age=1800)
     except Exception as e:
         stale = _fallback_to_stale_cache(str(e)[:50])
         if stale: return stale
@@ -1644,7 +1652,7 @@ def info(symbol):
         if now - cached_time < CACHE_SECONDS:
             cached_data = dict(cached_data)
             cached_data['profile'] = apply_translation(cached_data.get('profile'))
-            return jsonify({**cached_data, 'cached': True})
+            return _cached_json({**cached_data, 'cached': True}, max_age=1800)
 
     try:
         if symbol_upper == 'NQ1!':
@@ -1691,7 +1699,141 @@ def info(symbol):
             'profile': profile,
         }
         info_cache[symbol_upper] = (now, result)
-        return jsonify({**result, 'cached': False})
+        return _cached_json({**result, 'cached': False}, max_age=1800)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# =========================================
+# 一括 info 取得エンドポイント
+# SP500 / NASDAQ100 の全銘柄の info（commentary + profile）を一括で返す。
+# フロントエンドが起動時に取得して localStorage にキャッシュし、銘柄を開いた瞬間に
+# トレンド解説と企業概要を瞬時表示できるようにする。peers は省略（重複多いため）。
+# =========================================
+@app.route('/info-bulk/<group>')
+@limiter.limit("10 per minute")
+def info_bulk(group):
+    if group == 'SP500':
+        symbols = SP500_SYMBOLS
+    elif group == 'NASDAQ100':
+        symbols = NASDAQ100_SYMBOLS
+    else:
+        return jsonify({'error': 'Invalid group. Use SP500 or NASDAQ100.'}), 400
+
+    items = []
+    for sym in symbols:
+        # info_cache から取得（プリフェッチで埋まっている）
+        if sym in info_cache:
+            _, data = info_cache[sym]
+            items.append({
+                'symbol': sym,
+                'commentary': data.get('commentary'),
+                'profile': data.get('profile'),
+            })
+    # 1時間ブラウザキャッシュ
+    return _cached_json({'group': group, 'items': items, 'total': len(items)}, max_age=3600)
+
+
+# =========================================
+# 合体エンドポイント：1リクエストでチャート＋トレンド解説＋ピア＋プロフィールを返す
+# /chart と /info を別々に呼ぶより、HTTP 往復・データ取得が半減して大幅高速化
+# =========================================
+@app.route('/api/load/<symbol>')
+@limiter.limit("60 per minute")
+def load_chart_and_info(symbol):
+    if not is_valid_symbol(symbol):
+        return jsonify({'error': 'Invalid symbol'}), 400
+    symbol_upper = symbol.upper()
+    now = time.time()
+
+    # 完全合体キャッシュ（24時間）：両方揃ってる場合は即返す
+    chart_cached = symbol_upper in chart_cache and (now - chart_cache[symbol_upper][0]) < CACHE_SECONDS
+    info_cached  = symbol_upper in info_cache  and (now - info_cache[symbol_upper][0])  < CACHE_SECONDS
+
+    if chart_cached and info_cached:
+        c_img = chart_cache[symbol_upper][1]
+        i_data = dict(info_cache[symbol_upper][1])
+        i_data['profile'] = apply_translation(i_data.get('profile'))
+        return jsonify({
+            'symbol': symbol_upper,
+            'image': c_img,
+            'commentary': i_data.get('commentary'),
+            'peers': i_data.get('peers'),
+            'profile': i_data.get('profile'),
+            'cached': True,
+        })
+
+    try:
+        # データ取得（1回だけ）
+        if symbol_upper == 'NQ1!':
+            df = fetch_nq1()
+        elif symbol_upper == 'ES1!':
+            df = fetch_es1()
+        elif symbol_upper in CRYPTO_MAP:
+            df = fetch_crypto(symbol_upper)
+        elif symbol_upper in FOREX_PAIRS:
+            df = fetch_forex(symbol_upper)
+        elif is_jp_symbol(symbol_upper):
+            df = fetch_jp(symbol_upper)
+        elif symbol_upper.isdigit() and len(symbol_upper) == 4:
+            symbol_upper = f'TSE:{symbol_upper}'
+            df = fetch_jp(symbol_upper)
+        else:
+            df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
+
+        if df is None or df.empty:
+            stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
+            if stale:
+                # 古いキャッシュからチャートだけ返す（info は欠ける）
+                return stale
+            return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
+
+        # チャート画像生成（既存キャッシュがあればそれを使う）
+        if chart_cached:
+            img_b64 = chart_cache[symbol_upper][1]
+        else:
+            if symbol_upper in ('NQ1!', 'ES1!'):
+                img_b64 = make_chart_image_nq(df, symbol_upper)
+            else:
+                img_b64 = make_chart_image_stock(df, symbol_upper)
+            chart_cache[symbol_upper] = (now, img_b64)
+
+        # トレンド解説 ＋ ピア（info_cache を使う or 新規計算）
+        if info_cached:
+            i_data = dict(info_cache[symbol_upper][1])
+            commentary = i_data.get('commentary')
+            peers_info = i_data.get('peers')
+            profile = i_data.get('profile')
+        else:
+            is_futures_symbol = symbol_upper in ('NQ1!', 'ES1!')
+            commentary = generate_commentary(df, is_futures=is_futures_symbol)
+            peers_info = get_peers(symbol_upper)
+            profile = None
+            if symbol_upper in profile_cache:
+                p_time, p_data = profile_cache[symbol_upper]
+                if now - p_time < CACHE_SECONDS:
+                    profile = p_data
+            if profile is None:
+                profile = get_profile(symbol_upper)
+                if profile is not None:
+                    profile_cache[symbol_upper] = (now, profile)
+            info_cache[symbol_upper] = (now, {
+                'symbol': symbol_upper,
+                'commentary': commentary,
+                'peers': peers_info,
+                'profile': profile,
+            })
+
+        profile = apply_translation(profile)
+
+        return jsonify({
+            'symbol': symbol_upper,
+            'image': img_b64,
+            'commentary': commentary,
+            'peers': peers_info,
+            'profile': profile,
+            'cached': False,
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1809,7 +1951,7 @@ def compare():
     if cache_key in compare_cache:
         cached_time, cached_data = compare_cache[cache_key]
         if now - cached_time < CACHE_SECONDS:
-            return jsonify({**cached_data, 'cached': True})
+            return _cached_json({**cached_data, 'cached': True}, max_age=1800)
 
     try:
         img_b64, legend = make_compare_chart(symbols)
@@ -1817,7 +1959,7 @@ def compare():
             return jsonify({'error': '比較チャートを生成できませんでした'}), 500
         result = {'image': img_b64, 'symbols': symbols, 'legend': legend}
         compare_cache[cache_key] = (now, result)
-        return jsonify({**result, 'cached': False})
+        return _cached_json({**result, 'cached': False}, max_age=1800)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
