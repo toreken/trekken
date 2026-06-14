@@ -1371,6 +1371,35 @@
     .chart-body img { width: 100%; display: block; }
     .chart-loading { padding: 40px; color: #888; font-size: 13px; }
     .chart-error { padding: 30px; color: #ff6b6b; font-size: 13px; }
+    .chart-error { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 30px 20px; text-align: center; }
+    .chart-error-hint {
+      font-size: 12px;
+      color: var(--brown-400);
+      opacity: 0.85;
+      max-width: 90%;
+      line-height: 1.5;
+    }
+    .chart-retry-btn {
+      margin-top: 4px;
+      padding: 8px 20px;
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-500));
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 2px 6px rgba(196, 154, 74, 0.3);
+      transition: all 0.2s;
+    }
+    .chart-retry-btn:hover {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(196, 154, 74, 0.4);
+    }
+    .chart-retry-btn:active { transform: translateY(0); }
+    
 
     /* ===== Note記事セクション ===== */
     /* ===== Note記事は横スクロール（PC・スマホ共通） ===== */
@@ -3212,17 +3241,34 @@
 
       setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 
-      const chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`)
+      // fetch にタイムアウト（45秒）を仕込む
+      const chartController = new AbortController();
+      const chartTimeoutId = setTimeout(() => chartController.abort(), 45000);
+      const chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`, { signal: chartController.signal })
         .then(r => r.json())
         .then(data => {
+          clearTimeout(chartTimeoutId);
           if (data.image) {
             lastChartImage = data.image;
             body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
           } else {
-            body.innerHTML = `<div class="chart-error">⚠️ ${data.error || '取得失敗'}</div>`;
+            body.innerHTML = `
+              <div class="chart-error">
+                <div>⚠️ ${data.error || '取得失敗'}</div>
+                <button class="chart-retry-btn" onclick="loadChart('${sym.replace(/'/g, "\\'")}')">🔄 もう一度試す</button>
+              </div>`;
           }
         })
-        .catch(() => { body.innerHTML = '<div class="chart-error">⚠️ サーバーに接続できません</div>'; });
+        .catch((err) => {
+          clearTimeout(chartTimeoutId);
+          const msg = (err && err.name === 'AbortError') ? 'サーバー応答が遅すぎます（タイムアウト）' : 'サーバーに接続できません';
+          body.innerHTML = `
+            <div class="chart-error">
+              <div>⚠️ ${msg}</div>
+              <div class="chart-error-hint">起動中の可能性があります。10〜30秒待ってから再試行してください。</div>
+              <button class="chart-retry-btn" onclick="loadChart('${sym.replace(/'/g, "\\'")}')">🔄 もう一度試す</button>
+            </div>`;
+        });
 
       const infoPromise = fetch(`/info/${encodeURIComponent(sym)}`)
         .then(r => r.json())
