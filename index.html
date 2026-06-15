@@ -429,6 +429,42 @@
       border-color: var(--gold-500);
       box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.15);
     }
+    /* 検索ボックスのクリアボタン */
+    .search-input-wrap {
+      position: relative;
+    }
+    .search-input-wrap .search-box {
+      padding-right: 44px;  /* クリアボタン分の余白 */
+    }
+    .search-clear-btn {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      transform: translateY(-50%);
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--brown-100);
+      color: var(--brown-500);
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: none;  /* 入力時のみ表示（JSで切替） */
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, transform 0.15s;
+      font-family: inherit;
+      padding: 0;
+      line-height: 1;
+    }
+    .search-clear-btn:hover {
+      background: var(--brown-200);
+      color: var(--brown-700);
+      transform: translateY(-50%) scale(1.05);
+    }
+    .search-clear-btn:active { transform: translateY(-50%) scale(0.95); }
+    .search-clear-btn.visible { display: flex; }
 
     .tabs {
       display: flex;
@@ -2002,7 +2038,10 @@
 
     <div class="search-card">
       <div class="search-hint">✨ リスト以外の銘柄もEnterで検索可能！</div>
-      <input type="text" class="search-box" id="searchBox" placeholder="🔍 銘柄名を入力してEnter（例: TSLA, 7203, BTC-USD）">
+      <div class="search-input-wrap">
+        <input type="text" class="search-box" id="searchBox" placeholder="🔍 銘柄名を入力してEnter（例: TSLA, 7203, BTC-USD）">
+        <button type="button" class="search-clear-btn" id="searchClearBtn" aria-label="入力をクリア" onclick="clearSearchBox()">✕</button>
+      </div>
 
       <div class="quick-filter-row">
         <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）</div>
@@ -2472,8 +2511,8 @@
         // 先物
         'NQ1!', 'ES1!',
         // 主要指数連動ETF
-        'SPY',   // S&P500
         'RSP',   // S&P500 イコールウェイト
+        'SPY',   // S&P500
         'DIA',   // Dow30
         'QQQ',   // NASDAQ100
         'QQQE',  // NASDAQ100 イコールウェイト
@@ -3904,6 +3943,28 @@
     // 初期化
     attachFilterListeners();
     renderSymbolList();
+    // === 検索欄クリアボタンの表示制御 ===
+    (function initSearchClearBtn() {
+      const input = document.getElementById('searchBox');
+      const btn = document.getElementById('searchClearBtn');
+      if (!input || !btn) return;
+      const update = () => {
+        if (input.value.length > 0) btn.classList.add('visible');
+        else btn.classList.remove('visible');
+      };
+      input.addEventListener('input', update);
+      input.addEventListener('change', update);
+      update();
+    })();
+    window.clearSearchBox = function() {
+      const input = document.getElementById('searchBox');
+      const btn = document.getElementById('searchClearBtn');
+      if (!input) return;
+      input.value = '';
+      input.focus();
+      if (btn) btn.classList.remove('visible');
+    };
+
     loadFeaturedSymbols();
 
     // === S&P500 / NASDAQ100 の info を事前ロード（バックグラウンドで非同期）===
