@@ -2179,20 +2179,17 @@ def run_startup_prefetch():
     BATCH_SIZE = 8    # Starter CPU 0.5（旧 0.1 の5倍）を活用して並列度UP
     BATCH_WAIT = 8    # Starterで余裕あり、APIレート制限内で短縮
 
-    # ---------- フェーズ1: ETF + テーマ + FX + 先物 + 暗号通貨 ----------
+    # ---------- フェーズ1: ETF + テーマ別（量子・宇宙・水素・太陽光）----------
+    # ※FX / 先物 / 暗号通貨 / HYZN は yfinance では取得できないためプリフェッチ対象外。
+    #   これらはユーザーが開いた時に専用関数（fetch_fx, fetch_nq1等）で取得される。
     etf_symbols = list(ETF_SECTOR_MAP.keys())
-    hydrogen_us = ['PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN', 'LIN', 'APD', 'CMI']
+    # HYZN は yfinance で取得不可なので除外
+    hydrogen_us = ['PLUG', 'BE', 'BLDP', 'FCEL', 'LIN', 'APD', 'CMI']
     solar_us = ['FSLR', 'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY', 'JKS', 'CSIQ', 'DQ']
-    # FX・先物・暗号通貨も追加（軽量、すぐ完了）
-    fx_symbols = ['USDJPY', 'EURUSD', 'GBPUSD', 'AUDUSD', 'USDCHF', 'USDCAD', 'NZDUSD',
-                  'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP']
-    futures_symbols = ['NQ1!', 'ES1!']
-    crypto_symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD', 'DOGE-USD',
-                      'ADA-USD', 'AVAX-USD', 'LINK-USD', 'MATIC-USD', 'DOT-USD']
 
     extras = list(set(hydrogen_us + solar_us) - set(etf_symbols))
-    phase1_targets = etf_symbols + extras + fx_symbols + futures_symbols + crypto_symbols
-    print(f"[Phase 1/3] ETF+Theme+FX+Futures+Crypto prefetch: {len(phase1_targets)} symbols")
+    phase1_targets = etf_symbols + extras
+    print(f"[Phase 1/3] ETF + Theme prefetch: {len(phase1_targets)} symbols")
     try:
         res = prefetch_batch(phase1_targets)
         all_success.extend(res.get('success', []))
