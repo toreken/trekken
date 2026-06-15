@@ -2743,11 +2743,6 @@
 
       readFilterInputs();
       renderSymbolList();
-
-      // 銘柄リストへスクロール
-      setTimeout(() => {
-        document.getElementById('symbolList').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 100);
     }
 
     function scoreColor(score) {
@@ -3159,8 +3154,6 @@
       compareBtn.style.display = 'none';
       restoreBtn.style.display = 'none';
       profileCard.style.display = 'none';
-
-      setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 
       // 各銘柄を並列で取得
       const promises = symbols.map(s =>
