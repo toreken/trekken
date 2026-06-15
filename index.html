@@ -2028,7 +2028,7 @@
         <div class="featured-title">
           <span class="featured-icon">💎</span>
           <strong>今日の割安TOP3</strong>
-          <small>強い下落・反発候補</small>
+          <small>強い下降・反発候補</small>
         </div>
         <div class="featured-cards" id="undervaluedFeatured">
           <div class="featured-loading">読み込み中...</div>
@@ -2071,7 +2071,7 @@
             <span class="qf-icon">💎</span>
             <span class="qf-text">
               <strong>割安銘柄</strong>
-              <small>強い下落・反発候補（黄・赤）</small>
+              <small>強い下降・反発候補（黄・赤）</small>
             </span>
           </button>
           <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend')" title="EMA20より上、上昇基調">
@@ -2088,10 +2088,10 @@
               <small>強い上昇・買われすぎ（青）</small>
             </span>
           </button>
-          <button class="quick-filter-btn qf-downtrend" onclick="applyQuickFilter('downtrend')" title="EMA20より下、下落基調">
+          <button class="quick-filter-btn qf-downtrend" onclick="applyQuickFilter('downtrend')" title="EMA20より下、下降基調">
             <span class="qf-icon">📉</span>
             <span class="qf-text">
-              <strong>下落トレンド</strong>
+              <strong>下降トレンド</strong>
               <small>逆風が吹く銘柄（赤+黄）</small>
             </span>
           </button>
@@ -2136,11 +2136,11 @@
             </label>
             <label class="filter-color-chip">
               <input type="checkbox" class="filter-color-check" value="red" checked>
-              <span class="filter-color-label ts-red">● 下落</span>
+              <span class="filter-color-label ts-red">● 下降</span>
             </label>
             <label class="filter-color-chip">
               <input type="checkbox" class="filter-color-check" value="yellow" checked>
-              <span class="filter-color-label ts-yellow">● 強い下落</span>
+              <span class="filter-color-label ts-yellow">● 強い下降</span>
             </label>
           </div>
         </div>
@@ -2806,10 +2806,10 @@
     function applyQuickFilter(type) {
       // 色チェックボックスのマッピング
       const colorMap = {
-        'undervalued': ['yellow', 'red'],   // 強い下落・反発候補
+        'undervalued': ['yellow', 'red'],   // 強い下降・反発候補
         'uptrend':     ['green', 'blue'],   // 上昇トレンド全般
         'overvalued':  ['blue'],            // 強い上昇・過熱
-        'downtrend':   ['red', 'yellow'],   // 下落トレンド全般
+        'downtrend':   ['red', 'yellow'],   // 下降トレンド全般
       };
       const targetColors = colorMap[type];
       if (!targetColors) return;
