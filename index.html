@@ -3312,8 +3312,6 @@
       restoreBtn.style.display = 'none';
       profileCard.style.display = 'none';
 
-      setTimeout(() => area.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-
       // フロント側メモリキャッシュ確認（同セッション中の再表示は瞬時）
       const cachedChartImg = _getMemCached(_chartMemCache, sym);
       let chartPromise;
@@ -3323,7 +3321,7 @@
         chartPromise = Promise.resolve();
       } else {
         const chartController = new AbortController();
-        const chartTimeoutId = setTimeout(() => chartController.abort(), 60000);
+        const chartTimeoutId = setTimeout(() => chartController.abort(), 90000);
         chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`, { signal: chartController.signal })
           .then(r => r.json())
           .then(data => {
@@ -3893,8 +3891,8 @@
         console.warn('[preload] error:', e);
       }
     }
-    // 起動2秒後にバックグラウンドで実行（メインUI操作を邪魔しない）
-    setTimeout(preloadBulkInfo, 2000);
+    // 起動30秒後にバックグラウンドで実行（プリフェッチ Phase1 後の安定時間帯で）
+    setTimeout(preloadBulkInfo, 30000);
     loadNoteArticles();
     // トレンド要約バー用にメタデータを事前取得
     fetchMetaData();
