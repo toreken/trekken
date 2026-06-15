@@ -2468,7 +2468,19 @@
     });
 
     const GROUPS = {
-      G1: ['NQ1!','ES1!'],
+      G1: [
+        // 先物
+        'NQ1!', 'ES1!',
+        // 主要指数連動ETF
+        'SPY',   // S&P500
+        'RSP',   // S&P500 イコールウェイト
+        'DIA',   // Dow30
+        'QQQ',   // NASDAQ100
+        'QQQE',  // NASDAQ100 イコールウェイト
+        'IWM',   // ラッセル2000（米国小型株）
+        'VTI',   // 米国株式全市場
+        'VT',    // 全世界株式
+      ],
       G3: ['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','ATOMC'],
       FOREX: [
         // メジャー通貨（USDペア）
