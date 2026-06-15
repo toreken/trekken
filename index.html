@@ -3283,7 +3283,8 @@
       if (storageKey) _savePersistCache(storageKey, map);
     }
 
-    async function loadChart(sym) {
+    async function loadChart(sym, _retryCount) {
+      _retryCount = _retryCount || 0;
       activeSymbol = sym;
       updateWatchlistBtn();
       compareMode = false;
@@ -3322,7 +3323,7 @@
         chartPromise = Promise.resolve();
       } else {
         const chartController = new AbortController();
-        const chartTimeoutId = setTimeout(() => chartController.abort(), 45000);
+        const chartTimeoutId = setTimeout(() => chartController.abort(), 60000);
         chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`, { signal: chartController.signal })
           .then(r => r.json())
           .then(data => {
@@ -3341,6 +3342,17 @@
           })
           .catch((err) => {
             clearTimeout(chartTimeoutId);
+            // 自動リトライ：最大2回まで（2秒、4秒待ち）
+            const MAX_AUTO_RETRY = 2;
+            if (_retryCount < MAX_AUTO_RETRY) {
+              const waitMs = (_retryCount + 1) * 2000;
+              body.innerHTML = `<div class="chart-loading">再試行中... (${_retryCount + 1}/${MAX_AUTO_RETRY})</div>`;
+              setTimeout(() => {
+                if (activeSymbol === sym) loadChart(sym, _retryCount + 1);
+              }, waitMs);
+              return;
+            }
+            // リトライ上限到達：手動ボタンを表示
             const msg = (err && err.name === 'AbortError') ? 'サーバー応答が遅すぎます（タイムアウト）' : 'サーバーに接続できません';
             body.innerHTML = `
               <div class="chart-error">
