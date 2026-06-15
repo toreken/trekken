@@ -3403,7 +3403,7 @@
               let scCls = 'peer-score-na', scLabel = '—';
               if (sc !== null && sc !== undefined) {
                 // サーバーが判定した色を使う
-                const pColor = peer.color || null;
+                const pColor = p.color || null;
                 if (pColor === 'blue') scCls = 'peer-score-blue';
                 else if (pColor === 'green') scCls = 'peer-score-green';
                 else if (pColor === 'yellow') scCls = 'peer-score-yellow';
