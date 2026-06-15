@@ -1442,28 +1442,29 @@ def generate_commentary(df, is_futures=False):
         if pd.isna(score):
             return ['スコアがまだ計算できていません']
 
+        # 「ローソク足の色の説明」と完全に同じ文言で表示する
         if is_futures:
-            # 先物・指数（NQ1!, ES1!）は3色判定（青なし）
+            # 先物・指数（NQ1!, ES1!等）は3色判定（青/緑/黄/赤の代わりに 緑/黄/赤）
             if score > 0:
-                zone = '上昇トレンド'
+                zone = '上昇トレンド'      # 🟢 緑
                 zone_emoji = '🟢'
             elif score > -7:
-                zone = 'レンジ'
+                zone = 'レンジ'            # 🟡 黄
                 zone_emoji = '🟡'
             else:
-                zone = '下降トレンド'
+                zone = '下降トレンド'      # 🔴 赤
                 zone_emoji = '🔴'
         elif score >= 7:
-            zone = '強い上昇トレンド'
+            zone = '上昇トレンド'          # 🟦 青（強い上昇）
             zone_emoji = '🟦'
         elif score > 0:
-            zone = '上昇トレンド'
+            zone = '上昇転換付近'          # 🟢 緑
             zone_emoji = '🟢'
         elif score <= -7:
-            zone = '強い下落・反発候補'
+            zone = '下降トレンド'          # 🟡 黄（強い下降・反発候補）
             zone_emoji = '🟡'
         else:
-            zone = '下落トレンド'
+            zone = '下降転換付近'          # 🔴 赤
             zone_emoji = '🔴'
 
         lines = [f'{zone_emoji} 現在: {zone}(スコア {int(score):+d})']
@@ -2098,6 +2099,82 @@ def prefetch_batch(symbols_batch):
     return results
 
 
+def prefetch_jp_batch(symbols_batch):
+    """日経225銘柄を tvDatafeed 経由で取得し、キャッシュに保存。
+    tvDatafeed は逐次取得なので並列化せず、各銘柄を順に処理する。"""
+    results = {'success': [], 'failed': []}
+    now = time.time()
+
+    for sym in symbols_batch:
+        try:
+            df = fetch_jp(sym, n_bars=600)
+            if df is None or df.empty or len(df) < 60:
+                results['failed'].append(sym)
+                continue
+
+            df = calculate_scores_from_ohlcv(df)
+
+            img_b64 = make_chart_image_stock(df, sym)
+            if img_b64:
+                chart_cache[sym] = (now, img_b64)
+
+            thumb_b64 = make_thumbnail_image(df, sym)
+            last_score = df['totalScore'].iloc[-1] if 'totalScore' in df.columns else None
+            try:
+                last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
+            except Exception:
+                last_score_val = None
+
+            week_change = None
+            try:
+                closes = df['close'].dropna()
+                if len(closes) >= 6:
+                    cur = float(closes.iloc[-1])
+                    ref = float(closes.iloc[-6])
+                    if ref != 0:
+                        week_change = (cur - ref) / ref * 100
+            except Exception:
+                week_change = None
+
+            ema20_dev = None
+            sma50_dev = None
+            try:
+                last_close = float(df['close'].iloc[-1])
+                if 'ema_20' in df.columns:
+                    last_ema20 = df['ema_20'].iloc[-1]
+                    if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                        ema20_dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
+                if 'sma_50' in df.columns:
+                    last_sma50 = df['sma_50'].iloc[-1]
+                    if not pd.isna(last_sma50) and float(last_sma50) != 0:
+                        sma50_dev = (last_close - float(last_sma50)) / float(last_sma50) * 100
+            except Exception:
+                pass
+
+            if thumb_b64:
+                thumb_cache[sym] = (now, {
+                    'thumb': thumb_b64,
+                    'score': last_score_val,
+                    'week_change': week_change,
+                    'ema20_dev': ema20_dev,
+                    'sma50_dev': sma50_dev,
+                })
+
+            commentary = generate_commentary(df)
+            peers_info = None  # 日経225 のピアは別管理（簡略化）
+
+            info_cache[sym] = (now, {
+                'symbol': sym, 'commentary': commentary, 'peers': peers_info,
+                'profile': None,  # 日経225 の profile は別ロジック
+            })
+
+            results['success'].append(sym)
+        except Exception as e:
+            print(f"prefetch_jp {sym} error: {e}")
+            results['failed'].append(sym)
+    return results
+
+
 prefetch_state = {
     'running': False,
     'started_at': None,
@@ -2119,8 +2196,8 @@ def run_prefetch_in_background():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 8    # Starter プラン用に並列度UP
-    BATCH_WAIT = 8    # Starterで短縮可
+    BATCH_SIZE = 4    # ユーザー操作優先
+    BATCH_WAIT = 15   # ゆっくり進める
 
     # NASDAQ100のうち S&P500 に含まれない銘柄（追加で取得が必要な銘柄）
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
@@ -2157,8 +2234,8 @@ def run_startup_prefetch():
     tvDatafeedの初回ログイン待ちのため30秒待機してから開始。"""
     global prefetch_state
 
-    # tvDatafeedの初回ログイン完了を待つ（Starterはスリープなしのため短縮可）
-    time.sleep(30)
+    # tvDatafeedの初回ログイン完了 + ユーザー操作優先のため60秒待機
+    time.sleep(60)
 
     with prefetch_lock:
         if prefetch_state['running']:
@@ -2176,8 +2253,8 @@ def run_startup_prefetch():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 8    # Starter CPU 0.5（旧 0.1 の5倍）を活用して並列度UP
-    BATCH_WAIT = 8    # Starterで余裕あり、APIレート制限内で短縮
+    BATCH_SIZE = 4    # ユーザー操作優先のため並列度を抑制
+    BATCH_WAIT = 15   # バッチ間に余裕を作り、ユーザーリクエストを最優先
 
     # ---------- フェーズ1: ETF + テーマ別（量子・宇宙・水素・太陽光）----------
     # ※FX / 先物 / 暗号通貨 / HYZN は yfinance では取得できないためプリフェッチ対象外。
@@ -2198,9 +2275,9 @@ def run_startup_prefetch():
     except Exception as e:
         print(f"[Phase 1/3] error: {e}")
 
-    # Phase間の休憩（短縮：60→20秒）
-    print("[Inter-Phase 1-2] cooldown 20s")
-    time.sleep(20)
+    # Phase間の休憩（ユーザー操作優先）
+    print("[Inter-Phase 1-2] cooldown 30s")
+    time.sleep(30)
 
     # ---------- フェーズ2: S&P500 + NASDAQ100差分 ----------
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
@@ -2220,22 +2297,23 @@ def run_startup_prefetch():
         print(f"[Phase 2/3] error: {e}")
 
     # Phase2-3 間の休憩
-    print("[Inter-Phase 2-3] cooldown 20s")
-    time.sleep(20)
+    print("[Inter-Phase 2-3] cooldown 30s")
+    time.sleep(30)
 
-    # ---------- フェーズ3: 日経225 ----------
+    # ---------- フェーズ3: 日経225（tvDatafeed専用関数で取得）----------
     jp_targets = list(NIKKEI225_SYMBOLS)
-    print(f"[Phase 3/3] Nikkei225 prefetch: {len(jp_targets)} symbols")
+    JP_BATCH = 3      # tvDatafeed、ユーザー操作優先のため小さく
+    JP_WAIT  = 10     # API レート制限 + ユーザー操作優先
+    print(f"[Phase 3/3] Nikkei225 prefetch (tvDatafeed): {len(jp_targets)} symbols")
     try:
-        # 日経225はtvDatafeedで取得するため、別途バッチ
-        for i in range(0, len(jp_targets), BATCH_SIZE):
-            batch = jp_targets[i:i+BATCH_SIZE]
-            print(f"[Phase 3/3] batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
-            res = prefetch_batch(batch)
+        for i in range(0, len(jp_targets), JP_BATCH):
+            batch = jp_targets[i:i+JP_BATCH]
+            print(f"[Phase 3/3] batch {i // JP_BATCH + 1}: {len(batch)} symbols")
+            res = prefetch_jp_batch(batch)
             all_success.extend(res.get('success', []))
             all_failed.extend(res.get('failed', []))
-            if i + BATCH_SIZE < len(jp_targets):
-                time.sleep(BATCH_WAIT)
+            if i + JP_BATCH < len(jp_targets):
+                time.sleep(JP_WAIT)
     except Exception as e:
         print(f"[Phase 3/3] error: {e}")
 
