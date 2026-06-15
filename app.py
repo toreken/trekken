@@ -2119,8 +2119,8 @@ def run_prefetch_in_background():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 3    # 旧5。起動直後の高負荷を更に抑制
-    BATCH_WAIT = 20   # 旧15秒。バッチ間に余裕を作り /ping 応答を最優先
+    BATCH_SIZE = 8    # Starter プラン用に並列度UP
+    BATCH_WAIT = 8    # Starterで短縮可
 
     # NASDAQ100のうち S&P500 に含まれない銘柄（追加で取得が必要な銘柄）
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
@@ -2150,14 +2150,15 @@ def run_prefetch_in_background():
 
 
 def run_startup_prefetch():
-    """起動時に自動で走るプリフェッチ。
-    フェーズ1: ETF（最優先・短時間で完了）
-    フェーズ2: S&P500 + NASDAQ100差分（既存ロジックと同じ）
+    """起動時に自動で走るプリフェッチ（Render Starter プラン最適化版）。
+    フェーズ1: ETF + テーマ別（水素・太陽光）+ FX + 先物 + 暗号通貨（軽量・最優先）
+    フェーズ2: S&P500 + NASDAQ100差分
+    フェーズ3: 日経225（プリフェッチ済みでなければ）
     tvDatafeedの初回ログイン待ちのため30秒待機してから開始。"""
     global prefetch_state
 
-    # tvDatafeedの初回ログイン完了 + サーバー安定化を待つ（120秒）
-    time.sleep(120)
+    # tvDatafeedの初回ログイン完了を待つ（Starterはスリープなしのため短縮可）
+    time.sleep(30)
 
     with prefetch_lock:
         if prefetch_state['running']:
@@ -2168,51 +2169,78 @@ def run_startup_prefetch():
         prefetch_state['finished_at'] = None
 
     print("=" * 60)
-    print("STARTUP PREFETCH: starting (ETF → S&P500 → NASDAQ100 diff)")
+    print("STARTUP PREFETCH (Starter optimized): starting")
     print("=" * 60)
 
     start_time = time.time()
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 3    # 旧5。起動直後の高負荷を更に抑制
-    BATCH_WAIT = 20   # 旧15秒。バッチ間に余裕を作り /ping 応答を最優先
+    BATCH_SIZE = 8    # Starter CPU 0.5（旧 0.1 の5倍）を活用して並列度UP
+    BATCH_WAIT = 8    # Starterで余裕あり、APIレート制限内で短縮
 
-    # フェーズ1: ETF + 水素テーマ銘柄（最優先・短時間）
+    # ---------- フェーズ1: ETF + テーマ + FX + 先物 + 暗号通貨 ----------
     etf_symbols = list(ETF_SECTOR_MAP.keys())
     hydrogen_us = ['PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN', 'LIN', 'APD', 'CMI']
     solar_us = ['FSLR', 'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY', 'JKS', 'CSIQ', 'DQ']
+    # FX・先物・暗号通貨も追加（軽量、すぐ完了）
+    fx_symbols = ['USDJPY', 'EURUSD', 'GBPUSD', 'AUDUSD', 'USDCHF', 'USDCAD', 'NZDUSD',
+                  'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP']
+    futures_symbols = ['NQ1!', 'ES1!']
+    crypto_symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD', 'DOGE-USD',
+                      'ADA-USD', 'AVAX-USD', 'LINK-USD', 'MATIC-USD', 'DOT-USD']
+
     extras = list(set(hydrogen_us + solar_us) - set(etf_symbols))
-    phase1_targets = etf_symbols + extras
-    print(f"[Phase 1/2] ETF + Hydrogen + Solar prefetch: {len(phase1_targets)} symbols")
+    phase1_targets = etf_symbols + extras + fx_symbols + futures_symbols + crypto_symbols
+    print(f"[Phase 1/3] ETF+Theme+FX+Futures+Crypto prefetch: {len(phase1_targets)} symbols")
     try:
         res = prefetch_batch(phase1_targets)
         all_success.extend(res.get('success', []))
         all_failed.extend(res.get('failed', []))
-        print(f"[Phase 1/2] done: success={len(res.get('success', []))}, failed={len(res.get('failed', []))}")
+        print(f"[Phase 1/3] done: success={len(res.get('success', []))}, failed={len(res.get('failed', []))}")
     except Exception as e:
-        print(f"[Phase 1/2] error: {e}")
+        print(f"[Phase 1/3] error: {e}")
 
-    # Phase1とPhase2の間に60秒の休憩（CPU・APIレートを完全にリセット）
-    print("[Inter-Phase] cooldown 60s")
-    time.sleep(60)
+    # Phase間の休憩（短縮：60→20秒）
+    print("[Inter-Phase 1-2] cooldown 20s")
+    time.sleep(20)
 
-    # フェーズ2: S&P500 + NASDAQ100差分
+    # ---------- フェーズ2: S&P500 + NASDAQ100差分 ----------
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
-    targets = list(SP500_SYMBOLS) + nasdaq_only
-    print(f"[Phase 2/2] S&P500+NASDAQ100diff prefetch: {len(targets)} symbols")
+    phase2_targets = list(SP500_SYMBOLS) + nasdaq_only
+    print(f"[Phase 2/3] S&P500+NASDAQ100diff prefetch: {len(phase2_targets)} symbols")
 
     try:
-        for i in range(0, len(targets), BATCH_SIZE):
-            batch = targets[i:i+BATCH_SIZE]
-            print(f"[Phase 2/2] batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
+        for i in range(0, len(phase2_targets), BATCH_SIZE):
+            batch = phase2_targets[i:i+BATCH_SIZE]
+            print(f"[Phase 2/3] batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
             res = prefetch_batch(batch)
             all_success.extend(res.get('success', []))
             all_failed.extend(res.get('failed', []))
-            if i + BATCH_SIZE < len(targets):
+            if i + BATCH_SIZE < len(phase2_targets):
                 time.sleep(BATCH_WAIT)
     except Exception as e:
-        print(f"[Phase 2/2] error: {e}")
+        print(f"[Phase 2/3] error: {e}")
+
+    # Phase2-3 間の休憩
+    print("[Inter-Phase 2-3] cooldown 20s")
+    time.sleep(20)
+
+    # ---------- フェーズ3: 日経225 ----------
+    jp_targets = list(NIKKEI225_SYMBOLS)
+    print(f"[Phase 3/3] Nikkei225 prefetch: {len(jp_targets)} symbols")
+    try:
+        # 日経225はtvDatafeedで取得するため、別途バッチ
+        for i in range(0, len(jp_targets), BATCH_SIZE):
+            batch = jp_targets[i:i+BATCH_SIZE]
+            print(f"[Phase 3/3] batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
+            res = prefetch_batch(batch)
+            all_success.extend(res.get('success', []))
+            all_failed.extend(res.get('failed', []))
+            if i + BATCH_SIZE < len(jp_targets):
+                time.sleep(BATCH_WAIT)
+    except Exception as e:
+        print(f"[Phase 3/3] error: {e}")
 
     elapsed = time.time() - start_time
     with prefetch_lock:
