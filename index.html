@@ -1399,6 +1399,39 @@
       box-shadow: 0 4px 10px rgba(196, 154, 74, 0.4);
     }
     .chart-retry-btn:active { transform: translateY(0); }
+
+    /* 古いキャッシュ表示時の控えめな通知 */
+    .chart-stale-notice {
+      position: absolute;
+      top: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(196, 154, 74, 0.92);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(93, 64, 55, 0.25);
+      z-index: 5;
+      pointer-events: auto;
+    }
+    .chart-retry-btn-small {
+      background: #fff;
+      color: #5d4037;
+      border: none;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .chart-retry-btn-small:hover {
+      background: var(--cream-100);
+    }
     
 
     /* ===== Note記事セクション ===== */
@@ -3333,23 +3366,40 @@
           })
           .catch((err) => {
             clearTimeout(chartTimeoutId);
-            // 自動リトライ：最大2回まで（2秒、4秒待ち）
-            const MAX_AUTO_RETRY = 2;
+            // 自動リトライ：最大3回（待ち時間 3, 6, 10秒）
+            const MAX_AUTO_RETRY = 3;
+            const RETRY_WAITS = [3000, 6000, 10000];
             if (_retryCount < MAX_AUTO_RETRY) {
-              const waitMs = (_retryCount + 1) * 2000;
+              const waitMs = RETRY_WAITS[_retryCount] || 10000;
               body.innerHTML = `<div class="chart-loading">再試行中... (${_retryCount + 1}/${MAX_AUTO_RETRY})</div>`;
               setTimeout(() => {
                 if (activeSymbol === sym) loadChart(sym, _retryCount + 1);
               }, waitMs);
               return;
             }
-            // リトライ上限到達：手動ボタンを表示
+            // 最終手段：localStorage の古いキャッシュ（TTL切れも含む）を表示
+            try {
+              const raw = localStorage.getItem(_PERSIST_KEY_CHART);
+              if (raw) {
+                const obj = JSON.parse(raw);
+                if (obj[sym] && obj[sym].value) {
+                  lastChartImage = obj[sym].value;
+                  body.innerHTML = `
+                    <img src="data:image/png;base64,${obj[sym].value}" alt="${sym}チャート">
+                    <div class="chart-stale-notice">⚠️ 前回のチャート表示中
+                      <button class="chart-retry-btn-small" onclick="loadChart(this.dataset.sym)" data-sym="${sym}">🔄 更新</button>
+                    </div>`;
+                  return;
+                }
+              }
+            } catch (e) { /* 続行 */ }
+            // それでもダメな場合は手動ボタン
             const msg = (err && err.name === 'AbortError') ? 'サーバー応答が遅すぎます（タイムアウト）' : 'サーバーに接続できません';
             body.innerHTML = `
               <div class="chart-error">
                 <div>⚠️ ${msg}</div>
                 <div class="chart-error-hint">起動中の可能性があります。10〜30秒待ってから再試行してください。</div>
-                <button class="chart-retry-btn" onclick="loadChart('${sym.replace(/'/g, "\\'")}')">🔄 もう一度試す</button>
+                <button class="chart-retry-btn" onclick="loadChart(this.dataset.sym)" data-sym="${sym}">🔄 もう一度試す</button>
               </div>`;
           });
       }
