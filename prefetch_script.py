@@ -463,8 +463,17 @@ EXTRA_SYMBOLS = [
     'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA',
     # 量子コンピュータ関連
     'RGTI', 'QBTS', 'QUBT', 'LAES',
-    # 宇宙関連
+    # 宇宙関連（ピュアプレイ + 防衛・航空宇宙）
     'ASTS', 'PL', 'BKSY', 'RDW', 'IRDM',
+    'LMT', 'BA', 'NOC', 'LHX', 'GE',
+    # 水素エネルギー関連（ピュアプレイ + 産業ガス・水素エンジン）
+    'PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN',
+    'LIN', 'APD', 'CMI',
+    # 太陽光関連（パネル・インバーター・架台・住宅リース、中国ADR）
+    'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY',
+    'JKS', 'CSIQ', 'DQ',
+    # 量子ハイブリッド戦略（量子事業を持つ大手）
+    'IBM', 'AMZN', 'MSFT', 'HON', 'MRVL',
 ]
 
 # ETF銘柄（セクター別 + 高配当、37銘柄）
