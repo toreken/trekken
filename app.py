@@ -396,6 +396,9 @@ SP500_SECTOR_MAP = {
 
 INDEX_SYMBOLS = ['NQ1!', 'ES1!', 'NI225']
 
+# 先物・指数タブに表示する銘柄（3色判定：緑=上昇 / 黄=レンジ / 赤=下降）
+FUTURES_INDEX_SET = frozenset(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT'])
+
 # NASDAQ100構成銘柄（2026年6月時点、slickcharts.com 公開リストより。
 # 2026年1月20日のリバランスでAZNがWMTに置換済み。GOOGとGOOGLの両方を含むため101銘柄。)
 NASDAQ100_SYMBOLS = [
@@ -1173,14 +1176,25 @@ def make_chart_image_stock(df, symbol):
     xmin, xmax = ax_main.get_xlim()
     ax_main.set_xlim(xmin, xmax + 5)
 
+    # 先物・指数タブ銘柄は3色判定、その他は4色判定
+    is_futures = symbol in FUTURES_INDEX_SET
+
     for j in range(len(plot_df)):
         row = plot_df.iloc[j]
         score = row['totalScore']
-        if pd.isna(score):   c = '#888888'
-        elif score >= 7:     c = '#00bfff'
-        elif score > 0:      c = '#32cd32'
-        elif score <= -7:    c = '#ffd700'
-        else:                c = '#ff4444'
+        if pd.isna(score):
+            c = '#888888'
+        elif is_futures:
+            # 先物・指数：3色（緑/黄/赤）
+            if score > 0:     c = '#32cd32'
+            elif score > -7:  c = '#ffd700'
+            else:             c = '#ff4444'
+        else:
+            # その他：4色（青/緑/赤/黄）
+            if score >= 7:    c = '#00bfff'
+            elif score > 0:   c = '#32cd32'
+            elif score <= -7: c = '#ffd700'
+            else:             c = '#ff4444'
         ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.5, zorder=10)
         body_bottom = min(row['open'], row['close'])
         body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
@@ -1253,6 +1267,8 @@ def make_chart_image_nq(df, symbol):
 
 def make_thumbnail_image(df, symbol):
     """通常チャートと同じローソク足サムネイル（フル装備、サイズ小さめ）。一気見画面用。"""
+    # 先物・指数タブ銘柄は3色判定
+    is_futures = symbol in FUTURES_INDEX_SET
     try:
         plot_len = min(DISPLAY_PERIOD, len(df))
         plot_df = df.iloc[-plot_len:].copy()
@@ -1305,11 +1321,19 @@ def make_thumbnail_image(df, symbol):
         for j in range(len(plot_df)):
             row = plot_df.iloc[j]
             score = row['totalScore']
-            if pd.isna(score):   c = '#888888'
-            elif score >= 7:     c = '#00bfff'
-            elif score > 0:      c = '#32cd32'
-            elif score <= -7:    c = '#ffd700'
-            else:                c = '#ff4444'
+            if pd.isna(score):
+                c = '#888888'
+            elif is_futures:
+                # 先物・指数：3色（緑/黄/赤）
+                if score > 0:     c = '#32cd32'
+                elif score > -7:  c = '#ffd700'
+                else:             c = '#ff4444'
+            else:
+                # その他：4色（青/緑/赤/黄）
+                if score >= 7:    c = '#00bfff'
+                elif score > 0:   c = '#32cd32'
+                elif score <= -7: c = '#ffd700'
+                else:             c = '#ff4444'
             ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.0, zorder=10)
             body_bottom = min(row['open'], row['close'])
             body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
@@ -1685,7 +1709,7 @@ def info(symbol):
         if df is None or df.empty:
             return jsonify({'error': 'データ取得に失敗しました'}), 500
 
-        is_futures_symbol = symbol_upper in ('NQ1!', 'ES1!')
+        is_futures_symbol = symbol_upper in FUTURES_INDEX_SET
         commentary = generate_commentary(df, is_futures=is_futures_symbol)
         peers_info = get_peers(symbol_upper)
 
@@ -1814,7 +1838,7 @@ def load_chart_and_info(symbol):
             peers_info = i_data.get('peers')
             profile = i_data.get('profile')
         else:
-            is_futures_symbol = symbol_upper in ('NQ1!', 'ES1!')
+            is_futures_symbol = symbol_upper in FUTURES_INDEX_SET
             commentary = generate_commentary(df, is_futures=is_futures_symbol)
             peers_info = get_peers(symbol_upper)
             profile = None
