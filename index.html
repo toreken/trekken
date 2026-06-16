@@ -3984,6 +3984,9 @@
       input.value = '';
       input.focus();
       if (btn) btn.classList.remove('visible');
+      // 検索フィルタもクリアしてリストを再描画
+      currentQuery = '';
+      renderSymbolList();
     };
 
     loadFeaturedSymbols();
