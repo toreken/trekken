@@ -2196,8 +2196,8 @@ def run_prefetch_in_background():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 4    # ユーザー操作優先
-    BATCH_WAIT = 15   # ゆっくり進める
+    BATCH_SIZE = 3    # workers=2 体制でメモリ余裕を確保
+    BATCH_WAIT = 18   # ワーカー間でメモリピーク重複を避ける
 
     # NASDAQ100のうち S&P500 に含まれない銘柄（追加で取得が必要な銘柄）
     nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
@@ -2253,8 +2253,8 @@ def run_startup_prefetch():
     all_success = []
     all_failed = []
 
-    BATCH_SIZE = 4    # ユーザー操作優先のため並列度を抑制
-    BATCH_WAIT = 15   # バッチ間に余裕を作り、ユーザーリクエストを最優先
+    BATCH_SIZE = 3    # workers=2 体制、各ワーカーのメモリ余裕確保
+    BATCH_WAIT = 18   # ピーク重複回避
 
     # ---------- フェーズ1: ETF + テーマ別（量子・宇宙・水素・太陽光）----------
     # ※FX / 先物 / 暗号通貨 / HYZN は yfinance では取得できないためプリフェッチ対象外。
@@ -2436,11 +2436,31 @@ load_translations()
 # ===== 起動時自動プリフェッチ =====
 # Renderコールドスタート対策：起動時にバックグラウンドでチャートをプリフェッチする
 # 環境変数 STARTUP_PREFETCH=0 で無効化可能
+# workers=2 以上の場合、ファイルロックで「最初のワーカー」だけが実行する
 ENABLE_STARTUP_PREFETCH = os.environ.get('STARTUP_PREFETCH', '1') == '1'
+
+def _try_acquire_prefetch_lock():
+    """ワーカー間で1つだけがプリフェッチを実行するためのファイルロック。
+    ロック取得成功 → このワーカーがプリフェッチ実行担当。
+    ロック取得失敗 → 別のワーカーが実行中なのでスキップ。"""
+    try:
+        import fcntl
+        # /tmp は Render の ephemeral storage で、全ワーカーから見える
+        lock_fd = open('/tmp/trekken_prefetch.lock', 'w')
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # ロック取得成功 - ファイルディスクリプタをグローバルに保持（GC回避）
+        globals()['_prefetch_lock_fd'] = lock_fd
+        return True
+    except (IOError, OSError, ImportError):
+        return False
+
 if ENABLE_STARTUP_PREFETCH:
-    startup_prefetch_thread = threading.Thread(target=run_startup_prefetch, daemon=True)
-    startup_prefetch_thread.start()
-    print("Startup prefetch scheduled (will start in 30 seconds, after tvDatafeed login)")
+    if _try_acquire_prefetch_lock():
+        startup_prefetch_thread = threading.Thread(target=run_startup_prefetch, daemon=True)
+        startup_prefetch_thread.start()
+        print(f"Startup prefetch scheduled (worker pid={os.getpid()} is leader)")
+    else:
+        print(f"Startup prefetch skipped (worker pid={os.getpid()} is follower)")
 else:
     print("Startup prefetch disabled by STARTUP_PREFETCH=0")
 
