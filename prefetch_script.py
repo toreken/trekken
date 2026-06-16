@@ -474,6 +474,8 @@ EXTRA_SYMBOLS = [
     'JKS', 'CSIQ', 'DQ',
     # 量子ハイブリッド戦略（量子事業を持つ大手）
     'IBM', 'AMZN', 'MSFT', 'HON', 'MRVL',
+    # 先物・指数タブの指数連動ETF（SPY, RSP, DIA, QQQ, QQQE, IWM, VTI, VT）
+    'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT',
 ]
 
 # ETF銘柄（セクター別 + 高配当、37銘柄）
