@@ -1328,6 +1328,54 @@
       font-family: 'Noto Sans JP', sans-serif; white-space: nowrap; transition: background 0.2s;
     }
 
+    /* WL切替セレクター（ウォッチリストタブ内） */
+    .wl-tab-selector {
+      display: flex;
+      gap: 8px;
+      margin: 0 auto 14px;
+      padding: 0 4px;
+      max-width: 1280px;
+      flex-wrap: wrap;
+    }
+    .wl-tab-btn {
+      flex: 1;
+      min-width: 80px;
+      padding: 10px 14px;
+      background: rgba(255, 252, 245, 0.9);
+      border: 1.5px solid var(--brown-200);
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--brown-700);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .wl-tab-btn:hover {
+      background: var(--brown-100);
+      transform: translateY(-1px);
+    }
+    .wl-tab-btn.active {
+      background: linear-gradient(135deg, var(--gold-300), var(--gold-500));
+      color: white;
+      border-color: var(--gold-500);
+      box-shadow: 0 2px 8px rgba(196, 154, 74, 0.3);
+    }
+    .wl-tab-count {
+      font-size: 11px;
+      opacity: 0.8;
+      margin-left: 2px;
+    }
+    /* チャート画面の3つボタン用コンテナ */
+    .watchlist-btn-container {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .watchlist-btn-container .watchlist-btn {
+      flex: 1;
+      min-width: 70px;
+    }
     /* ⭐ ウォッチリスト追加ボタン */
     .watchlist-btn {
       background: linear-gradient(135deg, var(--gold-400), var(--gold-500)) !important;
@@ -2276,7 +2324,11 @@
         <span id="chartTitle">📈 ---</span>
         <div class="chart-header-actions">
           <button class="chart-action" id="restoreBtn" style="display:none" onclick="restoreSingleChart()">📈 元のチャートに戻す</button>
-          <button class="chart-action watchlist-btn" id="watchlistBtn" style="display:none" onclick="toggleWatchlist()">⭐ ウォッチリストに追加</button>
+          <div class="watchlist-btn-container" id="watchlistBtnContainer" style="display:none">
+            <button class="chart-action watchlist-btn" id="wlBtn_WL1" onclick="toggleWatchlist('WL1')">☆ WL1</button>
+            <button class="chart-action watchlist-btn" id="wlBtn_WL2" onclick="toggleWatchlist('WL2')">☆ WL2</button>
+            <button class="chart-action watchlist-btn" id="wlBtn_WL3" onclick="toggleWatchlist('WL3')">☆ WL3</button>
+          </div>
           <button class="chart-close" onclick="closeChart()" title="閉じる">✕</button>
         </div>
       </div>
@@ -2907,34 +2959,93 @@
     let currentQuery = '';
     let trendFilterActive = false;  // 上昇中銘柄フィルタ ON/OFF
 
-    // ===== ウォッチリスト（localStorage永続化） =====
-    const WATCHLIST_KEY = 'trekken_watchlist_v1';
-    function loadWatchlist() {
+    // ===== ウォッチリスト（localStorage永続化、3つ管理：WL1/WL2/WL3）=====
+    const WATCHLIST_IDS = ['WL1', 'WL2', 'WL3'];
+    const WATCHLIST_KEYS = {
+      WL1: 'trekken_watchlist_wl1_v1',
+      WL2: 'trekken_watchlist_wl2_v1',
+      WL3: 'trekken_watchlist_wl3_v1',
+    };
+    const _LEGACY_WATCHLIST_KEY = 'trekken_watchlist_v1';
+    // 現在ウォッチリストタブで選択中のWL
+    let currentWatchlistId = 'WL1';
+
+    // 旧データからの一回限りマイグレーション
+    (function migrateLegacyWatchlist() {
       try {
-        const raw = localStorage.getItem(WATCHLIST_KEY);
+        const raw = localStorage.getItem(_LEGACY_WATCHLIST_KEY);
+        if (!raw) return;
+        // WL1 が空のときだけ移行
+        const wl1Raw = localStorage.getItem(WATCHLIST_KEYS.WL1);
+        if (!wl1Raw) {
+          localStorage.setItem(WATCHLIST_KEYS.WL1, raw);
+          console.log('[watchlist] legacy data migrated to WL1');
+        }
+        localStorage.removeItem(_LEGACY_WATCHLIST_KEY);
+      } catch (e) { /* ignore */ }
+    })();
+
+    function _validWlId(id) { return WATCHLIST_IDS.indexOf(id) >= 0 ? id : 'WL1'; }
+    function loadWatchlist(id) {
+      id = _validWlId(id);
+      try {
+        const raw = localStorage.getItem(WATCHLIST_KEYS[id]);
         if (!raw) return [];
         const arr = JSON.parse(raw);
         return Array.isArray(arr) ? arr : [];
       } catch (e) { return []; }
     }
-    function saveWatchlist(list) {
+    function saveWatchlist(id, list) {
+      id = _validWlId(id);
       try {
-        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+        localStorage.setItem(WATCHLIST_KEYS[id], JSON.stringify(list));
       } catch (e) { console.warn('watchlist save failed:', e); }
     }
-    function isInWatchlist(sym) {
-      return loadWatchlist().includes(sym);
+    function isInWatchlist(id, sym) {
+      return loadWatchlist(id).includes(sym);
     }
-    function addToWatchlist(sym) {
-      const list = loadWatchlist();
+
+    function _showWatchlistTabSelector() {
+      let selector = document.getElementById('watchlistTabSelector');
+      if (!selector) {
+        selector = document.createElement('div');
+        selector.id = 'watchlistTabSelector';
+        selector.className = 'wl-tab-selector';
+        const list = document.getElementById('symbolList');
+        if (list && list.parentNode) {
+          list.parentNode.insertBefore(selector, list);
+        }
+      }
+      // 内容更新
+      const counts = WATCHLIST_IDS.map(id => loadWatchlist(id).length);
+      selector.innerHTML = WATCHLIST_IDS.map((id, idx) => {
+        const active = id === currentWatchlistId ? ' active' : '';
+        return '<button class="wl-tab-btn' + active + '" onclick="selectWatchlist(\'' + id + '\')">' +
+               id + ' <span class="wl-tab-count">(' + counts[idx] + ')</span></button>';
+      }).join('');
+      selector.style.display = '';
+    }
+    function _hideWatchlistTabSelector() {
+      const selector = document.getElementById('watchlistTabSelector');
+      if (selector) selector.style.display = 'none';
+    }
+    window.selectWatchlist = function(id) {
+      currentWatchlistId = _validWlId(id);
+      renderSymbolList();
+    };
+    function isInAnyWatchlist(sym) {
+      return WATCHLIST_IDS.some(id => isInWatchlist(id, sym));
+    }
+    function addToWatchlist(id, sym) {
+      const list = loadWatchlist(id);
       if (!list.includes(sym)) {
         list.push(sym);
-        saveWatchlist(list);
+        saveWatchlist(id, list);
       }
     }
-    function removeFromWatchlist(sym) {
-      const list = loadWatchlist().filter(s => s !== sym);
-      saveWatchlist(list);
+    function removeFromWatchlist(id, sym) {
+      const list = loadWatchlist(id).filter(s => s !== sym);
+      saveWatchlist(id, list);
     }
     let activeSymbol = null;
     let lastPeerSymbols = [];
@@ -3033,6 +3144,11 @@
     }
 
     function renderSymbolList() {
+      // WL切替セレクター表示制御
+      if (currentGroup !== 'WATCHLIST') {
+        _hideWatchlistTabSelector();
+      }
+
       const list = document.getElementById('symbolList');
       const countInfo = document.getElementById('countInfo');
       const toolbar = document.getElementById('sp500Toolbar');
@@ -3114,8 +3230,10 @@
         displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
         totalCount = allSymbols.length;
       } else if (currentGroup === 'WATCHLIST') {
-        // ウォッチリスト（localStorageから読込）
-        const watchlist = loadWatchlist();
+        // WL切替UIを表示
+        _showWatchlistTabSelector();
+        // ウォッチリスト（localStorageから読込：選択中のWL）
+        const watchlist = loadWatchlist(currentWatchlistId);
         totalCount = watchlist.length;
         displaySymbols = watchlist;
 
@@ -3123,7 +3241,7 @@
         if (watchlist.length === 0) {
           const empty = document.createElement('div');
           empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--brown-500); font-size: 13px; line-height: 1.8;';
-          empty.innerHTML = '⭐ ウォッチリストは空です<br><span style="font-size:11px;">検索バーで銘柄を表示し、「⭐ 追加」ボタンを押すと登録できます</span>';
+          empty.innerHTML = '⭐ ' + currentWatchlistId + ' は空です<br><span style="font-size:11px;">チャート表示時に「⭐ ' + currentWatchlistId + '」ボタンで追加できます</span>';
           list.appendChild(empty);
         } else {
           watchlist.forEach((sym, idx) => {
@@ -3137,8 +3255,8 @@
             // 右クリックで削除確認
             chip.oncontextmenu = (e) => {
               e.preventDefault();
-              if (confirm(`${sym} をウォッチリストから外しますか？`)) {
-                removeFromWatchlist(sym);
+              if (confirm(`${sym} を ${currentWatchlistId} から外しますか？`)) {
+                removeFromWatchlist(currentWatchlistId, sym);
                 renderSymbolList();
               }
             };
@@ -3238,7 +3356,7 @@
       lastChartImage = null;
       lastPeerSymbols = [];
       renderSymbolList();
-      const wbtn = document.getElementById('watchlistBtn'); if (wbtn) wbtn.style.display = 'none';
+      const wbtnC = document.getElementById('watchlistBtnContainer'); if (wbtnC) wbtnC.style.display = 'none';
 
       const area = document.getElementById('chartArea');
       const title = document.getElementById('chartTitle');
@@ -3284,29 +3402,46 @@
       body.innerHTML = chartsHtml;
     }
 
-    function toggleWatchlist() {
+    // WL1/WL2/WL3 のうち指定IDに追加/削除をトグル
+    function toggleWatchlist(id) {
       if (!activeSymbol) return;
-      if (isInWatchlist(activeSymbol)) {
-        removeFromWatchlist(activeSymbol);
+      id = _validWlId(id || 'WL1');
+      if (isInWatchlist(id, activeSymbol)) {
+        removeFromWatchlist(id, activeSymbol);
       } else {
-        addToWatchlist(activeSymbol);
+        addToWatchlist(id, activeSymbol);
       }
       updateWatchlistBtn();
-      // ウォッチリストタブを表示中なら再描画
+      // ウォッチリストタブで該当WL表示中なら再描画
+      if (currentGroup === 'WATCHLIST' && currentWatchlistId === id) {
+        renderSymbolList();
+      }
+      // 全銘柄のアイコン更新（リスト内も）
       if (currentGroup === 'WATCHLIST') renderSymbolList();
     }
 
+    // 3つのボタンの表示を更新
     function updateWatchlistBtn() {
-      const btn = document.getElementById('watchlistBtn');
-      if (!btn || !activeSymbol) return;
-      btn.style.display = '';
-      if (isInWatchlist(activeSymbol)) {
-        btn.textContent = '⭐ 登録済み（外す）';
-        btn.classList.add('active');
-      } else {
-        btn.textContent = '⭐ ウォッチリストに追加';
-        btn.classList.remove('active');
+      const container = document.getElementById('watchlistBtnContainer');
+      if (!container) return;
+      if (!activeSymbol) {
+        container.style.display = 'none';
+        return;
       }
+      container.style.display = '';
+      WATCHLIST_IDS.forEach(id => {
+        const btn = document.getElementById('wlBtn_' + id);
+        if (!btn) return;
+        if (isInWatchlist(id, activeSymbol)) {
+          btn.textContent = '⭐ ' + id;
+          btn.classList.add('active');
+          btn.title = id + ' に登録済み（タップで外す）';
+        } else {
+          btn.textContent = '☆ ' + id;
+          btn.classList.remove('active');
+          btn.title = id + ' に追加';
+        }
+      });
     }
 
     // ===== チャート/info キャッシュ（localStorage 永続化、24時間TTL、最大30銘柄）=====
@@ -3632,7 +3767,7 @@
       document.getElementById('chartArea').classList.remove('active');
       activeSymbol = null;
       renderSymbolList();
-      const wbtn = document.getElementById('watchlistBtn'); if (wbtn) wbtn.style.display = 'none';
+      const wbtnC = document.getElementById('watchlistBtnContainer'); if (wbtnC) wbtnC.style.display = 'none';
     }
 
     // ===== 一気見モード =====
