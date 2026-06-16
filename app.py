@@ -1340,6 +1340,14 @@ def chart(symbol):
         if now - cached_time < CACHE_SECONDS:
             return _cached_json({'image': cached_img, 'symbol': symbol_upper, 'cached': True}, max_age=1800)
 
+    # NEW: メモリキャッシュに無い場合、GitHubから個別ファイル取得を試みる（リスト内銘柄）
+    if symbol_upper not in chart_cache:
+        github_img = fetch_chart_from_github(symbol_upper)
+        if github_img:
+            chart_cache[symbol_upper] = (now, github_img)
+            print(f"/chart/{symbol_upper}: loaded from GitHub on-demand")
+            return _cached_json({'image': github_img, 'symbol': symbol_upper, 'cached': True, 'source': 'github'}, max_age=1800)
+
     def _fallback_to_stale_cache(reason):
         """新規取得に失敗した場合、期限切れキャッシュがあればそれを返す。"""
         if symbol_upper in chart_cache:
@@ -2375,13 +2383,16 @@ translations = {}
 PERSISTENT_TRANSLATIONS_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/translations.json'
 
 
+# 個別チャートファイルのGitHub URL（1銘柄1ファイル方式）
+PERSISTENT_CHARTS_BASE_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/charts'
+
 def load_persistent_cache():
     """起動時にGitHubから永続キャッシュを読み込む。失敗しても起動は継続。
-    対応データ：profiles, thumbs, charts（チャート画像）, infos（トレンド解説+peers）。"""
+    対応データ：profiles, thumbs, infos（トレンド解説+peers）。
+    chartsは個別ファイル方式（リクエスト時に遅延ロード）。"""
     try:
         print(f"Loading persistent cache from {PERSISTENT_CACHE_URL} ...")
-        # チャート画像も含む場合はサイズが大きいのでタイムアウト延長
-        resp = http_requests.get(PERSISTENT_CACHE_URL, timeout=60,
+        resp = http_requests.get(PERSISTENT_CACHE_URL, timeout=30,
                                  headers={'User-Agent': 'Trekken site'})
         if resp.status_code != 200:
             print(f"Persistent cache: status {resp.status_code}, skipped")
@@ -2390,7 +2401,6 @@ def load_persistent_cache():
         now = time.time()
         loaded_profiles = 0
         loaded_thumbs = 0
-        loaded_charts = 0
         loaded_infos = 0
         for sym, profile in (data.get('profiles') or {}).items():
             profile_cache[sym] = (now, profile)
@@ -2398,20 +2408,35 @@ def load_persistent_cache():
         for sym, thumb_data in (data.get('thumbs') or {}).items():
             thumb_cache[sym] = (now, thumb_data)
             loaded_thumbs += 1
-        # NEW: チャート画像も復元（メモリ上の chart_cache に直接ロード）
-        for sym, chart_img in (data.get('charts') or {}).items():
-            if chart_img:
-                chart_cache[sym] = (now, chart_img)
-                loaded_charts += 1
-        # NEW: トレンド解説とピア情報も復元
         for sym, info_data in (data.get('infos') or {}).items():
             if info_data:
                 info_cache[sym] = (now, info_data)
                 loaded_infos += 1
+        chart_count = data.get('chart_count', 0)
         print(f"Persistent cache loaded: {loaded_profiles} profiles, {loaded_thumbs} thumbs, "
-              f"{loaded_charts} charts, {loaded_infos} infos")
+              f"{loaded_infos} infos ({chart_count} charts available on-demand)")
     except Exception as e:
         print(f"Persistent cache load failed: {e}")
+
+
+def fetch_chart_from_github(symbol):
+    """GitHubから個別チャートファイルを取得（リスト内銘柄のオンデマンドロード）。
+    成功時はBase64文字列、失敗時はNoneを返す。"""
+    try:
+        # ファイル名安全化（コロンをアンダースコアに）
+        safe_name = symbol.replace(":", "_").replace("/", "_")
+        url = f"{PERSISTENT_CHARTS_BASE_URL}/{safe_name}.txt"
+        resp = http_requests.get(url, timeout=8,
+                                 headers={'User-Agent': 'Trekken site'})
+        if resp.status_code != 200:
+            return None
+        img_b64 = resp.text.strip()
+        if not img_b64 or len(img_b64) < 100:
+            return None
+        return img_b64
+    except Exception as e:
+        print(f"  fetch_chart_from_github {symbol} failed: {e}")
+        return None
 
 
 def load_translations():
