@@ -1733,10 +1733,10 @@
       grid-template-columns: 1fr 1fr;
       gap: 22px;
     }
-    /* 4ブロック版：PCは2x2 */
+    /* 4ブロック版：常に横並び（PC/スマホとも4カラム） */
     .featured-row.featured-row-4 {
-      grid-template-columns: 1fr 1fr;
-      gap: 18px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
     }
     .featured-block {
       background: rgba(255, 252, 245, 0.85);
@@ -1748,6 +1748,16 @@
     }
     .featured-block.undervalue { border-top: 3px solid #c9a000; }
     .featured-block.uptrend    { border-top: 3px solid #00bfff; }
+    /* 4ブロック横並び時は padding を抑制 */
+    .featured-row.featured-row-4 .featured-block {
+      padding: 14px 12px;
+    }
+    .featured-row.featured-row-4 .featured-title {
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+    .featured-row.featured-row-4 .featured-title .featured-icon { font-size: 18px; }
+    .featured-row.featured-row-4 .featured-title strong { font-size: 12px; }
     /* テーマ別ブロックの上ボーダー色 */
     .featured-block.theme-quantum  { border-top: 3px solid #8b5cf6; }
     .featured-block.theme-space    { border-top: 3px solid #6366f1; }
@@ -1815,6 +1825,69 @@
     .featured-card-meta { text-align: right; }
     .featured-card-score { font-size: 18px; font-weight: 900; line-height: 1.1; }
     .featured-card-change { font-size: 10px; font-weight: 700; margin-top: 2px; }
+
+    /* note銘柄ランキング用：1行コンパクト表示（rank / symbol / score / change） */
+    .featured-card.featured-card-compact {
+      grid-template-columns: 26px 1fr auto auto;
+      gap: 10px;
+      padding: 6px 10px;
+      align-items: center;
+    }
+    .featured-card.featured-card-compact .featured-card-rank {
+      font-size: 16px;
+      width: 26px;
+    }
+    .featured-card.featured-card-compact .featured-card-symbol {
+      font-size: 13px;
+      font-weight: 900;
+      color: var(--brown-800);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .featured-card.featured-card-compact .featured-card-score {
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1;
+      min-width: 32px;
+      text-align: right;
+    }
+    .featured-card.featured-card-compact .featured-card-change {
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      min-width: 50px;
+      text-align: right;
+      margin-top: 0;
+    }
+    /* コンパクト版は cards 間の隙間も詰める */
+    .featured-block .featured-cards:has(.featured-card-compact) {
+      gap: 5px;
+    }
+    /* スマホでも1行を維持 */
+    @media (max-width: 700px) {
+      .featured-card.featured-card-compact {
+        grid-template-columns: 22px 1fr auto auto;
+        gap: 8px;
+        padding: 5px 8px;
+      }
+      .featured-card.featured-card-compact .featured-card-rank {
+        font-size: 14px;
+        width: 22px;
+      }
+      .featured-card.featured-card-compact .featured-card-symbol {
+        font-size: 12px;
+      }
+      .featured-card.featured-card-compact .featured-card-score {
+        font-size: 13px;
+        min-width: 28px;
+      }
+      .featured-card.featured-card-compact .featured-card-change {
+        font-size: 10px;
+        min-width: 44px;
+      }
+    }
     .fc-blue   { color: #00bfff; }
     .fc-green  { color: #2e8b3a; }
     .fc-yellow { color: #c9a000; }
@@ -1823,9 +1896,20 @@
 
     @media (max-width: 700px) {
       .featured-row { grid-template-columns: 1fr; }
-      .featured-row.featured-row-4 { grid-template-columns: 1fr; gap: 14px; }
-      .featured-section { padding: 20px 18px 10px; }
-      .featured-block { padding: 16px 16px; }
+      /* 4ブロック版は横並びを維持（スマホでも4カラム） */
+      .featured-row.featured-row-4 {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 5px;
+      }
+      .featured-section { padding: 18px 10px 10px; }
+      .featured-row.featured-row-4 .featured-block {
+        padding: 10px 6px;
+        border-radius: 12px;
+      }
+      /* スマホで4カラムのとき、タイトル等を縮小 */
+      .featured-row.featured-row-4 .featured-title { gap: 4px; margin-bottom: 8px; flex-direction: column; align-items: center; text-align: center; }
+      .featured-row.featured-row-4 .featured-title .featured-icon { font-size: 16px; }
+      .featured-row.featured-row-4 .featured-title strong { font-size: 10px; line-height: 1.2; }
     }
 
     /* ===== ③ 免責事項 ===== */
@@ -4123,16 +4207,11 @@
         const sectorLabel = it.sector || '';
 
         return `
-          <div class="featured-card" onclick="loadChart('${it.symbol}')">
+          <div class="featured-card featured-card-compact" onclick="loadChart('${it.symbol}')">
             <div class="featured-card-rank">${idx + 1}</div>
-            <div class="featured-card-body">
-              <div class="featured-card-symbol">${escapeHtml(displaySym)}</div>
-              <div class="featured-card-sector">${escapeHtml(sectorLabel)}</div>
-            </div>
-            <div class="featured-card-meta">
-              <div class="featured-card-score ${scCls}">${scLabel}</div>
-              <div class="featured-card-change ${chCls}">${chLabel}</div>
-            </div>
+            <div class="featured-card-symbol">${escapeHtml(displaySym)}</div>
+            <div class="featured-card-score ${scCls}">${scLabel}</div>
+            <div class="featured-card-change ${chCls}">${chLabel}</div>
           </div>`;
       }).join('');
     }
