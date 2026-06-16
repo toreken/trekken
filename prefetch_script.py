@@ -28,6 +28,10 @@ import matplotlib.pyplot as plt
 # ===========================
 # S&P 500 銘柄リストと業界マップ
 # ===========================
+# 先物・指数タブの全銘柄（3色判定：緑/黄/赤）
+FUTURES_INDEX_SET = frozenset(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT'])
+
+
 SP500_SYMBOLS = [
     'MMM','AOS','ABT','ABBV','ACN','ADBE','AMD','AES','AFL','A','APD','ABNB','AKAM','ALB','ARE',
     'ALGN','ALLE','LNT','ALL','GOOGL','GOOG','MO','AMZN','AMCR','AEE','AEP','AXP','AIG','AMT','AWK',
@@ -513,6 +517,8 @@ def calculate_scores(df):
 
 
 def make_thumbnail_b64(df, symbol):
+    # 先物・指数タブ銘柄は3色判定
+    is_futures_thumb = symbol in FUTURES_INDEX_SET
     try:
         import mplfinance as mpf
         from matplotlib.patches import Rectangle
@@ -571,11 +577,19 @@ def make_thumbnail_b64(df, symbol):
         for j in range(len(plot_df)):
             row = plot_df.iloc[j]
             score = row['totalScore']
-            if pd.isna(score):   c = '#888888'
-            elif score >= 7:     c = '#00bfff'
-            elif score > 0:      c = '#32cd32'
-            elif score <= -7:    c = '#ffd700'
-            else:                c = '#ff4444'
+            if pd.isna(score):
+                c = '#888888'
+            elif is_futures_thumb:
+                # 先物・指数：3色（緑/黄/赤）
+                if score > 0:     c = '#32cd32'
+                elif score > -7:  c = '#ffd700'
+                else:             c = '#ff4444'
+            else:
+                # その他：4色（青/緑/赤/黄）
+                if score >= 7:    c = '#00bfff'
+                elif score > 0:   c = '#32cd32'
+                elif score <= -7: c = '#ffd700'
+                else:             c = '#ff4444'
             ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.0, zorder=10)
             body_bottom = min(row['open'], row['close'])
             body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
@@ -652,8 +666,8 @@ def make_chart_b64(df, symbol):
         xmin, xmax = ax_main.get_xlim()
         ax_main.set_xlim(xmin, xmax + 5)
 
-        # 先物・指数判定（3色判定）
-        is_futures = symbol in ('NQ1!', 'ES1!')
+        # 先物・指数判定（3色判定）：先物・指数タブ全銘柄が対象
+        is_futures = symbol in FUTURES_INDEX_SET
 
         for j in range(len(plot_df)):
             row = plot_df.iloc[j]
@@ -850,7 +864,7 @@ def _process_us_batch(symbols, profiles, thumbs, charts, infos, failed):
                 charts[sym] = chart_b64
 
             # NEW: トレンド解説も生成
-            is_futures = sym in ('NQ1!', 'ES1!')
+            is_futures = sym in FUTURES_INDEX_SET
             commentary = generate_commentary_simple(df, is_futures=is_futures)
             infos[sym] = {
                 'symbol': sym,
