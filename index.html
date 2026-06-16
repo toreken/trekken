@@ -429,6 +429,13 @@
       border-color: var(--gold-500);
       box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.15);
     }
+    /* iOS Safari: フォントサイズ16px未満だとフォーカス時に自動ズームする
+       スマホサイズでのみ16pxにしてズームを防止（PCでは14pxのまま見た目維持） */
+    @media (max-width: 768px) {
+      .search-box {
+        font-size: 16px;
+      }
+    }
     /* 検索ボックスのクリアボタン */
     .search-input-wrap {
       position: relative;
@@ -1339,9 +1346,9 @@
       left: 7px;
       top: 50%;
       transform: translateY(-50%);
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
+      width: 9px;
+      height: 9px;
+      border-radius: 2px;  /* 四角（ほんのり角丸） */
       background: var(--score-marker-color, transparent);
       box-shadow: 0 0 0 1.5px rgba(255,255,255,0.65), 0 1px 3px rgba(0,0,0,0.18);
     }
