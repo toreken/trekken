@@ -41,13 +41,16 @@ jobs:
       - name: Show cache summary
         run: |
           ls -lh cache/
-          python -c "import json; d=json.load(open('cache/cache.json')); print(f'profiles={d.get(\"profile_count\",0)}, thumbs={d.get(\"thumb_count\",0)}, failed={d.get(\"failed_count\",0)}, elapsed={d.get(\"elapsed_seconds\",0)}s')"
+          ls cache/charts/ | head -20
+          echo "Total chart files: $(ls cache/charts/ | wc -l)"
+          python -c "import json; d=json.load(open('cache/cache.json')); print(f'profiles={d.get(\"profile_count\",0)}, thumbs={d.get(\"thumb_count\",0)}, charts={d.get(\"chart_count\",0)}, infos={d.get(\"info_count\",0)}, failed={d.get(\"failed_count\",0)}, elapsed={d.get(\"elapsed_seconds\",0)}s')"
 
       - name: Commit cache to repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cache/cache.json
+          # cache フォルダ全体をコミット対象に（cache.json + charts/ 含む）
+          git add cache/
 
           if git diff --staged --quiet; then
             echo "No changes to commit"
