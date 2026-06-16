@@ -2889,12 +2889,15 @@
       const meta = metaData.items.find(it => it.symbol === sym);
       if (!meta) return;
       let colorKey = meta.color;
-      // 先物・指数タブの銘柄は3色判定で再計算
+      // 先物・指数タブの銘柄は新ロジック（score>40 & 価格>EMA20 で緑）
       if (FUTURES_INDEX_SET_FRONT.has(sym) && typeof meta.score === 'number') {
         const sc = meta.score;
-        if (sc > 0)        colorKey = 'green';
-        else if (sc > -7)  colorKey = 'yellow';
-        else               colorKey = 'red';
+        const dev = meta.ema20_dev;  // EMA20からの乖離率%（>0 なら上、<0 なら下）
+        const aboveEma = typeof dev === 'number' && dev > 0;
+        const belowEma = typeof dev === 'number' && dev < 0;
+        if (sc > 40 && aboveEma)       colorKey = 'green';
+        else if (sc <= 40 && belowEma) colorKey = 'red';
+        else                            colorKey = 'yellow';
       }
       const cssColor = _SCORE_COLOR_MAP[colorKey];
       if (cssColor) {
