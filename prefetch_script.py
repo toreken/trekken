@@ -1045,18 +1045,20 @@ def main():
                 time.sleep(BATCH_WAIT)
         failed = retry_failed
 
-    # ステップ3: JSON出力
+    # ステップ3: JSON出力（メモリ問題対策で分割保存）
     elapsed = time.time() - start_time
+
+    # 3-A: 軽量 cache.json（profiles + thumbs + infos）
+    # charts は除外（個別ファイルに保存）
     data = {
         "profiles": profiles,
         "thumbs": thumbs,
-        "charts": charts,           # NEW
-        "infos": infos,             # NEW
+        "infos": infos,
         "exported_at": time.time(),
         "profile_count": len(profiles),
         "thumb_count": len(thumbs),
-        "chart_count": len(charts),    # NEW
-        "info_count": len(infos),      # NEW
+        "chart_count": len(charts),
+        "info_count": len(infos),
         "failed": failed,
         "failed_count": len(failed),
         "elapsed_seconds": round(elapsed, 1),
@@ -1065,6 +1067,32 @@ def main():
     os.makedirs("cache", exist_ok=True)
     with open("cache/cache.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
+
+    # 3-B: charts は 1銘柄1ファイル（メモリ展開負荷を分散）
+    charts_dir = "cache/charts"
+    os.makedirs(charts_dir, exist_ok=True)
+    # まず既存のファイルを削除（古い銘柄を残さないため）
+    import glob
+    for old_file in glob.glob(os.path.join(charts_dir, "*.txt")):
+        try:
+            os.remove(old_file)
+        except OSError:
+            pass
+    # 新しい charts を保存
+    saved_charts = 0
+    for sym, img_b64 in charts.items():
+        if not img_b64:
+            continue
+        # ファイル名は安全化（: は _ に変換）
+        safe_name = sym.replace(":", "_").replace("/", "_")
+        chart_path = os.path.join(charts_dir, f"{safe_name}.txt")
+        try:
+            with open(chart_path, "w", encoding="utf-8") as cf:
+                cf.write(img_b64)
+            saved_charts += 1
+        except Exception as e:
+            print(f"  Failed to save chart {sym}: {e}")
+    print(f"Saved {saved_charts} chart files to {charts_dir}/")
 
     print(f"\n=== Done in {elapsed:.0f}s ===")
     print(f"  profiles: {len(profiles)}")
