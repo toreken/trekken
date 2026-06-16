@@ -31,6 +31,37 @@ import matplotlib.pyplot as plt
 # 先物・指数タブの全銘柄（3色判定：緑/黄/赤）
 FUTURES_INDEX_SET = frozenset(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT'])
 
+# 軽量プリフェッチ対象（チャート画像なし、スコアのみ取得）
+# 元シンボル → yfinance形式のシンボル
+LIGHT_TARGETS_MAP = {
+    # 先物
+    'NQ1!': 'NQ=F',
+    'ES1!': 'ES=F',
+    # 暗号通貨
+    'BTC':   'BTC-USD',
+    'ETH':   'ETH-USD',
+    'SOL':   'SOL-USD',
+    'XRP':   'XRP-USD',
+    'ADA':   'ADA-USD',
+    'DOGE':  'DOGE-USD',
+    'AVAX':  'AVAX-USD',
+    'LINK':  'LINK-USD',
+    'MATIC': 'POL-USD',
+    'ATOMC': 'ATOM-USD',
+    # 為替
+    'EURUSD': 'EURUSD=X',
+    'GBPUSD': 'GBPUSD=X',
+    'USDJPY': 'JPY=X',
+    'USDCHF': 'CHF=X',
+    'AUDUSD': 'AUDUSD=X',
+    'NZDUSD': 'NZDUSD=X',
+    'USDCAD': 'CAD=X',
+    'EURJPY': 'EURJPY=X',
+    'GBPJPY': 'GBPJPY=X',
+    'AUDJPY': 'AUDJPY=X',
+    'EURGBP': 'EURGBP=X',
+}
+
 
 SP500_SYMBOLS = [
     'MMM','AOS','ABT','ABBV','ACN','ADBE','AMD','AES','AFL','A','APD','ABNB','AKAM','ALB','ARE',
@@ -1017,6 +1048,97 @@ def _extract_score_and_change(df):
     return last_score_val, week_change, ema20_dev, sma50_dev
 
 
+
+def process_light_targets(thumbs):
+    """先物・指数・暗号通貨・為替の「色情報のみ」をプリフェッチ。
+    チャート画像やサムネ画像は生成せず、スコアと変動率だけを thumbs に追加する。
+    フロント側で銘柄チップに色マーカーを表示するために使う。"""
+    print()
+    print("=" * 60)
+    print(f"Light prefetch: {len(LIGHT_TARGETS_MAP)} symbols (scores only)")
+    print("=" * 60)
+
+    success = 0
+    failed = []
+
+    for original_sym, yf_sym in LIGHT_TARGETS_MAP.items():
+        try:
+            df = yf.download(yf_sym, period='1y', interval='1d',
+                             auto_adjust=False, progress=False, threads=False)
+            if df is None or df.empty or len(df) < 60:
+                failed.append(original_sym)
+                continue
+
+            # MultiIndex 列のフラット化
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df.columns = [c.lower() for c in df.columns]
+
+            # 必須カラム
+            need_cols = {'open', 'high', 'low', 'close', 'volume'}
+            if not need_cols.issubset(df.columns):
+                failed.append(original_sym)
+                continue
+
+            df = df.reset_index()
+            df = calculate_scores(df)
+
+            # 最新値
+            last_score = df['totalScore'].iloc[-1] if 'totalScore' in df.columns else None
+            try:
+                last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
+            except Exception:
+                last_score_val = None
+
+            week_change = None
+            try:
+                closes = df['close'].dropna()
+                if len(closes) >= 6:
+                    cur = float(closes.iloc[-1])
+                    ref = float(closes.iloc[-6])
+                    if ref != 0:
+                        week_change = (cur - ref) / ref * 100
+            except Exception:
+                pass
+
+            ema20_dev = None
+            sma50_dev = None
+            try:
+                last_close = float(df['close'].iloc[-1])
+                if 'ema_20' in df.columns:
+                    last_ema20 = df['ema_20'].iloc[-1]
+                    if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                        ema20_dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
+                if 'sma_50' in df.columns:
+                    last_sma50 = df['sma_50'].iloc[-1]
+                    if not pd.isna(last_sma50) and float(last_sma50) != 0:
+                        sma50_dev = (last_close - float(last_sma50)) / float(last_sma50) * 100
+            except Exception:
+                pass
+
+            # 画像なしで thumbs に保存（フロントは score のみ使う）
+            thumbs[original_sym] = {
+                "thumb": None,
+                "score": last_score_val,
+                "week_change": week_change,
+                "ema20_dev": ema20_dev,
+                "sma50_dev": sma50_dev,
+            }
+            success += 1
+            print(f"  ✓ {original_sym} (score={last_score_val}, week_change={week_change})")
+
+            # レート制限対策
+            time.sleep(0.5)
+
+        except Exception as e:
+            print(f"  ✗ {original_sym}: {e}")
+            failed.append(original_sym)
+
+    print(f"\nLight prefetch: success={success}, failed={len(failed)}")
+    if failed:
+        print(f"  Failed: {', '.join(failed)}")
+
+
 def main():
     start_time = time.time()
     us_count = len([s for s in ALL_TARGETS if not is_jp_symbol(s)])
@@ -1058,6 +1180,9 @@ def main():
             if i + BATCH_SIZE < len(retry_targets):
                 time.sleep(BATCH_WAIT)
         failed = retry_failed
+
+    # ステップ2.5: 軽量プリフェッチ（先物・暗号通貨・為替の色情報のみ）
+    process_light_targets(thumbs)
 
     # ステップ3: JSON出力（メモリ問題対策で分割保存）
     elapsed = time.time() - start_time
