@@ -2376,10 +2376,12 @@ PERSISTENT_TRANSLATIONS_URL = 'https://raw.githubusercontent.com/toreken/trekken
 
 
 def load_persistent_cache():
-    """起動時にGitHubから永続キャッシュを読み込む。失敗しても起動は継続。"""
+    """起動時にGitHubから永続キャッシュを読み込む。失敗しても起動は継続。
+    対応データ：profiles, thumbs, charts（チャート画像）, infos（トレンド解説+peers）。"""
     try:
         print(f"Loading persistent cache from {PERSISTENT_CACHE_URL} ...")
-        resp = http_requests.get(PERSISTENT_CACHE_URL, timeout=10,
+        # チャート画像も含む場合はサイズが大きいのでタイムアウト延長
+        resp = http_requests.get(PERSISTENT_CACHE_URL, timeout=60,
                                  headers={'User-Agent': 'Trekken site'})
         if resp.status_code != 200:
             print(f"Persistent cache: status {resp.status_code}, skipped")
@@ -2388,13 +2390,26 @@ def load_persistent_cache():
         now = time.time()
         loaded_profiles = 0
         loaded_thumbs = 0
+        loaded_charts = 0
+        loaded_infos = 0
         for sym, profile in (data.get('profiles') or {}).items():
             profile_cache[sym] = (now, profile)
             loaded_profiles += 1
         for sym, thumb_data in (data.get('thumbs') or {}).items():
             thumb_cache[sym] = (now, thumb_data)
             loaded_thumbs += 1
-        print(f"Persistent cache loaded: {loaded_profiles} profiles, {loaded_thumbs} thumbs")
+        # NEW: チャート画像も復元（メモリ上の chart_cache に直接ロード）
+        for sym, chart_img in (data.get('charts') or {}).items():
+            if chart_img:
+                chart_cache[sym] = (now, chart_img)
+                loaded_charts += 1
+        # NEW: トレンド解説とピア情報も復元
+        for sym, info_data in (data.get('infos') or {}).items():
+            if info_data:
+                info_cache[sym] = (now, info_data)
+                loaded_infos += 1
+        print(f"Persistent cache loaded: {loaded_profiles} profiles, {loaded_thumbs} thumbs, "
+              f"{loaded_charts} charts, {loaded_infos} infos")
     except Exception as e:
         print(f"Persistent cache load failed: {e}")
 
