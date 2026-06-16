@@ -1328,6 +1328,24 @@
       font-family: 'Noto Sans JP', sans-serif; white-space: nowrap; transition: background 0.2s;
     }
 
+    /* チップに最新スコアの色マーカー（小さい丸）を表示 */
+    .symbol-chip[data-score-color] {
+      padding-left: 20px;
+      position: relative;
+    }
+    .symbol-chip[data-score-color]::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--score-marker-color, transparent);
+      box-shadow: 0 0 0 1.5px rgba(255,255,255,0.65), 0 1px 3px rgba(0,0,0,0.18);
+    }
+
     /* WL切替セレクター（ウォッチリストタブ内） */
     .wl-tab-selector {
       display: flex;
@@ -2734,6 +2752,37 @@
     };
 
     const FUTURES_SET = new Set(['NQ1!', 'ES1!']);
+
+    // 先物・指数タブの全銘柄（色判定で3色になる）
+    const FUTURES_INDEX_SET_FRONT = new Set(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']);
+
+    // スコア色キー → CSS色
+    const _SCORE_COLOR_MAP = {
+      blue:   '#00bfff',
+      green:  '#32cd32',
+      red:    '#ff4444',
+      yellow: '#ffd700',
+    };
+
+    // chip にスコア色マーカー（小さい丸）を適用
+    function _applyScoreColor(chip, sym) {
+      if (!metaData || !metaData.items) return;
+      const meta = metaData.items.find(it => it.symbol === sym);
+      if (!meta) return;
+      let colorKey = meta.color;
+      // 先物・指数タブの銘柄は3色判定で再計算
+      if (FUTURES_INDEX_SET_FRONT.has(sym) && typeof meta.score === 'number') {
+        const sc = meta.score;
+        if (sc > 0)        colorKey = 'green';
+        else if (sc > -7)  colorKey = 'yellow';
+        else               colorKey = 'red';
+      }
+      const cssColor = _SCORE_COLOR_MAP[colorKey];
+      if (cssColor) {
+        chip.style.setProperty('--score-marker-color', cssColor);
+        chip.setAttribute('data-score-color', '');
+      }
+    }
     const NIKKEI_SET = new Set(GROUPS.NIKKEI225);
     const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
     const QUANTUM_SET = new Set(GROUPS.QUANTUM);
@@ -3204,6 +3253,7 @@
             chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
             chip.title = `スコア: ${rising[idx].score}`;
             chip.onclick = () => loadChart(sym);
+            _applyScoreColor(chip, sym);
             list.appendChild(chip);
           });
         }
@@ -3261,6 +3311,7 @@
               }
             };
             chip.title = `${sym}  (右クリックで削除)`;
+            _applyScoreColor(chip, sym);
             list.appendChild(chip);
           });
         }
@@ -3298,6 +3349,7 @@
             chip.style.setProperty('--i', idx++);
             chip.textContent = sym;
             chip.onclick = () => loadChart(sym);
+            _applyScoreColor(chip, sym);
             symbolsWrap.appendChild(chip);
           });
           block.appendChild(symbolsWrap);
@@ -3337,6 +3389,7 @@
           // TSE:で始まる銘柄はコード番号だけ表示（TSE:7203 → 7203）
           chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
           chip.onclick = () => loadChart(sym);
+          _applyScoreColor(chip, sym);
           list.appendChild(chip);
         });
       }
