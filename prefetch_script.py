@@ -593,6 +593,152 @@ def make_thumbnail_b64(df, symbol):
         return None
 
 
+
+def make_chart_b64(df, symbol):
+    """大きいチャート画像（個別表示用、12x7サイズ）を生成。dpi=80。"""
+    try:
+        import mplfinance as mpf
+        from matplotlib.patches import Rectangle
+
+        plot_len = min(DISPLAY_PERIOD, len(df))
+        plot_df = df.iloc[-plot_len:].copy()
+        if plot_df.empty or len(plot_df) < 2:
+            return None
+
+        TEXT_COLOR = 'white'
+        GRID_COLOR = '#444444'
+
+        hidden_mc = mpf.make_marketcolors(up=BG_COLOR, down=BG_COLOR, edge=BG_COLOR, wick=BG_COLOR)
+        my_style = mpf.make_mpf_style(
+            base_mpf_style='nightclouds', marketcolors=hidden_mc, y_on_right=True,
+            rc={
+                'figure.facecolor': BG_COLOR, 'axes.facecolor': BG_COLOR,
+                'savefig.facecolor': BG_COLOR, 'axes.edgecolor': GRID_COLOR,
+                'axes.labelcolor': TEXT_COLOR, 'xtick.color': TEXT_COLOR,
+                'ytick.color': TEXT_COLOR, 'grid.color': GRID_COLOR,
+                'text.color': TEXT_COLOR, 'xtick.labelcolor': TEXT_COLOR,
+                'ytick.labelcolor': TEXT_COLOR,
+            }
+        )
+
+        # 大きいチャート画像（個別表示用）：12x7、dpi=80 → 960x560px
+        fig = plt.figure(figsize=(12, 7), facecolor=BG_COLOR, dpi=80)
+        fig.subplots_adjust(top=0.93, bottom=0.10, left=0.05, right=0.93)
+        ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
+        ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR, labelsize=10)
+        ax_main.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR, labelsize=10)
+
+        add_plots = []
+        if 'ema_20' in plot_df.columns and plot_df['ema_20'].notna().any():
+            add_plots.append(mpf.make_addplot(plot_df['ema_20'], color='orange', width=1.5, ax=ax_main))
+        if 'sma_50' in plot_df.columns and plot_df['sma_50'].notna().any():
+            add_plots.append(mpf.make_addplot(plot_df['sma_50'], color='cyan', width=1.5, ax=ax_main))
+
+        try:
+            if add_plots:
+                mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
+                         addplot=add_plots, warn_too_much_data=10000,
+                         returnfig=False, datetime_format='%Y-%m')
+            else:
+                mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
+                         warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
+        except Exception:
+            plt.close(fig)
+            return None
+
+        current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
+        ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=14, loc='center', pad=10, color=TEXT_COLOR)
+        ax_main.xaxis.grid(False)
+        xmin, xmax = ax_main.get_xlim()
+        ax_main.set_xlim(xmin, xmax + 5)
+
+        # 先物・指数判定（3色判定）
+        is_futures = symbol in ('NQ1!', 'ES1!')
+
+        for j in range(len(plot_df)):
+            row = plot_df.iloc[j]
+            score = row['totalScore']
+            if pd.isna(score):
+                c = '#888888'
+            elif is_futures:
+                # 先物・指数は3色（緑/黄/赤）
+                if score > 0:     c = '#32cd32'  # 緑
+                elif score > -7:  c = '#ffd700'  # 黄
+                else:             c = '#ff4444'  # 赤
+            else:
+                # その他は4色（青/緑/赤/黄）
+                if score >= 7:    c = '#00bfff'  # 青
+                elif score > 0:   c = '#32cd32'  # 緑
+                elif score <= -7: c = '#ffd700'  # 黄
+                else:             c = '#ff4444'  # 赤
+            ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.2, zorder=10)
+            body_bottom = min(row['open'], row['close'])
+            body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
+            rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
+            ax_main.add_patch(rect)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
+        buf.seek(0)
+        img_b64 = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close(fig)
+        return img_b64
+    except Exception as e:
+        print(f"  chart error: {e}")
+        return None
+
+
+def generate_commentary_simple(df, is_futures=False):
+    """app.py の generate_commentary と同等の処理を行う（軽量版）。
+    トレンド解説の文字列リストを返す。"""
+    try:
+        if df is None or df.empty or 'totalScore' not in df.columns:
+            return ['📊 解説を生成できませんでした']
+
+        score = df['totalScore'].iloc[-1]
+        if pd.isna(score):
+            return ['📊 解説を生成できませんでした']
+
+        # 「ローソク足の色の説明」と完全に同じ文言
+        if is_futures:
+            if score > 0:
+                zone, zone_emoji = '上昇トレンド', '🟢'
+            elif score > -7:
+                zone, zone_emoji = 'レンジ', '🟡'
+            else:
+                zone, zone_emoji = '下降トレンド', '🔴'
+        elif score >= 7:
+            zone, zone_emoji = '上昇トレンド', '🟦'
+        elif score > 0:
+            zone, zone_emoji = '上昇転換付近', '🟢'
+        elif score <= -7:
+            zone, zone_emoji = '下降トレンド', '🟡'
+        else:
+            zone, zone_emoji = '下降転換付近', '🔴'
+
+        lines = [f'{zone_emoji} 現在: {zone}(スコア {int(score):+d})']
+
+        # EMA20 乖離率
+        try:
+            last_close = float(df['close'].iloc[-1])
+            if 'ema_20' in df.columns:
+                last_ema20 = df['ema_20'].iloc[-1]
+                if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                    dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
+                    if abs(dev) < 1:
+                        lines.append(f'➡️ EMA20近辺で推移(乖離 {dev:+.0f}%)')
+                    elif dev > 0:
+                        lines.append(f'📈 EMA20から {dev:+.0f}% で上方乖離')
+                    else:
+                        lines.append(f'📉 EMA20から {dev:+.0f}% で下方乖離')
+        except Exception:
+            pass
+
+        return lines
+    except Exception:
+        return ['📊 解説を生成できませんでした']
+
+
 def format_market_cap(mc):
     if mc is None or not isinstance(mc, (int, float)) or mc <= 0:
         return None
@@ -633,7 +779,7 @@ def fetch_profile(symbol):
         return None
 
 
-def process_batch(symbols, profiles, thumbs, failed):
+def process_batch(symbols, profiles, thumbs, charts, infos, failed):
     """
     1バッチを処理。日経銘柄はyfinance .T形式でダウンロードし、
     結果をTSE:XXXX形式のキーで保存する。
@@ -644,17 +790,17 @@ def process_batch(symbols, profiles, thumbs, failed):
 
     # --- US銘柄処理 ---
     if us_symbols:
-        _process_us_batch(us_symbols, profiles, thumbs, failed)
+        _process_us_batch(us_symbols, profiles, thumbs, charts, infos, failed)
 
     # --- 日経銘柄処理 ---
     if jp_symbols:
         # 少し間隔を空ける
         if us_symbols:
             time.sleep(3)
-        _process_jp_batch(jp_symbols, profiles, thumbs, failed)
+        _process_jp_batch(jp_symbols, profiles, thumbs, charts, infos, failed)
 
 
-def _process_us_batch(symbols, profiles, thumbs, failed):
+def _process_us_batch(symbols, profiles, thumbs, charts, infos, failed):
     """US銘柄バッチ処理（既存ロジックをそのまま移植）"""
     print(f"  [US] Downloading {len(symbols)} symbols...")
     try:
@@ -698,9 +844,26 @@ def _process_us_batch(symbols, profiles, thumbs, failed):
                     "sma50_dev": sma50_dev,
                 }
 
+            # NEW: 大きいチャート画像も生成（個別表示用）
+            chart_b64 = make_chart_b64(df, sym)
+            if chart_b64:
+                charts[sym] = chart_b64
+
+            # NEW: トレンド解説も生成
+            is_futures = sym in ('NQ1!', 'ES1!')
+            commentary = generate_commentary_simple(df, is_futures=is_futures)
+            infos[sym] = {
+                'symbol': sym,
+                'commentary': commentary,
+                'peers': None,  # peersは別途バックエンドで補完（フロントで bulk preload）
+                'profile': None,  # profile は別の profiles 辞書から取得
+            }
+
             profile = fetch_profile(sym)
             if profile is not None:
                 profiles[sym] = profile
+                # infos の profile も更新
+                infos[sym]['profile'] = profile
             time.sleep(PROFILE_SLEEP)
 
         except Exception as e:
@@ -708,7 +871,7 @@ def _process_us_batch(symbols, profiles, thumbs, failed):
             failed.append(sym)
 
 
-def _process_jp_batch(symbols, profiles, thumbs, failed):
+def _process_jp_batch(symbols, profiles, thumbs, charts, infos, failed):
     """
     日経銘柄バッチ処理。
     yfinanceはXXXX.T形式でダウンロード、キャッシュキーはTSE:XXXX形式。
@@ -761,9 +924,24 @@ def _process_jp_batch(symbols, profiles, thumbs, failed):
                     "sma50_dev": sma50_dev,
                 }
 
+            # NEW: 大きいチャート画像も生成
+            chart_b64 = make_chart_b64(df, tse_sym)
+            if chart_b64:
+                charts[tse_sym] = chart_b64
+
+            # NEW: トレンド解説も生成
+            commentary = generate_commentary_simple(df, is_futures=False)
+            infos[tse_sym] = {
+                'symbol': tse_sym,
+                'commentary': commentary,
+                'peers': None,
+                'profile': None,
+            }
+
             profile = fetch_profile(tse_sym)
             if profile is not None:
                 profiles[tse_sym] = profile
+                infos[tse_sym]['profile'] = profile
             time.sleep(PROFILE_SLEEP)
 
         except Exception as e:
@@ -836,6 +1014,8 @@ def main():
 
     profiles = {}
     thumbs = {}
+    charts = {}   # NEW: 大きいチャート画像
+    infos = {}    # NEW: トレンド解説 + profile
     failed = []
 
     # ステップ1: 通常バッチ処理
@@ -845,8 +1025,8 @@ def main():
         batch_idx = i // BATCH_SIZE + 1
         elapsed = time.time() - start_time
         jp_in_batch = len([s for s in batch if is_jp_symbol(s)])
-        print(f"[Batch {batch_idx}/{total_batches}] elapsed={elapsed:.0f}s, success={len(thumbs)}/{len(profiles)}, failed={len(failed)}, JP={jp_in_batch}")
-        process_batch(batch, profiles, thumbs, failed)
+        print(f"[Batch {batch_idx}/{total_batches}] elapsed={elapsed:.0f}s, success={len(thumbs)}/{len(profiles)} (charts={len(charts)}), failed={len(failed)}, JP={jp_in_batch}")
+        process_batch(batch, profiles, thumbs, charts, infos, failed)
         if i + BATCH_SIZE < len(ALL_TARGETS):
             time.sleep(BATCH_WAIT)
 
@@ -860,7 +1040,7 @@ def main():
         for i in range(0, len(retry_targets), BATCH_SIZE):
             batch = retry_targets[i:i + BATCH_SIZE]
             print(f"  Retry batch: {len(batch)} symbols")
-            process_batch(batch, profiles, thumbs, retry_failed)
+            process_batch(batch, profiles, thumbs, charts, infos, retry_failed)
             if i + BATCH_SIZE < len(retry_targets):
                 time.sleep(BATCH_WAIT)
         failed = retry_failed
@@ -870,9 +1050,13 @@ def main():
     data = {
         "profiles": profiles,
         "thumbs": thumbs,
+        "charts": charts,           # NEW
+        "infos": infos,             # NEW
         "exported_at": time.time(),
         "profile_count": len(profiles),
         "thumb_count": len(thumbs),
+        "chart_count": len(charts),    # NEW
+        "info_count": len(infos),      # NEW
         "failed": failed,
         "failed_count": len(failed),
         "elapsed_seconds": round(elapsed, 1),
