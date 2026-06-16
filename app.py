@@ -1185,10 +1185,17 @@ def make_chart_image_stock(df, symbol):
         if pd.isna(score):
             c = '#888888'
         elif is_futures:
-            # 先物・指数：3色（緑/黄/赤）
-            if score > 0:     c = '#32cd32'
-            elif score > -7:  c = '#ffd700'
-            else:             c = '#ff4444'
+            # 先物・指数：score>40 & close>ema20 で緑、score<=40 & close<ema20 で赤、それ以外は黄
+            close_v = row['close']
+            ema20_v = row.get('ema_20') if hasattr(row, 'get') else (row['ema_20'] if 'ema_20' in row.index else None)
+            if ema20_v is None or pd.isna(ema20_v):
+                c = '#ffd700'  # EMA20 未確定は黄
+            elif score > 40 and close_v > ema20_v:
+                c = '#32cd32'  # 緑：上昇トレンド
+            elif score <= 40 and close_v < ema20_v:
+                c = '#ff4444'  # 赤：下降トレンド
+            else:
+                c = '#ffd700'  # 黄：レンジ
         else:
             # その他：4色（青/緑/赤/黄）
             if score >= 7:    c = '#00bfff'
@@ -1324,10 +1331,17 @@ def make_thumbnail_image(df, symbol):
             if pd.isna(score):
                 c = '#888888'
             elif is_futures:
-                # 先物・指数：3色（緑/黄/赤）
-                if score > 0:     c = '#32cd32'
-                elif score > -7:  c = '#ffd700'
-                else:             c = '#ff4444'
+                # 先物・指数：新ロジック（score>40 & close>ema20 で緑）
+                close_v = row['close']
+                ema20_v = row.get('ema_20') if hasattr(row, 'get') else (row['ema_20'] if 'ema_20' in row.index else None)
+                if ema20_v is None or pd.isna(ema20_v):
+                    c = '#ffd700'
+                elif score > 40 and close_v > ema20_v:
+                    c = '#32cd32'
+                elif score <= 40 and close_v < ema20_v:
+                    c = '#ff4444'
+                else:
+                    c = '#ffd700'
             else:
                 # その他：4色（青/緑/赤/黄）
                 if score >= 7:    c = '#00bfff'
@@ -1476,16 +1490,26 @@ def generate_commentary(df, is_futures=False):
 
         # 「ローソク足の色の説明」と完全に同じ文言で表示する
         if is_futures:
-            # 先物・指数（NQ1!, ES1!等）は3色判定（青/緑/黄/赤の代わりに 緑/黄/赤）
-            if score > 0:
+            # 先物・指数：score>40 & close>ema20 で 緑、score<=40 & close<ema20 で 赤、それ以外は 黄
+            try:
+                last_close = float(df['close'].iloc[-1])
+                last_ema20 = df['ema_20'].iloc[-1] if 'ema_20' in df.columns else None
+                above_ema = (last_ema20 is not None and not pd.isna(last_ema20)
+                             and last_close > float(last_ema20))
+                below_ema = (last_ema20 is not None and not pd.isna(last_ema20)
+                             and last_close < float(last_ema20))
+            except Exception:
+                above_ema = False
+                below_ema = False
+            if score > 40 and above_ema:
                 zone = '上昇トレンド'      # 🟢 緑
                 zone_emoji = '🟢'
-            elif score > -7:
-                zone = 'レンジ'            # 🟡 黄
-                zone_emoji = '🟡'
-            else:
+            elif score <= 40 and below_ema:
                 zone = '下降トレンド'      # 🔴 赤
                 zone_emoji = '🔴'
+            else:
+                zone = 'レンジ'            # 🟡 黄
+                zone_emoji = '🟡'
         elif score >= 7:
             zone = '上昇トレンド'          # 🟦 青（強い上昇）
             zone_emoji = '🟦'
