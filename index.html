@@ -4059,12 +4059,9 @@
         const data = await res.json();
         if (!data.items) return;
 
-        // 異常値（株式分割や取得異常で歪んだデータ）を除外
+        // スコアが取得済みの銘柄のみ対象（異常値除外はしない、純粋にスコア順）
         const valid = data.items.filter(it => {
-          if (it.score === null || it.score === undefined) return false;
-          const wc = it.week_change;
-          if (typeof wc === 'number' && Math.abs(wc) > 50) return false;
-          return true;
+          return it.score !== null && it.score !== undefined;
         });
         if (valid.length === 0) {
           allTargets.forEach(id => {
