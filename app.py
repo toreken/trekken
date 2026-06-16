@@ -2581,14 +2581,31 @@ def sp500_all():
     })
 
 
+# 先物・指数タブの全銘柄（フロント側と同じ）
+FUTURES_INDEX_TAB_SYMBOLS = ['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']
+
 @app.route('/symbols-meta')
 def symbols_meta():
     """検索フィルタ用に、全グループの銘柄メタ情報を返す。サムネイル画像は含まないので軽量。"""
     all_syms = []
     seen = set()
+    # 通常銘柄
     for s in SYMBOLS + SP500_SYMBOLS + NASDAQ100_SYMBOLS + NIKKEI225_SYMBOLS:
-        if s in ('NQ1!', 'ES1!') or s in CRYPTO_MAP:
-            continue
+        if s not in seen:
+            seen.add(s)
+            all_syms.append(s)
+    # 先物・指数タブの追加銘柄（NQ1!, ES1!, SPY, RSP, DIA, QQQ, QQQE, IWM, VTI, VT）
+    for s in FUTURES_INDEX_TAB_SYMBOLS:
+        if s not in seen:
+            seen.add(s)
+            all_syms.append(s)
+    # 暗号通貨
+    for s in CRYPTO_MAP.keys():
+        if s not in seen:
+            seen.add(s)
+            all_syms.append(s)
+    # 為替
+    for s in FOREX_PAIRS:
         if s not in seen:
             seen.add(s)
             all_syms.append(s)
