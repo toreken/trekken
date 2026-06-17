@@ -2532,7 +2532,7 @@
     <div class="legend-row">
       <div class="legend-row-label">先物・指数</div>
       <div class="legend-row-items">
-        <span class="legend-item"><span class="legend-dot ld-green"></span>上昇トレンド</span>
+        <span class="legend-item"><span class="legend-dot ld-blue"></span>上昇トレンド</span>
         <span class="legend-item"><span class="legend-dot ld-yellow"></span>レンジ</span>
         <span class="legend-item"><span class="legend-dot ld-red"></span>下降トレンド</span>
       </div>
@@ -2918,13 +2918,13 @@
       const meta = metaData.items.find(it => it.symbol === sym);
       if (!meta) return;
       let colorKey = meta.color;
-      // 先物・指数タブの銘柄は新ロジック（score>40 & 価格>EMA20 で緑）
+      // 先物・指数タブの銘柄は新ロジック（score>40 & 価格>EMA20 で青）
       if (FUTURES_INDEX_SET_FRONT.has(sym) && typeof meta.score === 'number') {
         const sc = meta.score;
         const dev = meta.ema20_dev;  // EMA20からの乖離率%（>0 なら上、<0 なら下）
         const aboveEma = typeof dev === 'number' && dev > 0;
         const belowEma = typeof dev === 'number' && dev < 0;
-        if (sc > 40 && aboveEma)       colorKey = 'green';
+        if (sc > 40 && aboveEma)       colorKey = 'blue';
         else if (sc <= 40 && belowEma) colorKey = 'red';
         else                            colorKey = 'yellow';
       }
