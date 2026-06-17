@@ -3804,6 +3804,17 @@
               lastChartImage = data.image;
               _setMemCached(_chartMemCache, sym, data.image, _PERSIST_KEY_CHART, _MAX_CHART_ITEMS);
               body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
+              // チャートの最新スコアでチップ色マーカーを同期
+              if (typeof data.score === 'number' && metaData && metaData.items) {
+                const meta = metaData.items.find(it => it.symbol === sym);
+                if (meta) {
+                  meta.score = data.score;
+                  if (data.color) meta.color = data.color;
+                  if (typeof data.ema20_dev === 'number') meta.ema20_dev = data.ema20_dev;
+                  // 表示中リストを再描画してチップ色を更新
+                  renderSymbolList();
+                }
+              }
             } else {
               body.innerHTML = `
                 <div class="chart-error">
