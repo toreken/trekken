@@ -665,6 +665,7 @@ PREFETCH_TOKEN = os.environ.get('PREFETCH_TOKEN', '')
 PERSISTENT_CACHE_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/cache.json'
 
 chart_cache = {}
+chart_meta_cache = {}  # チャート画像と一緒の最新メタ情報（score, color, ema20_dev）
 thumb_cache = {}     # サムネイル画像とスコアのキャッシュ {symbol: (time, {'thumb': b64, 'score': float})}
 
 
@@ -1376,7 +1377,13 @@ def chart(symbol):
     if symbol_upper in chart_cache:
         cached_time, cached_img = chart_cache[symbol_upper]
         if now - cached_time < CACHE_SECONDS:
-            return _cached_json({'image': cached_img, 'symbol': symbol_upper, 'cached': True}, max_age=1800)
+            meta = chart_meta_cache.get(symbol_upper) or {}
+            return _cached_json({
+                'image': cached_img, 'symbol': symbol_upper, 'cached': True,
+                'score': meta.get('score'),
+                'ema20_dev': meta.get('ema20_dev'),
+                'color': meta.get('color'),
+            }, max_age=1800)
 
     # NEW: メモリキャッシュに無い場合、GitHubから個別ファイル取得を試みる（リスト内銘柄）
     if symbol_upper not in chart_cache:
@@ -1384,7 +1391,15 @@ def chart(symbol):
         if github_img:
             chart_cache[symbol_upper] = (now, github_img)
             print(f"/chart/{symbol_upper}: loaded from GitHub on-demand")
-            return _cached_json({'image': github_img, 'symbol': symbol_upper, 'cached': True, 'source': 'github'}, max_age=1800)
+            # GitHub 由来は score なしだが、thumb_cache の score を流用してフロントへ
+            tc = thumb_cache.get(symbol_upper)
+            tc_data = tc[1] if tc else {}
+            return _cached_json({
+                'image': github_img, 'symbol': symbol_upper, 'cached': True, 'source': 'github',
+                'score': tc_data.get('score'),
+                'ema20_dev': tc_data.get('ema20_dev'),
+                'color': score_to_color(tc_data.get('score')),
+            }, max_age=1800)
 
     def _fallback_to_stale_cache(reason):
         """新規取得に失敗した場合、期限切れキャッシュがあればそれを返す。"""
@@ -1459,7 +1474,31 @@ def chart(symbol):
             return jsonify({'error': 'チャート生成に失敗しました'}), 500
 
         chart_cache[symbol_upper] = (now, img_b64)
-        return _cached_json({'image': img_b64, 'symbol': symbol_upper, 'cached': False}, max_age=1800)
+        # 最新の score, ema20_dev, color を計算してメタキャッシュに保存
+        try:
+            last_score_val = float(df['totalScore'].iloc[-1]) if 'totalScore' in df.columns and not pd.isna(df['totalScore'].iloc[-1]) else None
+        except Exception:
+            last_score_val = None
+        ema20_dev_val = None
+        try:
+            last_close = float(df['close'].iloc[-1])
+            if 'ema_20' in df.columns:
+                last_ema20 = df['ema_20'].iloc[-1]
+                if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                    ema20_dev_val = (last_close - float(last_ema20)) / float(last_ema20) * 100
+        except Exception:
+            pass
+        chart_meta_cache[symbol_upper] = {
+            'score': last_score_val,
+            'ema20_dev': ema20_dev_val,
+            'color': score_to_color(last_score_val),
+        }
+        return _cached_json({
+            'image': img_b64, 'symbol': symbol_upper, 'cached': False,
+            'score': last_score_val,
+            'ema20_dev': ema20_dev_val,
+            'color': score_to_color(last_score_val),
+        }, max_age=1800)
     except Exception as e:
         stale = _fallback_to_stale_cache(str(e)[:50])
         if stale: return stale
