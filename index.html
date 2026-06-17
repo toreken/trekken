@@ -1865,29 +1865,33 @@
     .featured-block .featured-cards:has(.featured-card-compact) {
       gap: 5px;
     }
-    /* スマホ：カラムが狭いので2行構成（上：順位+ティッカー / 下：スコア+変動率） */
-    /* スマホ縦・横とも 4カラム表示で symbol が収まるよう 900px まで適用 */
+    /* スマホ：2行構成（1行目：順位+ティッカー+スコア / 2行目：変動率はスコアの下） */
     @media (max-width: 900px) {
       .featured-card.featured-card-compact {
-        grid-template-columns: auto 1fr;
+        grid-template-columns: auto 1fr auto;
         grid-template-rows: auto auto;
         grid-template-areas:
-          "rank symbol"
-          "score change";
-        gap: 2px 4px;
+          "rank symbol score"
+          "rank symbol change";
+        column-gap: 5px;
+        row-gap: 1px;
         padding: 5px 6px;
         align-items: center;
       }
       .featured-card.featured-card-compact .featured-card-rank {
         grid-area: rank;
-        font-size: 12px;
+        align-self: center;
+        font-size: 16px;
         width: auto;
+        min-width: 12px;
         line-height: 1;
         font-family: 'Playfair Display', serif;
+        text-align: center;
       }
       .featured-card.featured-card-compact .featured-card-symbol {
         grid-area: symbol;
-        font-size: 11px;
+        align-self: center;
+        font-size: 12px;
         text-align: left;
         line-height: 1.1;
         font-weight: 900;
@@ -1897,10 +1901,11 @@
       }
       .featured-card.featured-card-compact .featured-card-score {
         grid-area: score;
-        font-size: 12px;
-        text-align: left;
+        font-size: 13px;
+        text-align: right;
         min-width: 0;
         line-height: 1.1;
+        font-weight: 900;
       }
       .featured-card.featured-card-compact .featured-card-change {
         grid-area: change;
@@ -1909,6 +1914,37 @@
         min-width: 0;
         line-height: 1.1;
         margin-top: 0;
+        font-weight: 700;
+      }
+    }
+
+    /* スマホ縦向きのみ：3行構成（上：順位+ティッカー / 中：スコア / 下：変動率） */
+    @media (max-width: 500px) {
+      .featured-card.featured-card-compact {
+        grid-template-columns: auto 1fr;
+        grid-template-rows: auto auto auto;
+        grid-template-areas:
+          "rank symbol"
+          ".    score"
+          ".    change";
+        gap: 1px 4px;
+        padding: 5px 6px;
+      }
+      .featured-card.featured-card-compact .featured-card-rank {
+        align-self: start;
+        padding-top: 1px;
+      }
+      .featured-card.featured-card-compact .featured-card-symbol {
+        align-self: start;
+      }
+      .featured-card.featured-card-compact .featured-card-score {
+        text-align: right;
+        font-size: 13px;
+        font-weight: 900;
+      }
+      .featured-card.featured-card-compact .featured-card-change {
+        text-align: right;
+        font-size: 10px;
       }
     }
     .fc-blue   { color: #00bfff; }
