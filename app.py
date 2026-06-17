@@ -1185,13 +1185,13 @@ def make_chart_image_stock(df, symbol):
         if pd.isna(score):
             c = '#888888'
         elif is_futures:
-            # 先物・指数：score>40 & close>ema20 で緑、score<=40 & close<ema20 で赤、それ以外は黄
+            # 先物・指数：score>40 & close>ema20 で青、score<=40 & close<ema20 で赤、それ以外は黄
             close_v = row['close']
             ema20_v = row.get('ema_20') if hasattr(row, 'get') else (row['ema_20'] if 'ema_20' in row.index else None)
             if ema20_v is None or pd.isna(ema20_v):
                 c = '#ffd700'  # EMA20 未確定は黄
             elif score > 40 and close_v > ema20_v:
-                c = '#32cd32'  # 緑：上昇トレンド
+                c = '#00bfff'  # 青：上昇トレンド
             elif score <= 40 and close_v < ema20_v:
                 c = '#ff4444'  # 赤：下降トレンド
             else:
@@ -1331,13 +1331,13 @@ def make_thumbnail_image(df, symbol):
             if pd.isna(score):
                 c = '#888888'
             elif is_futures:
-                # 先物・指数：新ロジック（score>40 & close>ema20 で緑）
+                # 先物・指数：新ロジック（score>40 & close>ema20 で青）
                 close_v = row['close']
                 ema20_v = row.get('ema_20') if hasattr(row, 'get') else (row['ema_20'] if 'ema_20' in row.index else None)
                 if ema20_v is None or pd.isna(ema20_v):
                     c = '#ffd700'
                 elif score > 40 and close_v > ema20_v:
-                    c = '#32cd32'
+                    c = '#00bfff'
                 elif score <= 40 and close_v < ema20_v:
                     c = '#ff4444'
                 else:
@@ -1502,8 +1502,8 @@ def generate_commentary(df, is_futures=False):
                 above_ema = False
                 below_ema = False
             if score > 40 and above_ema:
-                zone = '上昇トレンド'      # 🟢 緑
-                zone_emoji = '🟢'
+                zone = '上昇トレンド'      # 🟦 青
+                zone_emoji = '🟦'
             elif score <= 40 and below_ema:
                 zone = '下降トレンド'      # 🔴 赤
                 zone_emoji = '🔴'
