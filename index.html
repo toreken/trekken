@@ -1866,7 +1866,8 @@
       gap: 5px;
     }
     /* スマホ：カラムが狭いので2行構成（上：順位+ティッカー / 下：スコア+変動率） */
-    @media (max-width: 700px) {
+    /* スマホ縦・横とも 4カラム表示で symbol が収まるよう 900px まで適用 */
+    @media (max-width: 900px) {
       .featured-card.featured-card-compact {
         grid-template-columns: auto 1fr;
         grid-template-rows: auto auto;
@@ -1916,9 +1917,9 @@
     .fc-red    { color: #c4302b; }
     .featured-loading { color: var(--muted); font-size: 12px; padding: 14px; text-align: center; }
 
-    @media (max-width: 700px) {
+    @media (max-width: 900px) {
       .featured-row { grid-template-columns: 1fr; }
-      /* 4ブロック版は横並びを維持（スマホでも4カラム） */
+      /* 4ブロック版は横並びを維持（スマホ縦・横とも4カラム） */
       .featured-row.featured-row-4 {
         grid-template-columns: repeat(4, 1fr);
         gap: 4px;
@@ -1928,7 +1929,7 @@
         padding: 8px 4px;
         border-radius: 10px;
       }
-      /* スマホで4カラムのとき、タイトル等を縮小 */
+      /* 4カラムのとき、タイトル等を縮小 */
       .featured-row.featured-row-4 .featured-title {
         gap: 2px;
         margin-bottom: 6px;
