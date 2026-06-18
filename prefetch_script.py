@@ -539,12 +539,13 @@ def calculate_scores(df):
     df = df.copy()
     df["ema_20"] = df["close"].ewm(span=20, adjust=False).mean()
     df["sma_50"] = df["close"].rolling(window=50).mean()
+    df["ema_21"] = df["close"].ewm(span=21, adjust=False).mean()  # 乖離率計算用（添付コード準拠）
     df["prev_close"] = df["close"].shift(1)
     df["uvol"] = np.where(df["close"] > df["prev_close"], df["volume"], 0)
     df["dvol"] = np.where(df["close"] < df["prev_close"], df["volume"], 0)
     df["total_uvol_sma"] = get_wma(df["uvol"], 10)
     df["total_dvol_sma"] = get_wma(df["dvol"], 10)
-    df["discrepancyPercent"] = (df["close"] - df["ema_20"]) / df["ema_20"] * 100
+    df["discrepancyPercent"] = (df["close"] - df["ema_21"]) / df["ema_21"] * 100
     df["discrepancyScore"] = df["discrepancyPercent"] / 2
     df["volDiff"] = df["total_uvol_sma"] - df["total_dvol_sma"]
     df["volDiff_avg"] = df["volDiff"].rolling(window=50).mean()
@@ -559,8 +560,6 @@ def calculate_scores(df):
 
 
 def make_thumbnail_b64(df, symbol):
-    # 先物・指数タブ銘柄は3色判定
-    is_futures_thumb = symbol in FUTURES_INDEX_SET
     try:
         import mplfinance as mpf
         from matplotlib.patches import Rectangle
@@ -619,26 +618,11 @@ def make_thumbnail_b64(df, symbol):
         for j in range(len(plot_df)):
             row = plot_df.iloc[j]
             score = row['totalScore']
-            if pd.isna(score):
-                c = '#888888'
-            elif is_futures_thumb:
-                # 先物・指数：新ロジック（score>40 & close>ema20 で青）
-                close_v = row['close']
-                ema20_v = row.get('ema_20') if hasattr(row, 'get') else (row['ema_20'] if 'ema_20' in row.index else None)
-                if ema20_v is None or pd.isna(ema20_v):
-                    c = '#ffd700'
-                elif score > 40 and close_v > ema20_v:
-                    c = '#00bfff'
-                elif score <= 40 and close_v < ema20_v:
-                    c = '#ff4444'
-                else:
-                    c = '#ffd700'
-            else:
-                # その他：4色（青/緑/赤/黄）
-                if score >= 7:    c = '#00bfff'
-                elif score > 0:   c = '#32cd32'
-                elif score <= -7: c = '#ffd700'
-                else:             c = '#ff4444'
+            if pd.isna(score):    c = '#888888'
+            elif score >= 7:      c = '#00bfff'
+            elif score > 0:       c = '#32cd32'
+            elif score <= -7:     c = '#ffd700'
+            else:                 c = '#ff4444'
             ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.0, zorder=10)
             body_bottom = min(row['open'], row['close'])
             body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
@@ -715,32 +699,15 @@ def make_chart_b64(df, symbol):
         xmin, xmax = ax_main.get_xlim()
         ax_main.set_xlim(xmin, xmax + 5)
 
-        # 先物・指数判定（3色判定）：先物・指数タブ全銘柄が対象
-        is_futures = symbol in FUTURES_INDEX_SET
-
+        # 全銘柄：4色判定（青/緑/赤/黄）添付コード準拠
         for j in range(len(plot_df)):
             row = plot_df.iloc[j]
             score = row['totalScore']
-            if pd.isna(score):
-                c = '#888888'
-            elif is_futures:
-                # 先物・指数：score>40 & close>ema20 で青、score<=40 & close<ema20 で赤、それ以外は黄
-                close_v = row['close']
-                ema20_v = row.get('ema_20') if hasattr(row, 'get') else (row['ema_20'] if 'ema_20' in row.index else None)
-                if ema20_v is None or pd.isna(ema20_v):
-                    c = '#ffd700'
-                elif score > 40 and close_v > ema20_v:
-                    c = '#00bfff'  # 青：上昇トレンド
-                elif score <= 40 and close_v < ema20_v:
-                    c = '#ff4444'  # 赤：下降トレンド
-                else:
-                    c = '#ffd700'  # 黄：レンジ
-            else:
-                # その他は4色（青/緑/赤/黄）
-                if score >= 7:    c = '#00bfff'  # 青
-                elif score > 0:   c = '#32cd32'  # 緑
-                elif score <= -7: c = '#ffd700'  # 黄
-                else:             c = '#ff4444'  # 赤
+            if pd.isna(score):    c = '#888888'
+            elif score >= 7:      c = '#00bfff'  # 青：上昇トレンド
+            elif score > 0:       c = '#32cd32'  # 緑：上昇転換付近
+            elif score <= -7:     c = '#ffd700'  # 黄：下降トレンド
+            else:                 c = '#ff4444'  # 赤：下降転換付近
             ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.2, zorder=10)
             body_bottom = min(row['open'], row['close'])
             body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
@@ -769,26 +736,8 @@ def generate_commentary_simple(df, is_futures=False):
         if pd.isna(score):
             return ['📊 解説を生成できませんでした']
 
-        # 「ローソク足の色の説明」と完全に同じ文言
-        if is_futures:
-            # 先物・指数：score>40 & close>ema20 で緑、score<=40 & close<ema20 で赤、それ以外は黄
-            try:
-                last_close = float(df['close'].iloc[-1])
-                last_ema20 = df['ema_20'].iloc[-1] if 'ema_20' in df.columns else None
-                above_ema = (last_ema20 is not None and not pd.isna(last_ema20)
-                             and last_close > float(last_ema20))
-                below_ema = (last_ema20 is not None and not pd.isna(last_ema20)
-                             and last_close < float(last_ema20))
-            except Exception:
-                above_ema = False
-                below_ema = False
-            if score > 40 and above_ema:
-                zone, zone_emoji = '上昇トレンド', '🟦'
-            elif score <= 40 and below_ema:
-                zone, zone_emoji = '下降トレンド', '🔴'
-            else:
-                zone, zone_emoji = 'レンジ', '🟡'
-        elif score >= 7:
+        # 全銘柄：4色判定（青/緑/赤/黄）添付コード準拠
+        if score >= 7:
             zone, zone_emoji = '上昇トレンド', '🟦'
         elif score > 0:
             zone, zone_emoji = '上昇転換付近', '🟢'
