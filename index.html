@@ -2568,15 +2568,7 @@
   <div class="legend-bar" id="legendBar">
     <div class="legend-bar-title">ローソク足の色の説明</div>
     <div class="legend-row">
-      <div class="legend-row-label">先物・指数</div>
-      <div class="legend-row-items">
-        <span class="legend-item"><span class="legend-dot ld-blue"></span>上昇トレンド</span>
-        <span class="legend-item"><span class="legend-dot ld-yellow"></span>レンジ</span>
-        <span class="legend-item"><span class="legend-dot ld-red"></span>下降トレンド</span>
-      </div>
-    </div>
-    <div class="legend-row">
-      <div class="legend-row-label">その他銘柄(先物・指数以外)</div>
+      <div class="legend-row-label">全銘柄共通</div>
       <div class="legend-row-items">
         <span class="legend-item"><span class="legend-dot ld-blue"></span>上昇トレンド</span>
         <span class="legend-item"><span class="legend-dot ld-green"></span>上昇転換付近</span>
@@ -2955,17 +2947,8 @@
       if (!metaData || !metaData.items) return;
       const meta = metaData.items.find(it => it.symbol === sym);
       if (!meta) return;
-      let colorKey = meta.color;
-      // 先物・指数タブの銘柄は新ロジック（score>40 & 価格>EMA20 で青）
-      if (FUTURES_INDEX_SET_FRONT.has(sym) && typeof meta.score === 'number') {
-        const sc = meta.score;
-        const dev = meta.ema20_dev;  // EMA20からの乖離率%（>0 なら上、<0 なら下）
-        const aboveEma = typeof dev === 'number' && dev > 0;
-        const belowEma = typeof dev === 'number' && dev < 0;
-        if (sc > 40 && aboveEma)       colorKey = 'blue';
-        else if (sc <= 40 && belowEma) colorKey = 'red';
-        else                            colorKey = 'yellow';
-      }
+      // 全銘柄：サーバーが返した4色判定の color をそのまま使う（添付コード準拠）
+      const colorKey = meta.color;
       const cssColor = _SCORE_COLOR_MAP[colorKey];
       if (cssColor) {
         chip.style.setProperty('--score-marker-color', cssColor);
