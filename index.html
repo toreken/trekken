@@ -1872,7 +1872,7 @@
         grid-template-rows: auto auto;
         grid-template-areas:
           "rank symbol score"
-          "rank symbol change";
+          ".    .      change";
         column-gap: 5px;
         row-gap: 1px;
         padding: 5px 6px;
@@ -1901,6 +1901,7 @@
       }
       .featured-card.featured-card-compact .featured-card-score {
         grid-area: score;
+        align-self: center;
         font-size: 13px;
         text-align: right;
         min-width: 0;
