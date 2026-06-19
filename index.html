@@ -1219,7 +1219,9 @@
       display: grid !important;
       grid-template-columns: 1fr 1fr !important;
       gap: 14px 12px !important;
-      /* max-height を解除し、全セクターを一望できるように */
+      /* ETFタブはスクロール無しで全表示するため、高さ制限と内部スクロールを解除 */
+      max-height: none !important;
+      overflow-y: visible !important;
     }
     .etf-sector-block {
       display: flex; flex-direction: column;
