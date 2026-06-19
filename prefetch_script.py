@@ -1156,6 +1156,119 @@ def process_light_targets(thumbs):
         print(f"  Failed: {', '.join(failed)}")
 
 
+def process_n225_index(profiles, thumbs, charts, infos):
+    """日経平均株価指数（^N225）をプリフェッチ。
+    出来高がないため volDiffScore は0扱い、totalScore = discrepancyScore のみ。
+    画像生成、スコア、トレンド解説を全て生成。"""
+    print()
+    print("=" * 60)
+    print("Processing Nikkei 225 Index (^N225)")
+    print("=" * 60)
+    SYM = 'N225'  # 内部シンボル
+
+    try:
+        df = yf.download('^N225', period='max', interval='1d',
+                         auto_adjust=False, progress=False, threads=False)
+        if df is None or df.empty:
+            print(f"  ✗ N225: data empty")
+            return
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.columns = [c.lower() for c in df.columns]
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        df = df.reset_index()
+
+        # 出来高がない/0 の場合はダミー値で埋める（calculate_scoresが動くように）
+        if 'volume' not in df.columns:
+            df['volume'] = 1
+        else:
+            df['volume'] = df['volume'].fillna(0)
+            if df['volume'].sum() == 0:
+                df['volume'] = 1
+
+        df = calculate_scores(df)
+
+        # 出来高が捏造（フェイク）なので volDiffScore は使わない → discrepancyScore のみで totalScore を計算
+        if 'discrepancyScore' in df.columns:
+            df['totalScore'] = df['discrepancyScore']
+
+        # 画像生成
+        chart_b64 = make_chart_b64(df, SYM)
+        if chart_b64:
+            charts[SYM] = chart_b64
+        thumb_b64 = make_thumbnail_b64(df, SYM)
+        if thumb_b64:
+            pass  # thumbs に画像も入れるが、スコア情報を優先
+
+        # メタ情報
+        try:
+            last_score_val = float(df['totalScore'].iloc[-1]) if 'totalScore' in df.columns and not pd.isna(df['totalScore'].iloc[-1]) else None
+        except Exception:
+            last_score_val = None
+
+        week_change = None
+        try:
+            closes = df['close'].dropna()
+            if len(closes) >= 6:
+                cur = float(closes.iloc[-1])
+                ref = float(closes.iloc[-6])
+                if ref != 0:
+                    week_change = (cur - ref) / ref * 100
+        except Exception:
+            pass
+
+        ema20_dev = None
+        sma50_dev = None
+        try:
+            last_close = float(df['close'].iloc[-1])
+            if 'ema_20' in df.columns:
+                last_ema20 = df['ema_20'].iloc[-1]
+                if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                    ema20_dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
+            if 'sma_50' in df.columns:
+                last_sma50 = df['sma_50'].iloc[-1]
+                if not pd.isna(last_sma50) and float(last_sma50) != 0:
+                    sma50_dev = (last_close - float(last_sma50)) / float(last_sma50) * 100
+        except Exception:
+            pass
+
+        thumbs[SYM] = {
+            "thumb": thumb_b64 if thumb_b64 else None,
+            "score": last_score_val,
+            "week_change": week_change,
+            "ema20_dev": ema20_dev,
+            "sma50_dev": sma50_dev,
+        }
+
+        # プロファイル（指数の説明）
+        profiles[SYM] = {
+            'symbol': SYM,
+            'longName': '日経平均株価（日経225）',
+            'sector': '指数',
+            'industry': '株価指数',
+            'country': 'Japan',
+            'longBusinessSummary': '日経平均株価は、東京証券取引所プライム市場に上場している銘柄から日本経済新聞社が選定した225銘柄を対象とした株価指数です。日本を代表する株価指標として広く利用されています。',
+            'website': 'https://indexes.nikkei.co.jp/nkave',
+        }
+
+        # トレンド解説
+        commentary = generate_commentary_simple(df, is_futures=False)
+        infos[SYM] = {
+            'symbol': SYM,
+            'commentary': commentary,
+            'peers': None,
+            'profile': profiles[SYM],
+        }
+
+        print(f"  ✓ N225 (score={last_score_val:.1f}, week_change={week_change})")
+
+    except Exception as e:
+        print(f"  ✗ N225 failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def _load_existing_cache():
     """既存の cache.json と cache/charts/ を読み込み、既存データを保持する。
     部分更新時に他のターゲットのデータを失わないため。"""
@@ -1253,6 +1366,10 @@ def main():
     # ステップ2.5: 軽量プリフェッチ（先物・暗号通貨・為替の色情報のみ）- US/ALL 時のみ
     if do_light:
         process_light_targets(thumbs)
+
+    # ステップ2.6: 日経平均株価指数（^N225）- JP/ALL 時のみ
+    if args.target in ('jp', 'all'):
+        process_n225_index(profiles, thumbs, charts, infos)
 
     # ステップ3: JSON出力（メモリ問題対策で分割保存）
     elapsed = time.time() - start_time
