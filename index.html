@@ -3806,6 +3806,8 @@
       compareBtn.style.display = 'none';
       restoreBtn.style.display = 'none';
       profileCard.style.display = 'none';
+      const _ip = document.getElementById('infoPanel');
+      if (_ip) _ip.classList.remove('has-profile');
 
       // 各銘柄を並列で取得
       const promises = symbols.map(s =>
@@ -4139,6 +4141,8 @@
       compareBtn.style.display = 'none';
       restoreBtn.style.display = 'none';
       profileCard.style.display = 'none';
+      const _ip = document.getElementById('infoPanel');
+      if (_ip) _ip.classList.remove('has-profile');
 
       // フロント側メモリキャッシュ確認（同セッション中の再表示は瞬時）
       const cachedChartImg = _getMemCached(_chartMemCache, sym);
