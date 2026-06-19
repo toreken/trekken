@@ -4739,6 +4739,14 @@
 
     loadFeaturedSymbols();
 
+    // ページロード時に metaData を取得してチップ色マーカーを表示
+    fetchMetaData().then(() => {
+      // 取得完了後、銘柄リストを再描画して色マーカーを反映
+      if (typeof renderSymbolList === 'function') {
+        renderSymbolList();
+      }
+    });
+
     // ===== 次回更新までのカウントダウン =====
     function updateNextUpdateInfo() {
       try {
