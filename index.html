@@ -386,6 +386,61 @@
       margin-bottom: 36px;
     }
 
+    /* ===== 検索バーのオートサジェスト ===== */
+    .search-input-wrap { position: relative; }
+    .search-suggest {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid var(--brown-200);
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(60, 35, 15, 0.18);
+      max-height: 320px;
+      overflow-y: auto;
+      z-index: 50;
+    }
+    .search-suggest-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(196, 154, 74, 0.1);
+      transition: background 0.15s;
+    }
+    .search-suggest-item:last-child { border-bottom: none; }
+    .search-suggest-item:hover, .search-suggest-item.active {
+      background: linear-gradient(135deg, rgba(196, 154, 74, 0.12), rgba(196, 154, 74, 0.05));
+    }
+    .search-suggest-sym {
+      font-weight: 900;
+      color: var(--brown-800);
+      font-size: 13px;
+      min-width: 70px;
+    }
+    .search-suggest-tag {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 8px;
+      background: var(--cream-100);
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .search-suggest-empty {
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 700px) {
+      .search-suggest { max-height: 260px; }
+      .search-suggest-item { padding: 9px 12px; }
+      .search-suggest-sym { font-size: 13px; min-width: 60px; }
+      .search-suggest-tag { font-size: 9px; }
+    }
+
     /* ===== 自動更新スケジュール告知バナー ===== */
     .update-schedule-banner {
       display: flex;
@@ -470,6 +525,71 @@
       background: #fff;
       color: var(--ink);
     }
+    /* ===== 検索バーのオートサジェスト ===== */
+    .search-input-wrap {
+      position: relative;
+    }
+    .search-suggest {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid var(--brown-200);
+      border-radius: 12px;
+      max-height: 340px;
+      overflow-y: auto;
+      z-index: 100;
+      box-shadow: 0 8px 24px rgba(60, 35, 15, 0.18);
+      padding: 4px;
+    }
+    .search-suggest-item {
+      padding: 10px 14px;
+      cursor: pointer;
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.15s;
+    }
+    .search-suggest-item:hover,
+    .search-suggest-item.is-active {
+      background: linear-gradient(135deg, rgba(196, 154, 74, 0.12), rgba(196, 154, 74, 0.06));
+    }
+    .search-suggest-ticker {
+      font-family: 'Noto Sans JP', sans-serif;
+      font-weight: 900;
+      color: var(--brown-800);
+      font-size: 14px;
+    }
+    .search-suggest-cat {
+      font-size: 10px;
+      color: var(--muted);
+      padding: 2px 8px;
+      background: rgba(196, 154, 74, 0.08);
+      border-radius: 6px;
+      letter-spacing: 0.5px;
+    }
+    .search-suggest-hint {
+      font-size: 11px;
+      color: var(--gold-600);
+      font-weight: 700;
+    }
+    .search-suggest-empty {
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 700px) {
+      .search-suggest { max-height: 280px; }
+      .search-suggest-item { padding: 8px 10px; gap: 6px; }
+      .search-suggest-ticker { font-size: 13px; }
+      .search-suggest-cat { font-size: 9px; padding: 1px 6px; }
+      .search-suggest-hint { font-size: 10px; }
+    }
+
     .search-box:focus {
       border-color: var(--gold-500);
       box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.15);
@@ -2384,8 +2504,10 @@
     <div class="search-card">
       <div class="search-hint">✨ リスト以外の銘柄もEnterで検索可能！</div>
       <div class="search-input-wrap">
-        <input type="text" class="search-box" id="searchBox" placeholder="🔍 銘柄名を入力してEnter（例: TSLA, 7203, BTC-USD）">
+        <input type="text" class="search-box" id="searchBox" placeholder="🔍 銘柄名を入力してEnter（例: TSLA, 7203, BTC-USD）" autocomplete="off">
         <button type="button" class="search-clear-btn" id="searchClearBtn" aria-label="入力をクリア" onclick="clearSearchBox()">✕</button>
+        <!-- 検索候補ドロップダウン -->
+        <div class="search-suggest" id="searchSuggest" style="display:none;"></div>
       </div>
 
       <div class="quick-filter-row">
@@ -3823,6 +3945,172 @@
       if (storageKey) _savePersistCache(storageKey, map);
     }
 
+    // ===== 検索バー オートサジェスト =====
+    // 不足していた米国株（リスト・prefetchには含めず、検索のみ対応）
+    const EXTRA_KNOWN_SYMBOLS = [
+      // 中国ADR
+      'BABA', 'JD', 'BIDU', 'PDD', 'NIO', 'LI', 'XPEV', 'NTES', 'TME', 'BILI', 'IQ', 'TAL', 'EDU', 'YMM', 'TIGR', 'FUTU',
+      // AI/データ
+      'PLTR', 'PATH', 'AI', 'BBAI', 'SOUN', 'SERV', 'TEM', 'INOD', 'GLBE', 'DOCN', 'NICE',
+      // 仮想通貨関連
+      'COIN', 'MARA', 'RIOT', 'CLSK', 'HUT', 'CIFR', 'BTBT', 'MSTR', 'HIVE', 'BITF', 'WULF', 'IREN',
+      // EV
+      'RIVN', 'LCID', 'CHPT', 'EVGO', 'BLNK', 'NKLA', 'VFS',
+      // ゲーミング/メタバース
+      'U', 'RBLX', 'TTWO', 'EA', 'DKNG', 'PENN', 'BYND', 'SOFI', 'AFRM', 'UPST',
+      // バイオテック
+      'MRNA', 'BNTX', 'NVAX', 'OCGN', 'INO', 'SAVA', 'ARWR', 'BLUE', 'EDIT', 'CRSP', 'NTLA',
+      // MEME株
+      'GME', 'AMC', 'BB', 'KOSS', 'CLOV', 'OPEN', 'WISH',
+      // テック中堅
+      'UBER', 'LYFT', 'ABNB', 'DASH', 'DOCU', 'ZM', 'TWLO', 'NET', 'CFLT', 'GTLB', 'DDOG',
+      // 成長/SaaS
+      'SNOW', 'CRWD', 'ZS', 'OKTA', 'TEAM', 'WDAY', 'NOW', 'PANW', 'FTNT', 'S', 'SPLK', 'MDB', 'DKS',
+      // 中堅IPO
+      'HOOD', 'DAVE',
+      // 追加ETF
+      'ARKK', 'ARKQ', 'ARKG', 'ARKW', 'XBI', 'JETS', 'KWEB', 'TQQQ', 'SQQQ', 'SOXL', 'TMF', 'TLT', 'GLD', 'SLV', 'USO', 'UVXY', 'VIXY', 'AGG', 'BND', 'EEM', 'EWJ', 'EWZ', 'INDA', 'FXI', 'MCHI',
+    ];
+
+    // 全検索対象銘柄を構築（既存リスト + EXTRA）
+    function _buildSearchableSymbols() {
+      const seen = new Set();
+      const out = [];
+      // GROUPS の全銘柄を含める
+      const order = ['NIKKEI225', 'SP500', 'NASDAQ100', 'ETF', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR', 'CRYPTO', 'FOREX', 'G1'];
+      order.forEach(g => {
+        const arr = GROUPS[g] || [];
+        arr.forEach(s => {
+          if (!seen.has(s)) { seen.add(s); out.push({ sym: s, group: g }); }
+        });
+      });
+      // EXTRA
+      EXTRA_KNOWN_SYMBOLS.forEach(s => {
+        if (!seen.has(s)) { seen.add(s); out.push({ sym: s, group: 'EXTRA' }); }
+      });
+      return out;
+    }
+    const _ALL_SEARCHABLE = _buildSearchableSymbols();
+    const _GROUP_LABELS = {
+      NIKKEI225: '日経', SP500: 'S&P500', NASDAQ100: 'NDX', ETF: 'ETF',
+      QUANTUM: '⚛️量子', SPACE: '🚀宇宙', HYDROGEN: '💧水素', SOLAR: '☀️太陽光',
+      CRYPTO: '暗号', FOREX: '為替', G1: '指数', EXTRA: '人気',
+    };
+
+    let _suggestActiveIndex = -1;
+
+    function _updateSearchSuggest(query) {
+      const suggest = document.getElementById('searchSuggest');
+      if (!suggest) return;
+      const q = (query || '').trim().toUpperCase();
+      if (q.length === 0) {
+        suggest.style.display = 'none';
+        suggest.innerHTML = '';
+        _suggestActiveIndex = -1;
+        return;
+      }
+      // 前方一致を優先、その後部分一致
+      const prefixMatches = [];
+      const includeMatches = [];
+      for (const item of _ALL_SEARCHABLE) {
+        const upper = item.sym.toUpperCase();
+        // 'TSE:7203' は '7203' でも検索可能に
+        const stripped = upper.startsWith('TSE:') ? upper.replace('TSE:', '') : upper;
+        if (upper.startsWith(q) || stripped.startsWith(q)) {
+          prefixMatches.push(item);
+        } else if (upper.includes(q) || stripped.includes(q)) {
+          includeMatches.push(item);
+        }
+        if (prefixMatches.length + includeMatches.length >= 30) break;
+      }
+      const matches = [...prefixMatches, ...includeMatches].slice(0, 12);
+
+      if (matches.length === 0) {
+        suggest.innerHTML = '<div class="search-suggest-empty">候補なし（Enter で直接検索）</div>';
+        suggest.style.display = 'block';
+        _suggestActiveIndex = -1;
+        return;
+      }
+
+      suggest.innerHTML = matches.map((it, i) => {
+        const display = it.sym.startsWith('TSE:') ? it.sym.replace('TSE:', '') : it.sym;
+        const cat = _GROUP_LABELS[it.group] || '';
+        const isExtra = it.group === 'EXTRA';
+        const hint = isExtra ? '初回取得' : '';
+        return `<div class="search-suggest-item" data-idx="${i}" data-sym="${escapeHtml(it.sym)}">
+          <span class="search-suggest-ticker">${escapeHtml(display)}</span>
+          <span class="search-suggest-cat">${escapeHtml(cat)}</span>
+          <span class="search-suggest-hint">${hint}</span>
+        </div>`;
+      }).join('');
+      suggest.style.display = 'block';
+      _suggestActiveIndex = -1;
+
+      // イベント
+      Array.from(suggest.querySelectorAll('.search-suggest-item')).forEach(el => {
+        el.addEventListener('click', () => {
+          _selectSuggestion(el.dataset.sym);
+        });
+      });
+    }
+
+    function _selectSuggestion(sym) {
+      const suggest = document.getElementById('searchSuggest');
+      const input = document.getElementById('searchBox');
+      suggest.style.display = 'none';
+      suggest.innerHTML = '';
+      input.value = '';
+      _suggestActiveIndex = -1;
+      // クリア
+      currentQuery = '';
+      renderSymbolList();
+      // チャート表示
+      loadChart(sym);
+    }
+
+    // 検索バーの input イベント
+    document.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById('searchBox');
+      const suggest = document.getElementById('searchSuggest');
+      if (input) {
+        input.addEventListener('input', e => _updateSearchSuggest(e.target.value));
+        input.addEventListener('focus', e => {
+          if (e.target.value) _updateSearchSuggest(e.target.value);
+        });
+        input.addEventListener('keydown', e => {
+          const items = suggest.querySelectorAll('.search-suggest-item');
+          if (items.length === 0) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _suggestActiveIndex = Math.min(_suggestActiveIndex + 1, items.length - 1);
+            items.forEach((el, i) => el.classList.toggle('is-active', i === _suggestActiveIndex));
+            items[_suggestActiveIndex]?.scrollIntoView({ block: 'nearest' });
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            _suggestActiveIndex = Math.max(_suggestActiveIndex - 1, 0);
+            items.forEach((el, i) => el.classList.toggle('is-active', i === _suggestActiveIndex));
+            items[_suggestActiveIndex]?.scrollIntoView({ block: 'nearest' });
+          } else if (e.key === 'Enter' && _suggestActiveIndex >= 0) {
+            e.preventDefault();
+            const sym = items[_suggestActiveIndex].dataset.sym;
+            _selectSuggestion(sym);
+          } else if (e.key === 'Escape') {
+            suggest.style.display = 'none';
+            _suggestActiveIndex = -1;
+          }
+        });
+      }
+      // 外側クリックで閉じる
+      document.addEventListener('click', e => {
+        if (!e.target.closest('.search-input-wrap')) {
+          if (suggest) {
+            suggest.style.display = 'none';
+            _suggestActiveIndex = -1;
+          }
+        }
+      });
+    });
+
     async function loadChart(sym, _retryCount) {
       _retryCount = _retryCount || 0;
       activeSymbol = sym;
@@ -4447,6 +4735,175 @@
       currentQuery = '';
       renderSymbolList();
     };
+
+    // ===== 検索バーのオートサジェスト =====
+    // リストに無い人気銘柄を内部保持（タブには表示しない・prefetchもしない）
+    // 検索バーで入力時に候補表示し、クリックで yfinance から取得 → キャッシュ
+    const EXTRA_KNOWN_SYMBOLS = {
+      // 中国ADR
+      'BABA':'中国ADR','JD':'中国ADR','BIDU':'中国ADR','PDD':'中国ADR',
+      'NIO':'中国ADR','LI':'中国ADR','XPEV':'中国ADR','NTES':'中国ADR',
+      'TME':'中国ADR','BILI':'中国ADR','IQ':'中国ADR','TAL':'中国ADR',
+      'EDU':'中国ADR','YMM':'中国ADR','TIGR':'中国ADR','FUTU':'中国ADR',
+      // AI/データ
+      'PATH':'AI/SaaS','AI':'AI','BBAI':'AI','SOUN':'AI','SERV':'AI',
+      'TEM':'AI/医療','INOD':'AI','GLBE':'EC','DOCN':'クラウド','NICE':'SaaS',
+      // 仮想通貨関連
+      'MARA':'BTC採掘','RIOT':'BTC採掘','CLSK':'BTC採掘','HUT':'BTC採掘',
+      'CIFR':'BTC採掘','BTBT':'BTC採掘','HIVE':'BTC採掘','BITF':'BTC採掘',
+      'WULF':'BTC採掘','IREN':'BTC採掘',
+      // EV関連
+      'RIVN':'EV','LCID':'EV','CHPT':'EV充電','EVGO':'EV充電','BLNK':'EV充電',
+      'NKLA':'EV(トラック)','VFS':'EV',
+      // ゲーミング/フィンテック
+      'U':'ゲーム','RBLX':'ゲーム','DKNG':'スポーツベット','PENN':'スポーツベット',
+      'BYND':'植物肉','SOFI':'フィンテック','AFRM':'BNPL','UPST':'AI融資',
+      // バイオ
+      'BNTX':'バイオ','NVAX':'バイオ','OCGN':'バイオ','INO':'バイオ',
+      'SAVA':'バイオ','ARWR':'バイオ','BLUE':'バイオ','EDIT':'遺伝子治療',
+      'CRSP':'遺伝子治療','NTLA':'遺伝子治療',
+      // MEME株
+      'GME':'MEME','AMC':'MEME','BB':'MEME','KOSS':'MEME',
+      'CLOV':'MEME','OPEN':'MEME','WISH':'MEME',
+      // テック中堅・SaaS
+      'LYFT':'テック','DOCU':'SaaS','ZM':'SaaS','TWLO':'SaaS',
+      'NET':'CDN','CFLT':'SaaS','GTLB':'DevOps',
+      'SNOW':'SaaS','OKTA':'SaaS','TEAM':'SaaS','S':'セキュリティ',
+      'SPLK':'SaaS','MDB':'DB','DKS':'小売',
+      // 中堅IPO
+      'DAVE':'フィンテック',
+      // 追加ETF
+      'ARKK':'ARK ETF','ARKQ':'ARK ETF','ARKG':'ARK ETF','ARKW':'ARK ETF',
+      'XBI':'バイオETF','JETS':'航空ETF','KWEB':'中国テックETF',
+      'TQQQ':'NQ3倍ブル','SQQQ':'NQ3倍ベア','SOXL':'半導体3倍ブル',
+      'TMF':'長期債3倍ブル','TLT':'長期米国債',
+      'GLD':'金ETF','SLV':'銀ETF','USO':'原油ETF',
+      'UVXY':'VIX2倍ブル','VIXY':'VIX ETF',
+      'AGG':'総合債券ETF','BND':'総合債券ETF',
+      'EEM':'新興国ETF','EWJ':'日本ETF','EWZ':'ブラジルETF',
+      'INDA':'インドETF','FXI':'中国ETF','MCHi':'中国ETF',
+    };
+
+    // 既存リスト全部 + 追加分を統合して候補プールを作成
+    function _buildSuggestionPool() {
+      const pool = new Map();  // symbol -> { tag }
+      // 既存グループ
+      const groupNames = {
+        SP500: 'S&P500', NASDAQ100: 'NASDAQ100', NIKKEI225: '日経225',
+        ETF: 'ETF', QUANTUM: '量子', SPACE: '宇宙', HYDROGEN: '水素',
+        SOLAR: '太陽光', FOREX: '為替',
+      };
+      Object.entries(GROUPS).forEach(([gname, syms]) => {
+        const tag = groupNames[gname] || gname;
+        (syms || []).forEach(s => {
+          if (!pool.has(s)) pool.set(s, { tag });
+        });
+      });
+      // 暗号通貨
+      ['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','ATOMC'].forEach(s => {
+        if (!pool.has(s)) pool.set(s, { tag: '暗号通貨' });
+      });
+      // 先物・指数
+      ['NQ1!','ES1!','SPY','RSP','DIA','QQQ','QQQE','IWM','VTI','VT','N225'].forEach(s => {
+        if (!pool.has(s)) pool.set(s, { tag: '先物・指数' });
+      });
+      // 追加分
+      Object.entries(EXTRA_KNOWN_SYMBOLS).forEach(([s, tag]) => {
+        if (!pool.has(s)) pool.set(s, { tag });
+      });
+      return pool;
+    }
+    let _suggestionPool = null;
+    let _suggestActiveIdx = -1;
+
+    function _renderSearchSuggest(query) {
+      const wrap = document.getElementById('searchSuggest');
+      if (!wrap) return;
+      const q = (query || '').trim().toUpperCase();
+      if (q.length < 1) {
+        wrap.style.display = 'none';
+        wrap.innerHTML = '';
+        return;
+      }
+      if (!_suggestionPool) _suggestionPool = _buildSuggestionPool();
+
+      // 前方一致を優先、その後部分一致
+      const startsWith = [], contains = [];
+      _suggestionPool.forEach((info, sym) => {
+        const symDisp = sym.startsWith('TSE:') ? sym.replace('TSE:','') : sym;
+        const target = symDisp.toUpperCase();
+        if (target.startsWith(q)) startsWith.push({ sym, symDisp, tag: info.tag });
+        else if (target.includes(q)) contains.push({ sym, symDisp, tag: info.tag });
+      });
+      const results = [...startsWith, ...contains].slice(0, 12);
+
+      if (results.length === 0) {
+        wrap.innerHTML = '<div class="search-suggest-empty">候補なし — Enter で直接検索（yfinance から取得）</div>';
+        wrap.style.display = 'block';
+        return;
+      }
+
+      wrap.innerHTML = results.map((r, i) =>
+        `<div class="search-suggest-item" data-sym="${r.sym}" data-idx="${i}">
+          <span class="search-suggest-sym">${r.symDisp}</span>
+          <span class="search-suggest-tag">${r.tag}</span>
+        </div>`
+      ).join('');
+      wrap.style.display = 'block';
+      _suggestActiveIdx = -1;
+      // クリックハンドラ
+      wrap.querySelectorAll('.search-suggest-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const sym = el.getAttribute('data-sym');
+          _hideSearchSuggest();
+          const sb = document.getElementById('searchBox');
+          if (sb) sb.value = '';
+          loadChart(sym);
+        });
+      });
+    }
+
+    function _hideSearchSuggest() {
+      const wrap = document.getElementById('searchSuggest');
+      if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
+      _suggestActiveIdx = -1;
+    }
+
+    // 検索バーにイベント設定
+    (function setupSearchSuggest() {
+      const sb = document.getElementById('searchBox');
+      if (!sb) return;
+      sb.addEventListener('input', (e) => {
+        _renderSearchSuggest(e.target.value);
+      });
+      sb.addEventListener('focus', (e) => {
+        if (e.target.value) _renderSearchSuggest(e.target.value);
+      });
+      sb.addEventListener('keydown', (e) => {
+        const wrap = document.getElementById('searchSuggest');
+        if (!wrap || wrap.style.display === 'none') return;
+        const items = wrap.querySelectorAll('.search-suggest-item');
+        if (items.length === 0) return;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          _suggestActiveIdx = Math.min(_suggestActiveIdx + 1, items.length - 1);
+          items.forEach((el, i) => el.classList.toggle('active', i === _suggestActiveIdx));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          _suggestActiveIdx = Math.max(_suggestActiveIdx - 1, 0);
+          items.forEach((el, i) => el.classList.toggle('active', i === _suggestActiveIdx));
+        } else if (e.key === 'Enter' && _suggestActiveIdx >= 0) {
+          e.preventDefault();
+          items[_suggestActiveIdx].click();
+        } else if (e.key === 'Escape') {
+          _hideSearchSuggest();
+        }
+      });
+      // 外側クリックで閉じる
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-input-wrap')) _hideSearchSuggest();
+      });
+    })();
 
     loadFeaturedSymbols();
 
