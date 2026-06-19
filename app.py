@@ -718,13 +718,12 @@ def fetch_and_calculate(symbol, period='max', max_retries=3):
 
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
-    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()  # 乖離率計算用（添付コード準拠）
     df['prev_close'] = df['close'].shift(1)
     df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
     df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
     df['total_uvol_sma'] = get_wma(df['uvol'], 10)
     df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
+    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
     df['discrepancyScore'] = df['discrepancyPercent'] / 2
     df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
     df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -2014,13 +2013,12 @@ def calculate_scores_from_ohlcv(df):
     df = df.copy()
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
-    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()  # 乖離率計算用
     df['prev_close'] = df['close'].shift(1)
     df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
     df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
     df['total_uvol_sma'] = get_wma(df['uvol'], 10)
     df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
+    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
     df['discrepancyScore'] = df['discrepancyPercent'] / 2
     df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
     df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
