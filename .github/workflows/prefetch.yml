@@ -1,4 +1,4 @@
-name: Prefetch S&P 500 Data
+name: Prefetch US Data
 
 # 毎日 22:00 UTC（日本時間 翌朝 7:00）に実行
 # 米国市場クローズ（NY 16:00 = 冬時間JST 6:00 / 夏時間JST 5:00）の
@@ -23,7 +23,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # rebase時に履歴が必要
           fetch-depth: 0
 
       - name: Set up Python
@@ -36,9 +35,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install yfinance pandas numpy matplotlib mplfinance
 
-      - name: Run prefetch script
+      - name: Run prefetch script (US only)
         run: |
-          python prefetch_script.py
+          python prefetch_script.py --target us
 
       - name: Show cache summary
         run: |
@@ -51,7 +50,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # cache フォルダ全体をコミット対象に（cache.json + charts/ 含む）
           git add cache/
 
           if git diff --staged --quiet; then
@@ -59,19 +57,18 @@ jobs:
             exit 0
           fi
 
-          git commit -m "chore: update persistent cache [skip render]"
+          git commit -m "chore: update US cache [skip render]"
 
           # push競合に備えてリトライ（pull --rebase してから再push）
           for i in 1 2 3 4 5; do
             echo "Push attempt $i/5..."
-            # リモートの最新を取得して自分のコミットを上に積み直す
             git pull --rebase origin main || {
               echo "Rebase failed, will retry..."
               sleep 10
               continue
             }
             if git push origin main; then
-              echo "✅ Cache committed and pushed (attempt $i)"
+              echo "✅ US cache committed and pushed (attempt $i)"
               exit 0
             fi
             echo "Push failed, retrying in 15s..."
