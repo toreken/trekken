@@ -2939,6 +2939,7 @@
         'TSE:3856', 'TSE:1407',
       ],
       NIKKEI225: [
+        'N225',  // 日経平均株価指数（先頭に表示）
         'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
         'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
         'TSE:6645','TSE:6674','TSE:6701','TSE:6702','TSE:6723','TSE:6724','TSE:6752','TSE:6753','TSE:6758',
@@ -3010,7 +3011,7 @@
       ]
     };
 
-    const FUTURES_SET = new Set(['NQ1!', 'ES1!']);
+    const FUTURES_SET = new Set(['NQ1!', 'ES1!', 'N225']);
 
     // 先物・指数タブの全銘柄（色判定で3色になる）
     const FUTURES_INDEX_SET_FRONT = new Set(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']);
