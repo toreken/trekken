@@ -386,6 +386,51 @@
       margin-bottom: 36px;
     }
 
+    /* ===== 自動更新スケジュール告知バナー ===== */
+    .update-schedule-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: linear-gradient(135deg, rgba(196, 154, 74, 0.08), rgba(196, 154, 74, 0.04));
+      border: 1px solid rgba(196, 154, 74, 0.25);
+      border-radius: 12px;
+      padding: 12px 18px;
+      margin-bottom: 14px;
+    }
+    .update-schedule-icon {
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    .update-schedule-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .update-schedule-line1 {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--brown-800);
+      line-height: 1.3;
+    }
+    .update-schedule-line2 {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+    .update-schedule-line2 strong {
+      color: var(--gold-600);
+      font-weight: 800;
+    }
+    @media (max-width: 700px) {
+      .update-schedule-banner {
+        padding: 10px 14px;
+        gap: 10px;
+      }
+      .update-schedule-icon { font-size: 20px; }
+      .update-schedule-line1 { font-size: 12px; }
+      .update-schedule-line2 { font-size: 10px; }
+    }
+
     /* ===== 検索＆タブカード ===== */
     .search-card {
       background: rgba(255, 252, 245, 0.85);
@@ -4403,6 +4448,50 @@
     };
 
     loadFeaturedSymbols();
+
+    // ===== 次回更新までのカウントダウン =====
+    function updateNextUpdateInfo() {
+      try {
+        const el = document.getElementById('updateScheduleLine1');
+        if (!el) return;
+        const now = new Date();
+        // JSTで計算（環境のタイムゾーンに依存しない）
+        const jstNow = new Date(now.getTime() + (now.getTimezoneOffset() + 9 * 60) * 60000);
+
+        // 次の日本株更新（JST 16:00）
+        const nextJp = new Date(jstNow);
+        nextJp.setHours(16, 0, 0, 0);
+        if (jstNow >= nextJp) nextJp.setDate(nextJp.getDate() + 1);
+
+        // 次の米国株更新（JST 7:00）
+        const nextUs = new Date(jstNow);
+        nextUs.setHours(7, 0, 0, 0);
+        if (jstNow >= nextUs) nextUs.setDate(nextUs.getDate() + 1);
+
+        // 近い方
+        const next = nextJp < nextUs ? nextJp : nextUs;
+        const market = nextJp < nextUs ? '日本株' : '米国株';
+        const diffMs = next - jstNow;
+        const hours = Math.floor(diffMs / 3600000);
+        const minutes = Math.floor((diffMs % 3600000) / 60000);
+
+        let text;
+        if (hours > 0) {
+          text = `📡 次回 ${market} 自動更新まで ${hours}時間${minutes}分`;
+        } else if (minutes > 0) {
+          text = `📡 次回 ${market} 自動更新まで ${minutes}分`;
+        } else {
+          text = `📡 ${market} を更新中…（少々お待ちください）`;
+        }
+        el.textContent = text;
+      } catch (e) {
+        console.error('updateNextUpdateInfo error:', e);
+      }
+    }
+    // 1分ごとに更新
+    setInterval(updateNextUpdateInfo, 60000);
+    // 初回実行
+    updateNextUpdateInfo();
 
     // === S&P500 / NASDAQ100 の info を事前ロード（バックグラウンドで非同期）===
     // 起動時に1回だけ取得 → localStorage に保存。次回以降は瞬時表示。
