@@ -1641,13 +1641,29 @@
     /* ===== ② 色凡例バナー（2行構成） ===== */
     .legend-bar {
       max-width: 1200px;
-      margin: -20px auto 0;
-      padding: 16px 28px 8px;
+      width: 100%;
+      margin: 0;
+      padding: 12px 0 8px;
       display: flex;
       flex-direction: column;
       gap: 8px;
       position: relative;
       z-index: 5;
+    }
+
+    /* info-panel を左右2カラムに（PC、スマホ縦どちらでも） */
+    .info-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: start;
+      width: 100%;
+    }
+    .info-panel-right {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-width: 0;
     }
     .legend-bar-title {
       text-align: center;
@@ -2538,50 +2554,51 @@
       </div>
       <div class="chart-body" id="chartBody"></div>
     </div>
+    <!-- 色凡例バナー（チャート直下） -->
+    <div class="legend-bar" id="legendBar">
+      <div class="legend-bar-title">ローソク足の色の説明</div>
+      <div class="legend-row">
+        <div class="legend-row-label">ES1!,NQ1!</div>
+        <div class="legend-row-items">
+          <span class="legend-item"><span class="legend-dot ld-green"></span>上昇トレンド</span>
+          <span class="legend-item"><span class="legend-dot ld-yellow"></span>レンジ</span>
+          <span class="legend-item"><span class="legend-dot ld-red"></span>下降トレンド</span>
+        </div>
+      </div>
+      <div class="legend-row">
+        <div class="legend-row-label">その他銘柄</div>
+        <div class="legend-row-items">
+          <span class="legend-item"><span class="legend-dot ld-blue"></span>上昇トレンド</span>
+          <span class="legend-item"><span class="legend-dot ld-green"></span>上昇転換付近</span>
+          <span class="legend-item"><span class="legend-dot ld-red"></span>下降転換付近</span>
+          <span class="legend-item"><span class="legend-dot ld-yellow"></span>下降トレンド</span>
+        </div>
+      </div>
+    </div>
     <div class="info-panel" id="infoPanel">
-      <div class="info-card" id="profileCard" style="display:none;">
+      <div class="info-card info-card-profile" id="profileCard" style="display:none;">
         <div class="info-card-title">🏢 銘柄概要</div>
         <div class="profile-name" id="profileName"></div>
         <div class="profile-meta" id="profileMeta"></div>
         <div class="profile-summary" id="profileSummary"></div>
       </div>
-      <div class="info-card">
-        <div class="info-card-title">📊 トレンド解説</div>
-        <ul class="commentary-list" id="commentaryList">
-          <li class="info-empty">チャートを選択すると表示されます</li>
-        </ul>
-      </div>
-      <div class="info-card">
-        <div class="info-card-title-row">
-          <div class="info-card-title">🏭 同業他社の動き（1週間）</div>
-          <button class="compare-btn" id="compareBtn" style="display:none" onclick="runCompare()">📊 同業比較</button>
+      <div class="info-panel-right">
+        <div class="info-card">
+          <div class="info-card-title">📊 トレンド解説</div>
+          <ul class="commentary-list" id="commentaryList">
+            <li class="info-empty">チャートを選択すると表示されます</li>
+          </ul>
         </div>
-        <div class="peer-sector-name" id="peerSectorName"></div>
-        <ul class="peer-list" id="peerList">
-          <li class="info-empty">チャートを選択すると表示されます</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-
-  <!-- 色凡例バナー（チャート下に表示） -->
-  <div class="legend-bar" id="legendBar">
-    <div class="legend-bar-title">ローソク足の色の説明</div>
-    <div class="legend-row">
-      <div class="legend-row-label">ES1!,NQ1!</div>
-      <div class="legend-row-items">
-        <span class="legend-item"><span class="legend-dot ld-green"></span>上昇トレンド</span>
-        <span class="legend-item"><span class="legend-dot ld-yellow"></span>レンジ</span>
-        <span class="legend-item"><span class="legend-dot ld-red"></span>下降トレンド</span>
-      </div>
-    </div>
-    <div class="legend-row">
-      <div class="legend-row-label">その他銘柄</div>
-      <div class="legend-row-items">
-        <span class="legend-item"><span class="legend-dot ld-blue"></span>上昇トレンド</span>
-        <span class="legend-item"><span class="legend-dot ld-green"></span>上昇転換付近</span>
-        <span class="legend-item"><span class="legend-dot ld-red"></span>下降転換付近</span>
-        <span class="legend-item"><span class="legend-dot ld-yellow"></span>下降トレンド</span>
+        <div class="info-card">
+          <div class="info-card-title-row">
+            <div class="info-card-title">🏭 同業他社の動き（1週間）</div>
+            <button class="compare-btn" id="compareBtn" style="display:none" onclick="runCompare()">📊 同業比較</button>
+          </div>
+          <div class="peer-sector-name" id="peerSectorName"></div>
+          <ul class="peer-list" id="peerList">
+            <li class="info-empty">チャートを選択すると表示されます</li>
+          </ul>
+        </div>
       </div>
     </div>
   </div>
