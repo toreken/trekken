@@ -1,0 +1,76 @@
+name: Prefetch JP Data
+
+# 毎日 07:00 UTC（日本時間 16:00）に実行
+# 東京市場クローズ（JST 15:00）の1時間後で、yfinanceに最新データが反映されたタイミング
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+# US prefetch と同じ concurrency group を使用してファイル競合を防ぐ
+concurrency:
+  group: prefetch
+  cancel-in-progress: false
+
+jobs:
+  prefetch_jp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas numpy matplotlib mplfinance
+
+      - name: Run prefetch script (JP only)
+        run: |
+          python prefetch_script.py --target jp
+
+      - name: Show cache summary
+        run: |
+          ls -lh cache/
+          echo "Total chart files: $(ls cache/charts/ | wc -l)"
+          python -c "import json; d=json.load(open('cache/cache.json')); print(f'profiles={d.get(\"profile_count\",0)}, thumbs={d.get(\"thumb_count\",0)}, charts={d.get(\"chart_count\",0)}, infos={d.get(\"info_count\",0)}, failed={d.get(\"failed_count\",0)}, elapsed={d.get(\"elapsed_seconds\",0)}s')"
+
+      - name: Commit cache to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cache/
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore: update JP cache [skip render]"
+
+          # push競合に備えてリトライ
+          for i in 1 2 3 4 5; do
+            echo "Push attempt $i/5..."
+            git pull --rebase origin main || {
+              echo "Rebase failed, will retry..."
+              sleep 10
+              continue
+            }
+            if git push origin main; then
+              echo "✅ JP cache committed and pushed (attempt $i)"
+              exit 0
+            fi
+            echo "Push failed, retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::Failed to push after 5 attempts"
+          exit 1
