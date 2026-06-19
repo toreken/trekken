@@ -1273,8 +1273,9 @@ def _load_existing_cache():
     """既存の cache.json と cache/charts/ を読み込み、既存データを保持する。
     部分更新時に他のターゲットのデータを失わないため。"""
     profiles, thumbs, infos, charts = {}, {}, {}, {}
+    cache_dir = 'cache'
     try:
-        cache_path = os.path.join(CACHE_DIR, 'cache.json')
+        cache_path = os.path.join(cache_dir, 'cache.json')
         if os.path.exists(cache_path):
             with open(cache_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -1282,23 +1283,36 @@ def _load_existing_cache():
             thumbs = data.get('thumbs', {})
             infos = data.get('infos', {})
             print(f"Loaded existing cache: profiles={len(profiles)}, thumbs={len(thumbs)}, infos={len(infos)}")
+        else:
+            print(f"cache.json not found at {cache_path}")
     except Exception as e:
         print(f"Failed to load existing cache: {e}")
+        import traceback
+        traceback.print_exc()
     # charts は個別ファイル
     try:
-        charts_dir = os.path.join(CACHE_DIR, 'charts')
+        charts_dir = os.path.join(cache_dir, 'charts')
         if os.path.isdir(charts_dir):
             for fname in os.listdir(charts_dir):
                 if fname.endswith('.txt'):
-                    sym = fname[:-4].replace('_T_', 'TSE:')  # 日本株のファイル名復元
+                    base = fname[:-4]
+                    # TSE_XXXX → TSE:XXXX に復元
+                    if base.startswith('TSE_'):
+                        sym = 'TSE:' + base[4:]
+                    else:
+                        sym = base
                     try:
                         with open(os.path.join(charts_dir, fname), 'r', encoding='utf-8') as f:
                             charts[sym] = f.read().strip()
                     except Exception:
                         pass
             print(f"Loaded existing charts: {len(charts)}")
+        else:
+            print(f"charts dir not found at {charts_dir}")
     except Exception as e:
         print(f"Failed to load existing charts: {e}")
+        import traceback
+        traceback.print_exc()
     return profiles, thumbs, charts, infos
 
 
