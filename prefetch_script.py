@@ -307,7 +307,38 @@ NIKKEI225_SYMBOLS = [
 ]
 
 # 重複除去（念のため）
+# 追加分（不足12銘柄）
+NIKKEI225_SYMBOLS += [
+    'TSE:4751',  # サイバーエージェント
+    'TSE:4755',  # 楽天グループ
+    'TSE:4911',  # 資生堂
+    'TSE:5019',  # 出光興産
+    'TSE:6586',  # マキタ
+    'TSE:6981',  # 村田製作所
+    'TSE:7012',  # 川崎重工業
+    'TSE:7259',  # アイシン
+    'TSE:7832',  # バンダイナムコHD
+    'TSE:9201',  # JAL
+    'TSE:9766',  # コナミG
+    'TSE:9831',  # ヤマダHD
+]
 NIKKEI225_SYMBOLS = list(dict.fromkeys(NIKKEI225_SYMBOLS))
+
+# 追加銘柄のセクター情報
+_NIKKEI225_EXTRA_SECTORS = {
+    'TSE:4751': '情報・通信業',
+    'TSE:4755': '情報・通信業',
+    'TSE:4911': '化学',
+    'TSE:5019': '石油・石炭製品',
+    'TSE:6586': '電気機器',
+    'TSE:6981': '電気機器',
+    'TSE:7012': '輸送用機器',
+    'TSE:7259': '輸送用機器',
+    'TSE:7832': 'その他製品',
+    'TSE:9201': '空運業',
+    'TSE:9766': '情報・通信業',
+    'TSE:9831': '小売業',
+}
 
 NIKKEI225_SECTOR_MAP = {
     # 医薬品
@@ -402,6 +433,8 @@ NIKKEI225_SECTOR_MAP = {
     # 精密機器
     'TSE:4543': '精密機器', 'TSE:7731': '精密機器', 'TSE:7733': '精密機器', 'TSE:7741': '精密機器', 'TSE:7762': '精密機器',
 }
+NIKKEI225_SECTOR_MAP.update(_NIKKEI225_EXTRA_SECTORS)
+
 
 
 # ===========================
@@ -1123,31 +1156,83 @@ def process_light_targets(thumbs):
         print(f"  Failed: {', '.join(failed)}")
 
 
-def main():
-    start_time = time.time()
-    us_count = len([s for s in ALL_TARGETS if not is_jp_symbol(s)])
-    jp_count = len([s for s in ALL_TARGETS if is_jp_symbol(s)])
-    ndx_only_count = len([s for s in NASDAQ100_ONLY_SYMBOLS if s in ALL_TARGETS])
-    etf_count = len([s for s in ETF_SYMBOLS if s in ALL_TARGETS])
-    print(f"=== Prefetch start at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
-    print(f"Target: {len(ALL_TARGETS)} symbols (US:{us_count} incl. NDX-only:{ndx_only_count}, ETF:{etf_count}, JP:{jp_count}), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
+def _load_existing_cache():
+    """既存の cache.json と cache/charts/ を読み込み、既存データを保持する。
+    部分更新時に他のターゲットのデータを失わないため。"""
+    profiles, thumbs, infos, charts = {}, {}, {}, {}
+    try:
+        cache_path = os.path.join(CACHE_DIR, 'cache.json')
+        if os.path.exists(cache_path):
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            profiles = data.get('profiles', {})
+            thumbs = data.get('thumbs', {})
+            infos = data.get('infos', {})
+            print(f"Loaded existing cache: profiles={len(profiles)}, thumbs={len(thumbs)}, infos={len(infos)}")
+    except Exception as e:
+        print(f"Failed to load existing cache: {e}")
+    # charts は個別ファイル
+    try:
+        charts_dir = os.path.join(CACHE_DIR, 'charts')
+        if os.path.isdir(charts_dir):
+            for fname in os.listdir(charts_dir):
+                if fname.endswith('.txt'):
+                    sym = fname[:-4].replace('_T_', 'TSE:')  # 日本株のファイル名復元
+                    try:
+                        with open(os.path.join(charts_dir, fname), 'r', encoding='utf-8') as f:
+                            charts[sym] = f.read().strip()
+                    except Exception:
+                        pass
+            print(f"Loaded existing charts: {len(charts)}")
+    except Exception as e:
+        print(f"Failed to load existing charts: {e}")
+    return profiles, thumbs, charts, infos
 
-    profiles = {}
-    thumbs = {}
-    charts = {}   # NEW: 大きいチャート画像
-    infos = {}    # NEW: トレンド解説 + profile
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--target', choices=['us', 'jp', 'all'], default='all',
+                        help='Prefetch target: us=米国株のみ, jp=日本株のみ, all=全部')
+    args = parser.parse_args()
+
+    start_time = time.time()
+
+    # 対象を選択
+    if args.target == 'us':
+        targets = [s for s in ALL_TARGETS if not is_jp_symbol(s)]
+        do_light = True
+        print(f"=== Prefetch (US only) at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
+    elif args.target == 'jp':
+        targets = NIKKEI225_SYMBOLS[:]
+        do_light = False
+        print(f"=== Prefetch (JP only) at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
+    else:
+        targets = ALL_TARGETS[:]
+        do_light = True
+        print(f"=== Prefetch (ALL) at {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())} ===")
+
+    us_count = len([s for s in targets if not is_jp_symbol(s)])
+    jp_count = len([s for s in targets if is_jp_symbol(s)])
+    print(f"Target: {len(targets)} symbols (US:{us_count}, JP:{jp_count}), batch_size={BATCH_SIZE}, batch_wait={BATCH_WAIT}s")
+
+    # 既存キャッシュをロードして、他ターゲットのデータを保持する（部分更新）
+    if args.target == 'all':
+        profiles, thumbs, charts, infos = {}, {}, {}, {}
+    else:
+        profiles, thumbs, charts, infos = _load_existing_cache()
     failed = []
 
     # ステップ1: 通常バッチ処理
-    total_batches = (len(ALL_TARGETS) + BATCH_SIZE - 1) // BATCH_SIZE
-    for i in range(0, len(ALL_TARGETS), BATCH_SIZE):
-        batch = ALL_TARGETS[i:i + BATCH_SIZE]
+    total_batches = (len(targets) + BATCH_SIZE - 1) // BATCH_SIZE
+    for i in range(0, len(targets), BATCH_SIZE):
+        batch = targets[i:i + BATCH_SIZE]
         batch_idx = i // BATCH_SIZE + 1
         elapsed = time.time() - start_time
         jp_in_batch = len([s for s in batch if is_jp_symbol(s)])
         print(f"[Batch {batch_idx}/{total_batches}] elapsed={elapsed:.0f}s, success={len(thumbs)}/{len(profiles)} (charts={len(charts)}), failed={len(failed)}, JP={jp_in_batch}")
         process_batch(batch, profiles, thumbs, charts, infos, failed)
-        if i + BATCH_SIZE < len(ALL_TARGETS):
+        if i + BATCH_SIZE < len(targets):
             time.sleep(BATCH_WAIT)
 
     # ステップ2: 失敗銘柄を1回リトライ
@@ -1165,8 +1250,9 @@ def main():
                 time.sleep(BATCH_WAIT)
         failed = retry_failed
 
-    # ステップ2.5: 軽量プリフェッチ（先物・暗号通貨・為替の色情報のみ）
-    process_light_targets(thumbs)
+    # ステップ2.5: 軽量プリフェッチ（先物・暗号通貨・為替の色情報のみ）- US/ALL 時のみ
+    if do_light:
+        process_light_targets(thumbs)
 
     # ステップ3: JSON出力（メモリ問題対策で分割保存）
     elapsed = time.time() - start_time
