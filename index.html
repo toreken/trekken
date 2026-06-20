@@ -1470,10 +1470,14 @@
       gap: 16px;
       padding: 0 28px;
     }
-    .chart-area.active { display: flex; flex-wrap: wrap; }
+    .chart-area.active {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
 
     .chart-main {
-      flex: 1 1 600px;
+      width: 100%;
       background: #131722;
       border-radius: 16px;
       overflow: hidden;
@@ -1481,11 +1485,10 @@
       box-shadow: var(--shadow);
     }
     .info-panel {
-      flex: 0 1 300px;
+      width: 100%;
       display: flex;
       flex-direction: column;
       gap: 12px;
-      min-width: 240px;
     }
     .info-card {
       background: rgba(255, 252, 245, 0.95);
@@ -3209,12 +3212,18 @@
       try {
         const res = await fetch('/symbols-meta');
         metaData = await res.json();
-        updateFilterStatus();
-        updateTrendSummary();
+        const total = metaData.total || 0;
+        const cached = metaData.cached_count || 0;
+        console.log(`[fetchMetaData] loaded: ${cached}/${total} symbols with scores`);
+        try { updateFilterStatus(); } catch (e) { console.error('updateFilterStatus error:', e); }
+        try { updateTrendSummary(); } catch (e) { console.error('updateTrendSummary error:', e); }
       } catch (e) {
+        console.error('[fetchMetaData] failed:', e);
         const st = document.getElementById('filterStatus');
-        st.className = 'filter-status warn';
-        st.textContent = '⚠️ メタデータの取得に失敗しました';
+        if (st) {
+          st.className = 'filter-status warn';
+          st.textContent = '⚠️ メタデータの取得に失敗しました';
+        }
       }
     }
 
