@@ -66,6 +66,13 @@ def get_interval():
 
 app = Flask(__name__)
 
+# JSONレスポンスでNaN/Infを出力しないようにする保険（フロントでJSON.parse失敗を防ぐ）
+# Flask 2.3+ の場合は app.json プロパティで設定
+try:
+    app.json.allow_nan = False
+except Exception:
+    pass
+
 
 # ===== レート制限（DDoS・大量スクレイピング対策） =====
 limiter = Limiter(
@@ -630,6 +637,20 @@ def is_jp_symbol(sym):
 # スコアから色を判定する関数。閾値はサーバー側だけが知っている。
 # フロントへは color 文字列（'blue'|'green'|'yellow'|'red'|None）のみ返す。
 _SCORE_COLOR_THRESHOLDS = (7, 0, -7)  # 内部閾値
+def _safe_num(v):
+    """NaN/Inf を JSON 安全な None に変換する。"""
+    if v is None:
+        return None
+    try:
+        import math
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
+
+
 def score_to_color(score):
     """スコアから色を判定。フロントには露出させない。"""
     if score is None:
@@ -2632,6 +2653,11 @@ def symbols_meta():
             week_change = data.get('week_change')
             ema20_dev = data.get('ema20_dev')
             sma50_dev = data.get('sma50_dev')
+        # NaN/Inf を None に正規化（JSON シリアライズで NaN を含むとフロントでパース失敗）
+        score = _safe_num(score)
+        week_change = _safe_num(week_change)
+        ema20_dev = _safe_num(ema20_dev)
+        sma50_dev = _safe_num(sma50_dev)
         items.append({
             'symbol': sym,
             'sector': get_sector(sym),
