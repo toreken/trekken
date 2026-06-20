@@ -1592,7 +1592,7 @@ def get_peers(symbol_upper):
                     if p in thumb_cache:
                         _, thumb_data = thumb_cache[p]
                         peer_score = thumb_data.get('score')
-                    peer_data.append({'symbol': p, 'change': change_pct, 'score': peer_score})
+                    peer_data.append({'symbol': p, 'change': _safe_num(change_pct), 'score': _safe_num(peer_score)})
                 except Exception:
                     peer_data.append({'symbol': p, 'change': None, 'score': None})
         except Exception:
@@ -1601,7 +1601,7 @@ def get_peers(symbol_upper):
                 if p in thumb_cache:
                     _, thumb_data = thumb_cache[p]
                     peer_score = thumb_data.get('score')
-                peer_data.append({'symbol': p, 'change': None, 'score': peer_score, 'color': score_to_color(peer_score)})
+                peer_data.append({'symbol': p, 'change': None, 'score': _safe_num(peer_score), 'color': score_to_color(_safe_num(peer_score))})
 
         return {'sector': sub_industry, 'peers': peer_data}
 
@@ -1645,7 +1645,7 @@ def get_peers(symbol_upper):
                 if p in thumb_cache:
                     _, thumb_data = thumb_cache[p]
                     peer_score = thumb_data.get('score')
-                peer_data.append({'symbol': p, 'change': change_pct, 'score': peer_score})
+                peer_data.append({'symbol': p, 'change': _safe_num(change_pct), 'score': _safe_num(peer_score)})
             except Exception:
                 peer_data.append({'symbol': p, 'change': None, 'score': None})
     except Exception:
@@ -1654,7 +1654,7 @@ def get_peers(symbol_upper):
             if p in thumb_cache:
                 _, thumb_data = thumb_cache[p]
                 peer_score = thumb_data.get('score')
-            peer_data.append({'symbol': p, 'change': None, 'score': peer_score, 'color': score_to_color(peer_score)})
+            peer_data.append({'symbol': p, 'change': None, 'score': _safe_num(peer_score), 'color': score_to_color(_safe_num(peer_score))})
 
     return {'sector': sub_industry, 'peers': peer_data}
 
