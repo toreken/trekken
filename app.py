@@ -620,8 +620,28 @@ NIKKEI225_SECTOR_MAP = {
 }
 
 
+def _clean_for_json(obj):
+    """再帰的に NaN/Inf を None に変換する。
+    Flask の jsonify が NaN を出力するとフロントの JSON.parse が失敗するため、
+    レスポンス送信前にすべての float をクリーンアップする。"""
+    import math
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return {k: _clean_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_clean_for_json(v) for v in obj]
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    return obj
+
+
 def _cached_json(payload, max_age=1800):
     """Cache-Control: private, max-age=XXX を付けた JSON レスポンスを返す。"""
+    # NaN/Inf を再帰的に None に変換（フロントの JSON.parse 失敗対策）
+    payload = _clean_for_json(payload)
     resp = jsonify(payload)
     # private: 各ユーザーのブラウザにのみキャッシュ。CDNなどには保存しない。
     resp.headers['Cache-Control'] = f'private, max-age={max_age}'
