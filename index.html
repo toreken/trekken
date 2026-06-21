@@ -4824,6 +4824,11 @@
             if (data.items && Array.isArray(data.items)) {
               data.items.forEach(item => {
                 if (!item.symbol) return;
+                // 既に peers 付きのデータがある場合は上書きしない（本物のpeers情報を保持）
+                const existing = _getMemCached(_infoMemCache, item.symbol);
+                if (existing && existing.peers && Array.isArray(existing.peers.peers) && existing.peers.peers.length > 0) {
+                  return;
+                }
                 // peers は省略しているので、別の info キャッシュ形式で保存
                 _setMemCached(_infoMemCache, item.symbol, {
                   commentary: item.commentary,
