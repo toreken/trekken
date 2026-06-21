@@ -697,6 +697,14 @@
       margin-bottom: 10px;
       letter-spacing: 0.5px;
     }
+    .quick-filter-note {
+      margin-left: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      opacity: 0.6;
+      letter-spacing: 0;
+    }
     .quick-filter-buttons {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -2514,7 +2522,7 @@
       </div>
 
       <div class="quick-filter-row">
-        <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）</div>
+        <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）<span class="quick-filter-note">現在調整中</span></div>
         <div class="quick-filter-buttons">
           <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued')" title="EMA20から大きく下方乖離、反発の可能性">
             <span class="qf-icon">💎</span>
