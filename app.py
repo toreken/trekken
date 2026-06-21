@@ -1804,6 +1804,21 @@ def info(symbol):
     if symbol_upper in info_cache:
         cached_time, cached_data = info_cache[symbol_upper]
         if now - cached_time < CACHE_SECONDS:
+            # peers が null のキャッシュは、本来 peers が取れる銘柄なら再取得を試みる
+            # （N225/NQ1!/ES1!/CRYPTO/FOREX は peers の概念がないのでスキップ）
+            peers_supported = (symbol_upper not in ('NQ1!', 'ES1!', 'N225')
+                               and symbol_upper not in CRYPTO_MAP
+                               and symbol_upper not in FOREX_PAIRS)
+            if cached_data.get('peers') is None and peers_supported:
+                try:
+                    fresh_peers = get_peers(symbol_upper)
+                    if fresh_peers is not None:
+                        cached_data = dict(cached_data)
+                        cached_data['peers'] = fresh_peers
+                        info_cache[symbol_upper] = (cached_time, cached_data)
+                        print(f"/info/{symbol_upper}: re-fetched peers (was null in cache)")
+                except Exception as e:
+                    print(f"/info/{symbol_upper}: peers re-fetch failed: {e}")
             cached_data = dict(cached_data)
             cached_data['profile'] = apply_translation(cached_data.get('profile'))
             return _cached_json({**cached_data, 'cached': True}, max_age=1800)
