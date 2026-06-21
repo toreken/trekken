@@ -1174,6 +1174,55 @@ def fetch_es1(n_bars=1000):
         return None
 
 
+def fetch_n225():
+    """日経平均株価指数（^N225）を yfinance で取得し、スコア計算してチャート用 DataFrame を返す。
+    出来高がないため volDiffScore は 0、totalScore = discrepancyScore のみ。"""
+    try:
+        df = yf.download('^N225', period='max', interval='1d',
+                         auto_adjust=False, progress=False, threads=False)
+        if df is None or df.empty:
+            return None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.columns = [str(c).lower() for c in df.columns]
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        df = df.loc[:, ~df.columns.duplicated()].copy()
+
+        # 出来高がない/0の場合はダミー値で埋める（calculate_scoresが動くように）
+        if 'volume' not in df.columns:
+            df['volume'] = 1
+        else:
+            df['volume'] = df['volume'].fillna(0)
+            if df['volume'].sum() == 0:
+                df['volume'] = 1
+
+        if 'close' not in df.columns:
+            if 'adj close' in df.columns:
+                df['close'] = df['adj close']
+            else:
+                return None
+
+        # スコア計算（fetch_and_calculate と同じロジック）
+        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+        df['sma_50'] = df['close'].rolling(window=50).mean()
+        df['prev_close'] = df['close'].shift(1)
+        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
+        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
+        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
+        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
+        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+        df['discrepancyScore'] = df['discrepancyPercent'] / 2
+        # 出来高がフェイクなので volDiffScore は 0 扱い
+        df['volDiffScore'] = 0
+        df['totalScore'] = df['discrepancyScore']
+
+        return df
+    except Exception as e:
+        print(f"N225 error: {e}")
+        return None
+
+
 def make_chart_image_stock(df, symbol):
     plot_len = min(DISPLAY_PERIOD, len(df))
     plot_df = df.iloc[-plot_len:].copy()
@@ -1437,6 +1486,13 @@ def chart(symbol):
                 if stale: return stale
                 return jsonify({'error': 'ES1! のデータ取得に失敗しました'}), 500
             img_b64 = make_chart_image_nq(df, 'S&P 500 Futures')
+        elif symbol_upper == 'N225':
+            df = fetch_n225()
+            if df is None:
+                stale = _fallback_to_stale_cache('N225 取得失敗')
+                if stale: return stale
+                return jsonify({'error': 'N225 のデータ取得に失敗しました'}), 500
+            img_b64 = make_chart_image_stock(df, 'N225')
         elif symbol_upper in CRYPTO_MAP:
             df = fetch_crypto(symbol_upper)
             if df is None:
@@ -1697,6 +1753,20 @@ def get_profile(symbol_upper):
     if symbol_upper in ('NQ1!', 'ES1!') or symbol_upper in CRYPTO_MAP:
         return None
 
+    # 日経225指数：固定のプロファイル情報を返す
+    if symbol_upper == 'N225':
+        return {
+            'symbol': 'N225',
+            'name': '日経平均株価（日経225）',
+            'industry': '株価指数',
+            'sector': '指数',
+            'country': 'Japan',
+            'website': 'https://indexes.nikkei.co.jp/nkave',
+            'summary': '日経平均株価は、東京証券取引所プライム市場に上場している銘柄から日本経済新聞社が選定した225銘柄を対象とした株価指数です。日本を代表する株価指標として広く利用されています。',
+            'employees': None,
+            'market_cap': None,
+        }
+
     # 登録銘柄優先だが、未登録でも yfinance で試す（失敗時は None を返す）
 
     yf_ticker = jp_to_yfinance(symbol_upper) if is_jp_symbol(symbol_upper) else symbol_upper
@@ -1743,6 +1813,8 @@ def info(symbol):
             df = fetch_nq1()
         elif symbol_upper == 'ES1!':
             df = fetch_es1()
+        elif symbol_upper == 'N225':
+            df = fetch_n225()
         elif symbol_upper in CRYPTO_MAP:
             df = fetch_crypto(symbol_upper)
         elif symbol_upper in FOREX_PAIRS:
