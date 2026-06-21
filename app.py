@@ -1,2958 +1,4859 @@
-import os
-import io
-import re
-import base64
-import time
-import threading
-import xml.etree.ElementTree as ET
-from flask import Flask, jsonify, request, Response
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-import requests as http_requests
-import pandas as pd
-import numpy as np
-import mplfinance as mpf
-import yfinance as yf
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.lines as mlines
-import matplotlib.collections as mcollections
-from matplotlib.patches import Rectangle
-import warnings
-
-warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.simplefilter(action='ignore', category=UserWarning)
-
-# tvDatafeed は起動時に初期化せず、必要になったとき（NQ1! 要求時）に初期化する。
-# こうすることで tvDatafeed で何が起きてもサーバー起動（ポート検出）は必ず成功する。
-tv = None
-TV_INIT_TRIED = False
-
-
-def get_tv():
-    """tvDatafeed を遅延初期化する。成功すれば tv インスタンスを返し、失敗すれば None を返す。"""
-    global tv, TV_INIT_TRIED
-    if tv is not None:
-        return tv
-    if TV_INIT_TRIED:
-        return None
-    TV_INIT_TRIED = True
-    try:
-        from tvDatafeed import TvDatafeed
-        tv_user = os.environ.get('TV_USERNAME')
-        tv_pass = os.environ.get('TV_PASSWORD')
-        if tv_user and tv_pass:
-            tv = TvDatafeed(tv_user, tv_pass)
-            print("✅ tvDatafeed OK (ログイン)")
-        else:
-            tv = TvDatafeed()
-            print("⚠️ tvDatafeed OK (ログインなし・データ制限あり)")
-        return tv
-    except Exception as e:
-        print(f"⚠️ tvDatafeed NG: {e}")
-        tv = None
-        return None
-
-
-def get_interval():
-    """Interval を安全に取り込む。"""
-    try:
-        from tvDatafeed import Interval
-        return Interval
-    except Exception:
-        return None
-
-
-app = Flask(__name__)
-
-# JSONレスポンスでNaN/Infを出力しないようにする保険（フロントでJSON.parse失敗を防ぐ）
-# Flask 2.3+ の場合は app.json プロパティで設定
-try:
-    app.json.allow_nan = False
-except Exception:
-    pass
-
-
-# ===== レート制限（DDoS・大量スクレイピング対策） =====
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["300 per hour", "60 per minute"],
-    storage_uri="memory://",
-    strategy="fixed-window",
-)
-
-
-# ===== シンボル名バリデーション（インジェクション対策） =====
-# 許可文字: 英数字、ピリオド(.), ハイフン(-), コロン(:), 感嘆符(!), イコール(=)
-# 例: AAPL, BRK.B, BRK-B, TSE:7203, NQ1!, EURUSD
-SYMBOL_PATTERN = re.compile(r'^[A-Za-z0-9\.\-:!=]+$')
-
-
-def is_valid_symbol(symbol):
-    """シンボル名が安全かどうか判定。許可文字以外があれば False。"""
-    if not symbol or not isinstance(symbol, str):
-        return False
-    if len(symbol) > 30:
-        return False
-    return bool(SYMBOL_PATTERN.match(symbol))
-
-
-# ===== robots.txt（AI クローラーブロック） =====
-ROBOTS_TXT_CONTENT = """User-agent: *
-Allow: /
-
-# AI/LLM 学習クローラーを全面ブロック
-User-agent: GPTBot
-Disallow: /
-
-User-agent: ChatGPT-User
-Disallow: /
-
-User-agent: ClaudeBot
-Disallow: /
-
-User-agent: Claude-Web
-Disallow: /
-
-User-agent: anthropic-ai
-Disallow: /
-
-User-agent: CCBot
-Disallow: /
-
-User-agent: Google-Extended
-Disallow: /
-
-User-agent: PerplexityBot
-Disallow: /
-
-User-agent: Bytespider
-Disallow: /
-
-User-agent: cohere-ai
-Disallow: /
-
-User-agent: FacebookBot
-Disallow: /
-
-User-agent: Meta-ExternalAgent
-Disallow: /
-
-User-agent: Diffbot
-Disallow: /
-
-User-agent: ImagesiftBot
-Disallow: /
-
-User-agent: Omgilibot
-Disallow: /
-
-User-agent: YouBot
-Disallow: /
-
-User-agent: Applebot-Extended
-Disallow: /
-
-User-agent: Amazonbot
-Disallow: /
-"""
-
-
-@app.route('/ping')
-def ping():
-    """軽量ヘルスチェック。Renderスリープ防止用にGitHub Actions等から定期的に叩く。
-    DBアクセスや外部API呼び出しを一切行わず、即座に200を返す。"""
-    return jsonify({'status': 'ok', 'time': int(time.time())}), 200
-
-
-@app.route('/robots.txt')
-def robots_txt():
-    return Response(ROBOTS_TXT_CONTENT, mimetype='text/plain')
-
-
-@app.after_request
-def add_security_headers(resp):
-    """技術スタック情報を隠す + AIブロックヘッダー + セキュリティ強化"""
-    # サーバー情報を隠す（Werkzeug/Python/Flask の表記を消す）
-    resp.headers['Server'] = 'Trekken'
-    # AI クローラーに学習禁止を明示
-    resp.headers['X-Robots-Tag'] = 'noai, noimageai'
-    # セキュリティ基本ヘッダー
-    resp.headers['X-Content-Type-Options'] = 'nosniff'
-    resp.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-    # クリックジャッキング対策（iframeに埋め込めない）
-    resp.headers['X-Frame-Options'] = 'DENY'
-    # XSS Protection（古いブラウザ向け）
-    resp.headers['X-XSS-Protection'] = '1; mode=block'
-    # Content Security Policy（XSS対策の現代版）
-    resp.headers['Content-Security-Policy'] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; "
-        "img-src 'self' data: https:; "
-        "connect-src 'self'; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'"
-    )
-    # X-Powered-By を念のため空に
-    resp.headers.pop('X-Powered-By', None)
-    return resp
-
-
-SYMBOLS = [
-    'TONX', 'FRSH', 'PAYC', 'GCTS', 'PXLW',
-    'FSLR', 'SIDU', 'VRNS', 'TRVG', 'TZOO',
-    'MAKO', 'HLP',
-    # グループ2
-    'KOS', 'GOOGL', 'INTC', 'NVDA', 'IONQ', 'FIGS', 'MU',
-    'RKLB', 'CRWV', 'LUNR', 'ATOM', 'KLXE', 'WTI', 'ESOA',
-    # 量子コンピュータ関連（ピュアプレイ + 量子セキュリティ）
-    'RGTI', 'QBTS', 'QUBT', 'LAES',
-    # 宇宙関連（ピュアプレイ + 衛星通信）
-    'ASTS', 'PL', 'BKSY', 'RDW', 'IRDM',
-    # 水素エネルギー関連（ピュアプレイ）
-    'PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN',
-    # 太陽光関連（純プレイ＋中国ADR、FSLRは既出）
-    'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY', 'JKS', 'CSIQ', 'DQ',
-    # ETF（セクター別 + 高配当）
-    'XLK', 'VGT', 'IYW',           # テクノロジー
-    'XLV', 'VHT', 'IYH',           # ヘルスケア
-    'XLF', 'VFH', 'IYF',           # 金融
-    'XLE', 'VDE', 'IYE',           # エネルギー
-    'XLY', 'VCR', 'IYC',           # 一般消費財
-    'XLP', 'VDC', 'IYK',           # 生活必需品
-    'XLI', 'VIS', 'IYJ',           # 資本財
-    'XLB', 'VAW', 'IYM',           # 素材
-    'XLU', 'VPU', 'IDU',           # 公益事業
-    'XLRE', 'VNQ', 'IYR',          # 不動産
-    'XLC', 'VOX', 'IYZ',           # 通信サービス
-    'VYM', 'HDV', 'SPYD', 'VIG',   # 高配当
-]
-
-# S&P500 構成銘柄（yfinance形式: BRK.B → BRK-B 等に変換済み）
-SP500_SYMBOLS = [
-    'MMM','AOS','ABT','ABBV','ACN','ADBE','AMD','AES','AFL','A','APD','ABNB','AKAM','ALB','ARE',
-    'ALGN','ALLE','LNT','ALL','GOOGL','GOOG','MO','AMZN','AMCR','AEE','AEP','AXP','AIG','AMT','AWK',
-    'AMP','AME','AMGN','APH','ADI','AON','APA','APO','AAPL','AMAT','APP','APTV','ACGL','ADM','ARES',
-    'ANET','AJG','AIZ','T','ATO','ADSK','ADP','AZO','AVB','AVY','AXON','BKR','BALL','BAC','BAX',
-    'BDX','BRK-B','BBY','TECH','BIIB','BLK','BX','XYZ','BK','BA','BKNG','BSX','BMY','AVGO','BR',
-    'BRO','BF-B','BLDR','BG','BXP','CHRW','CDNS','CPT','CPB','COF','CAH','CCL','CARR','CVNA','CASY',
-    'CAT','CBOE','CBRE','CDW','COR','CNC','CNP','CF','CRL','SCHW','CHTR','CVX','CMG','CB','CHD',
-    'CIEN','CI','CINF','CTAS','CSCO','C','CFG','CLX','CME','CMS','KO','CTSH','COHR','COIN','CL',
-    'CMCSA','FIX','CAG','COP','ED','STZ','CEG','COO','CPRT','GLW','CPAY','CTVA','CSGP','COST','CTRA',
-    'CRH','CRWD','CCI','CSX','CMI','CVS','DHR','DRI','DDOG','DVA','DECK','DE','DELL','DAL','DVN',
-    'DXCM','FANG','DLR','DG','DLTR','D','DPZ','DASH','DOV','DOW','DHI','DTE','DUK','DD','ETN',
-    'EBAY','SATS','ECL','EIX','EW','EA','ELV','EME','EMR','ETR','EOG','EPAM','EQT','EFX','EQIX',
-    'EQR','ERIE','ESS','EL','EG','EVRG','ES','EXC','EXE','EXPE','EXPD','EXR','XOM','FFIV','FDS',
-    'FICO','FAST','FRT','FDX','FIS','FITB','FSLR','FE','FISV','F','FTNT','FTV','FOXA','FOX','BEN',
-    'FCX','GRMN','IT','GE','GEHC','GEV','GEN','GNRC','GD','GIS','GM','GPC','GILD','GPN','GL',
-    'GDDY','GS','HAL','HIG','HAS','HCA','DOC','HSIC','HSY','HPE','HLT','HD','HON','HRL','HST',
-    'HWM','HPQ','HUBB','HUM','HBAN','HII','IBM','IEX','IDXX','ITW','INCY','IR','PODD','INTC','IBKR',
-    'ICE','IFF','IP','INTU','ISRG','IVZ','INVH','IQV','IRM','JBHT','JBL','JKHY','J','JNJ','JCI',
-    'JPM','KVUE','KDP','KEY','KEYS','KMB','KIM','KMI','KKR','KLAC','KHC','KR','LHX','LH','LRCX',
-    'LVS','LDOS','LEN','LII','LLY','LIN','LYV','LMT','L','LOW','LULU','LITE','LYB','MTB','MPC',
-    'MAR','MRSH','MLM','MAS','MA','MKC','MCD','MCK','MDT','MRK','META','MET','MTD','MGM','MCHP',
-    'MU','MSFT','MAA','MRNA','TAP','MDLZ','MPWR','MNST','MCO','MS','MOS','MSI','MSCI','NDAQ','NTAP',
-    'NFLX','NEM','NWSA','NWS','NEE','NKE','NI','NDSN','NSC','NTRS','NOC','NCLH','NRG','NUE','NVDA',
-    'NVR','NXPI','ORLY','OXY','ODFL','OMC','ON','OKE','ORCL','OTIS','PCAR','PKG','PLTR','PANW','PSKY',
-    'PH','PAYX','PYPL','PNR','PEP','PFE','PCG','PM','PSX','PNW','PNC','POOL','PPG','PPL','PFG',
-    'PG','PGR','PLD','PRU','PEG','PTC','PSA','PHM','PWR','QCOM','DGX','Q','RL','RJF','RTX',
-    'O','REG','REGN','RF','RSG','RMD','RVTY','HOOD','ROK','ROL','ROP','ROST','RCL','SPGI','CRM',
-    'SNDK','SBAC','SLB','STX','SRE','NOW','SHW','SPG','SWKS','SJM','SW','SNA','SOLV','SO','LUV',
-    'SWK','SBUX','STT','STLD','STE','SYK','SMCI','SYF','SNPS','SYY','TMUS','TROW','TTWO','TPR','TRGP',
-    'TGT','TEL','TDY','TER','TSLA','TXN','TPL','TXT','TMO','TJX','TKO','TTD','TSCO','TT','TDG',
-    'TRV','TRMB','TFC','TYL','TSN','USB','UBER','UDR','ULTA','UNP','UAL','UPS','URI','UNH','UHS',
-    'VLO','VTR','VLTO','VRSN','VRSK','VZ','VRTX','VRT','VTRS','VICI','V','VST','VMC','WRB','GWW',
-    'WAB','WMT','DIS','WBD','WM','WAT','WEC','WFC','WELL','WST','WDC','WY','WSM','WMB','WTW',
-    'WDAY','WYNN','XEL','XYL','YUM','ZBRA','ZBH','ZTS'
-]
-
-# SP500 Symbol → GICS Sub-Industry の対応
-SP500_SECTOR_MAP = {
-    'MMM': 'Industrial Conglomerates', 'AOS': 'Building Products', 'ABT': 'Health Care Equipment', 'ABBV': 'Biotechnology',
-    'ACN': 'IT Consulting & Other Services', 'ADBE': 'Application Software', 'AMD': 'Semiconductors', 'AES': 'Independent Power Producers & Energy Traders',
-    'AFL': 'Life & Health Insurance', 'A': 'Life Sciences Tools & Services', 'APD': 'Industrial Gases', 'ABNB': 'Hotels, Resorts & Cruise Lines',
-    'AKAM': 'Internet Services & Infrastructure', 'ALB': 'Specialty Chemicals', 'ARE': 'Office REITs', 'ALGN': 'Health Care Supplies',
-    'ALLE': 'Building Products', 'LNT': 'Electric Utilities', 'ALL': 'Property & Casualty Insurance', 'GOOGL': 'Interactive Media & Services',
-    'GOOG': 'Interactive Media & Services', 'MO': 'Tobacco', 'AMZN': 'Broadline Retail', 'AMCR': 'Paper & Plastic Packaging Products & Materials',
-    'AEE': 'Multi-Utilities', 'AEP': 'Electric Utilities', 'AXP': 'Consumer Finance', 'AIG': 'Multi-line Insurance',
-    'AMT': 'Telecom Tower REITs', 'AWK': 'Water Utilities', 'AMP': 'Asset Management & Custody Banks', 'AME': 'Electrical Components & Equipment',
-    'AMGN': 'Biotechnology', 'APH': 'Electronic Components', 'ADI': 'Semiconductors', 'AON': 'Insurance Brokers',
-    'APA': 'Oil & Gas Exploration & Production', 'APO': 'Asset Management & Custody Banks', 'AAPL': 'Technology Hardware, Storage & Peripherals', 'AMAT': 'Semiconductor Materials & Equipment',
-    'APP': 'Application Software', 'APTV': 'Automotive Parts & Equipment', 'ACGL': 'Property & Casualty Insurance', 'ADM': 'Agricultural Products & Services',
-    'ARES': 'Asset Management & Custody Banks', 'ANET': 'Communications Equipment', 'AJG': 'Insurance Brokers', 'AIZ': 'Multi-line Insurance',
-    'T': 'Integrated Telecommunication Services', 'ATO': 'Gas Utilities', 'ADSK': 'Application Software', 'ADP': 'Human Resource & Employment Services',
-    'AZO': 'Automotive Retail', 'AVB': 'Multi-Family Residential REITs', 'AVY': 'Paper & Plastic Packaging Products & Materials', 'AXON': 'Aerospace & Defense',
-    'BKR': 'Oil & Gas Equipment & Services', 'BALL': 'Metal, Glass & Plastic Containers', 'BAC': 'Diversified Banks', 'BAX': 'Health Care Equipment',
-    'BDX': 'Health Care Equipment', 'BRK-B': 'Multi-Sector Holdings', 'BBY': 'Computer & Electronics Retail', 'TECH': 'Life Sciences Tools & Services',
-    'BIIB': 'Biotechnology', 'BLK': 'Asset Management & Custody Banks', 'BX': 'Asset Management & Custody Banks', 'XYZ': 'Transaction & Payment Processing Services',
-    'BK': 'Asset Management & Custody Banks', 'BA': 'Aerospace & Defense', 'BKNG': 'Hotels, Resorts & Cruise Lines', 'BSX': 'Health Care Equipment',
-    'BMY': 'Pharmaceuticals', 'AVGO': 'Semiconductors', 'BR': 'Data Processing & Outsourced Services', 'BRO': 'Insurance Brokers',
-    'BF-B': 'Distillers & Vintners', 'BLDR': 'Building Products', 'BG': 'Agricultural Products & Services', 'BXP': 'Office REITs',
-    'CHRW': 'Air Freight & Logistics', 'CDNS': 'Application Software', 'CPT': 'Multi-Family Residential REITs', 'CPB': 'Packaged Foods & Meats',
-    'COF': 'Consumer Finance', 'CAH': 'Health Care Distributors', 'CCL': 'Hotels, Resorts & Cruise Lines', 'CARR': 'Building Products',
-    'CVNA': 'Automotive Retail', 'CASY': 'Food Retail', 'CAT': 'Construction Machinery & Heavy Transportation Equipment', 'CBOE': 'Financial Exchanges & Data',
-    'CBRE': 'Real Estate Services', 'CDW': 'Technology Distributors', 'COR': 'Health Care Distributors', 'CNC': 'Managed Health Care',
-    'CNP': 'Multi-Utilities', 'CF': 'Fertilizers & Agricultural Chemicals', 'CRL': 'Life Sciences Tools & Services', 'SCHW': 'Investment Banking & Brokerage',
-    'CHTR': 'Cable & Satellite', 'CVX': 'Integrated Oil & Gas', 'CMG': 'Restaurants', 'CB': 'Property & Casualty Insurance',
-    'CHD': 'Household Products', 'CIEN': 'Communications Equipment', 'CI': 'Health Care Services', 'CINF': 'Property & Casualty Insurance',
-    'CTAS': 'Diversified Support Services', 'CSCO': 'Communications Equipment', 'C': 'Diversified Banks', 'CFG': 'Regional Banks',
-    'CLX': 'Household Products', 'CME': 'Financial Exchanges & Data', 'CMS': 'Multi-Utilities', 'KO': 'Soft Drinks & Non-alcoholic Beverages',
-    'CTSH': 'IT Consulting & Other Services', 'COHR': 'Electronic Components', 'COIN': 'Financial Exchanges & Data', 'CL': 'Household Products',
-    'CMCSA': 'Cable & Satellite', 'FIX': 'Construction & Engineering', 'CAG': 'Packaged Foods & Meats', 'COP': 'Oil & Gas Exploration & Production',
-    'ED': 'Multi-Utilities', 'STZ': 'Distillers & Vintners', 'CEG': 'Electric Utilities', 'COO': 'Health Care Supplies',
-    'CPRT': 'Diversified Support Services', 'GLW': 'Electronic Components', 'CPAY': 'Transaction & Payment Processing Services', 'CTVA': 'Fertilizers & Agricultural Chemicals',
-    'CSGP': 'Real Estate Services', 'COST': 'Consumer Staples Merchandise Retail', 'CTRA': 'Oil & Gas Exploration & Production', 'CRH': 'Construction Materials',
-    'CRWD': 'Systems Software', 'CCI': 'Telecom Tower REITs', 'CSX': 'Rail Transportation', 'CMI': 'Construction Machinery & Heavy Transportation Equipment',
-    'CVS': 'Health Care Services', 'DHR': 'Life Sciences Tools & Services', 'DRI': 'Restaurants', 'DDOG': 'Application Software',
-    'DVA': 'Health Care Services', 'DECK': 'Footwear', 'DE': 'Agricultural & Farm Machinery', 'DELL': 'Technology Hardware, Storage & Peripherals',
-    'DAL': 'Passenger Airlines', 'DVN': 'Oil & Gas Exploration & Production', 'DXCM': 'Health Care Equipment', 'FANG': 'Oil & Gas Exploration & Production',
-    'DLR': 'Data Center REITs', 'DG': 'Consumer Staples Merchandise Retail', 'DLTR': 'Consumer Staples Merchandise Retail', 'D': 'Multi-Utilities',
-    'DPZ': 'Restaurants', 'DASH': 'Specialized Consumer Services', 'DOV': 'Industrial Machinery & Supplies & Components', 'DOW': 'Commodity Chemicals',
-    'DHI': 'Homebuilding', 'DTE': 'Multi-Utilities', 'DUK': 'Electric Utilities', 'DD': 'Specialty Chemicals',
-    'ETN': 'Electrical Components & Equipment', 'EBAY': 'Broadline Retail', 'SATS': 'Wireless Telecommunication Services', 'ECL': 'Specialty Chemicals',
-    'EIX': 'Electric Utilities', 'EW': 'Health Care Equipment', 'EA': 'Interactive Home Entertainment', 'ELV': 'Managed Health Care',
-    'EME': 'Construction & Engineering', 'EMR': 'Electrical Components & Equipment', 'ETR': 'Electric Utilities', 'EOG': 'Oil & Gas Exploration & Production',
-    'EPAM': 'IT Consulting & Other Services', 'EQT': 'Oil & Gas Exploration & Production', 'EFX': 'Research & Consulting Services', 'EQIX': 'Data Center REITs',
-    'EQR': 'Multi-Family Residential REITs', 'ERIE': 'Insurance Brokers', 'ESS': 'Multi-Family Residential REITs', 'EL': 'Personal Care Products',
-    'EG': 'Reinsurance', 'EVRG': 'Electric Utilities', 'ES': 'Electric Utilities', 'EXC': 'Electric Utilities',
-    'EXE': 'Oil & Gas Exploration & Production', 'EXPE': 'Hotels, Resorts & Cruise Lines', 'EXPD': 'Air Freight & Logistics', 'EXR': 'Self-Storage REITs',
-    'XOM': 'Integrated Oil & Gas', 'FFIV': 'Communications Equipment', 'FDS': 'Financial Exchanges & Data', 'FICO': 'Application Software',
-    'FAST': 'Trading Companies & Distributors', 'FRT': 'Retail REITs', 'FDX': 'Air Freight & Logistics', 'FIS': 'Transaction & Payment Processing Services',
-    'FITB': 'Regional Banks', 'FSLR': 'Semiconductors', 'FE': 'Electric Utilities', 'FISV': 'Transaction & Payment Processing Services',
-    'F': 'Automobile Manufacturers', 'FTNT': 'Systems Software', 'FTV': 'Industrial Machinery & Supplies & Components', 'FOXA': 'Broadcasting',
-    'FOX': 'Broadcasting', 'BEN': 'Asset Management & Custody Banks', 'FCX': 'Copper', 'GRMN': 'Consumer Electronics',
-    'IT': 'IT Consulting & Other Services', 'GE': 'Aerospace & Defense', 'GEHC': 'Health Care Equipment', 'GEV': 'Heavy Electrical Equipment',
-    'GEN': 'Systems Software', 'GNRC': 'Electrical Components & Equipment', 'GD': 'Aerospace & Defense', 'GIS': 'Packaged Foods & Meats',
-    'GM': 'Automobile Manufacturers', 'GPC': 'Distributors', 'GILD': 'Biotechnology', 'GPN': 'Transaction & Payment Processing Services',
-    'GL': 'Life & Health Insurance', 'GDDY': 'Internet Services & Infrastructure', 'GS': 'Investment Banking & Brokerage', 'HAL': 'Oil & Gas Equipment & Services',
-    'HIG': 'Property & Casualty Insurance', 'HAS': 'Leisure Products', 'HCA': 'Health Care Facilities', 'DOC': 'Health Care REITs',
-    'HSIC': 'Health Care Distributors', 'HSY': 'Packaged Foods & Meats', 'HPE': 'Technology Hardware, Storage & Peripherals', 'HLT': 'Hotels, Resorts & Cruise Lines',
-    'HD': 'Home Improvement Retail', 'HON': 'Industrial Conglomerates', 'HRL': 'Packaged Foods & Meats', 'HST': 'Hotel & Resort REITs',
-    'HWM': 'Aerospace & Defense', 'HPQ': 'Technology Hardware, Storage & Peripherals', 'HUBB': 'Industrial Machinery & Supplies & Components', 'HUM': 'Managed Health Care',
-    'HBAN': 'Regional Banks', 'HII': 'Aerospace & Defense', 'IBM': 'IT Consulting & Other Services', 'IEX': 'Industrial Machinery & Supplies & Components',
-    'IDXX': 'Health Care Equipment', 'ITW': 'Industrial Machinery & Supplies & Components', 'INCY': 'Biotechnology', 'IR': 'Industrial Machinery & Supplies & Components',
-    'PODD': 'Health Care Equipment', 'INTC': 'Semiconductors', 'IBKR': 'Investment Banking & Brokerage', 'ICE': 'Financial Exchanges & Data',
-    'IFF': 'Specialty Chemicals', 'IP': 'Paper & Plastic Packaging Products & Materials', 'INTU': 'Application Software', 'ISRG': 'Health Care Equipment',
-    'IVZ': 'Asset Management & Custody Banks', 'INVH': 'Single-Family Residential REITs', 'IQV': 'Life Sciences Tools & Services', 'IRM': 'Other Specialized REITs',
-    'JBHT': 'Cargo Ground Transportation', 'JBL': 'Electronic Manufacturing Services', 'JKHY': 'Transaction & Payment Processing Services', 'J': 'Construction & Engineering',
-    'JNJ': 'Pharmaceuticals', 'JCI': 'Building Products', 'JPM': 'Diversified Banks', 'KVUE': 'Personal Care Products',
-    'KDP': 'Soft Drinks & Non-alcoholic Beverages', 'KEY': 'Regional Banks', 'KEYS': 'Electronic Equipment & Instruments', 'KMB': 'Household Products',
-    'KIM': 'Retail REITs', 'KMI': 'Oil & Gas Storage & Transportation', 'KKR': 'Asset Management & Custody Banks', 'KLAC': 'Semiconductor Materials & Equipment',
-    'KHC': 'Packaged Foods & Meats', 'KR': 'Food Retail', 'LHX': 'Aerospace & Defense', 'LH': 'Health Care Services',
-    'LRCX': 'Semiconductor Materials & Equipment', 'LVS': 'Casinos & Gaming', 'LDOS': 'Diversified Support Services', 'LEN': 'Homebuilding',
-    'LII': 'Building Products', 'LLY': 'Pharmaceuticals', 'LIN': 'Industrial Gases', 'LYV': 'Movies & Entertainment',
-    'LMT': 'Aerospace & Defense', 'L': 'Multi-line Insurance', 'LOW': 'Home Improvement Retail', 'LULU': 'Apparel, Accessories & Luxury Goods',
-    'LITE': 'Communications Equipment', 'LYB': 'Specialty Chemicals', 'MTB': 'Regional Banks', 'MPC': 'Oil & Gas Refining & Marketing',
-    'MAR': 'Hotels, Resorts & Cruise Lines', 'MRSH': 'Insurance Brokers', 'MLM': 'Construction Materials', 'MAS': 'Building Products',
-    'MA': 'Transaction & Payment Processing Services', 'MKC': 'Packaged Foods & Meats', 'MCD': 'Restaurants', 'MCK': 'Health Care Distributors',
-    'MDT': 'Health Care Equipment', 'MRK': 'Pharmaceuticals', 'META': 'Interactive Media & Services', 'MET': 'Life & Health Insurance',
-    'MTD': 'Life Sciences Tools & Services', 'MGM': 'Casinos & Gaming', 'MCHP': 'Semiconductors', 'MU': 'Semiconductors',
-    'MSFT': 'Systems Software', 'MAA': 'Multi-Family Residential REITs', 'MRNA': 'Biotechnology', 'TAP': 'Brewers',
-    'MDLZ': 'Packaged Foods & Meats', 'MPWR': 'Semiconductors', 'MNST': 'Soft Drinks & Non-alcoholic Beverages', 'MCO': 'Financial Exchanges & Data',
-    'MS': 'Investment Banking & Brokerage', 'MOS': 'Fertilizers & Agricultural Chemicals', 'MSI': 'Communications Equipment', 'MSCI': 'Financial Exchanges & Data',
-    'NDAQ': 'Financial Exchanges & Data', 'NTAP': 'Technology Hardware, Storage & Peripherals', 'NFLX': 'Movies & Entertainment', 'NEM': 'Gold',
-    'NWSA': 'Publishing', 'NWS': 'Publishing', 'NEE': 'Multi-Utilities', 'NKE': 'Apparel, Accessories & Luxury Goods',
-    'NI': 'Multi-Utilities', 'NDSN': 'Industrial Machinery & Supplies & Components', 'NSC': 'Rail Transportation', 'NTRS': 'Asset Management & Custody Banks',
-    'NOC': 'Aerospace & Defense', 'NCLH': 'Hotels, Resorts & Cruise Lines', 'NRG': 'Independent Power Producers & Energy Traders', 'NUE': 'Steel',
-    'NVDA': 'Semiconductors', 'NVR': 'Homebuilding', 'NXPI': 'Semiconductors', 'ORLY': 'Automotive Retail',
-    'OXY': 'Oil & Gas Exploration & Production', 'ODFL': 'Cargo Ground Transportation', 'OMC': 'Advertising', 'ON': 'Semiconductors',
-    'OKE': 'Oil & Gas Storage & Transportation', 'ORCL': 'Application Software', 'OTIS': 'Industrial Machinery & Supplies & Components', 'PCAR': 'Construction Machinery & Heavy Transportation Equipment',
-    'PKG': 'Paper & Plastic Packaging Products & Materials', 'PLTR': 'Application Software', 'PANW': 'Systems Software', 'PSKY': 'Movies & Entertainment',
-    'PH': 'Industrial Machinery & Supplies & Components', 'PAYX': 'Human Resource & Employment Services', 'PYPL': 'Transaction & Payment Processing Services', 'PNR': 'Industrial Machinery & Supplies & Components',
-    'PEP': 'Soft Drinks & Non-alcoholic Beverages', 'PFE': 'Pharmaceuticals', 'PCG': 'Multi-Utilities', 'PM': 'Tobacco',
-    'PSX': 'Oil & Gas Refining & Marketing', 'PNW': 'Multi-Utilities', 'PNC': 'Diversified Banks', 'POOL': 'Distributors',
-    'PPG': 'Specialty Chemicals', 'PPL': 'Electric Utilities', 'PFG': 'Life & Health Insurance', 'PG': 'Personal Care Products',
-    'PGR': 'Property & Casualty Insurance', 'PLD': 'Industrial REITs', 'PRU': 'Life & Health Insurance', 'PEG': 'Electric Utilities',
-    'PTC': 'Application Software', 'PSA': 'Self-Storage REITs', 'PHM': 'Homebuilding', 'PWR': 'Construction & Engineering',
-    'QCOM': 'Semiconductors', 'DGX': 'Health Care Services', 'Q': 'Semiconductor Materials & Equipment', 'RL': 'Apparel, Accessories & Luxury Goods',
-    'RJF': 'Investment Banking & Brokerage', 'RTX': 'Aerospace & Defense', 'O': 'Retail REITs', 'REG': 'Retail REITs',
-    'REGN': 'Biotechnology', 'RF': 'Regional Banks', 'RSG': 'Environmental & Facilities Services', 'RMD': 'Health Care Equipment',
-    'RVTY': 'Health Care Equipment', 'HOOD': 'Investment Banking & Brokerage', 'ROK': 'Electrical Components & Equipment', 'ROL': 'Environmental & Facilities Services',
-    'ROP': 'Electronic Equipment & Instruments', 'ROST': 'Apparel Retail', 'RCL': 'Hotels, Resorts & Cruise Lines', 'SPGI': 'Financial Exchanges & Data',
-    'CRM': 'Application Software', 'SNDK': 'Technology Hardware, Storage & Peripherals', 'SBAC': 'Telecom Tower REITs', 'SLB': 'Oil & Gas Equipment & Services',
-    'STX': 'Technology Hardware, Storage & Peripherals', 'SRE': 'Multi-Utilities', 'NOW': 'Systems Software', 'SHW': 'Specialty Chemicals',
-    'SPG': 'Retail REITs', 'SWKS': 'Semiconductors', 'SJM': 'Packaged Foods & Meats', 'SW': 'Paper & Plastic Packaging Products & Materials',
-    'SNA': 'Industrial Machinery & Supplies & Components', 'SOLV': 'Health Care Technology', 'SO': 'Electric Utilities', 'LUV': 'Passenger Airlines',
-    'SWK': 'Industrial Machinery & Supplies & Components', 'SBUX': 'Restaurants', 'STT': 'Asset Management & Custody Banks', 'STLD': 'Steel',
-    'STE': 'Health Care Equipment', 'SYK': 'Health Care Equipment', 'SMCI': 'Technology Hardware, Storage & Peripherals', 'SYF': 'Consumer Finance',
-    'SNPS': 'Application Software', 'SYY': 'Food Distributors', 'TMUS': 'Wireless Telecommunication Services', 'TROW': 'Asset Management & Custody Banks',
-    'TTWO': 'Interactive Home Entertainment', 'TPR': 'Apparel, Accessories & Luxury Goods', 'TRGP': 'Oil & Gas Storage & Transportation', 'TGT': 'Consumer Staples Merchandise Retail',
-    'TEL': 'Electronic Manufacturing Services', 'TDY': 'Electronic Equipment & Instruments', 'TER': 'Semiconductor Materials & Equipment', 'TSLA': 'Automobile Manufacturers',
-    'TXN': 'Semiconductors', 'TPL': 'Oil & Gas Exploration & Production', 'TXT': 'Aerospace & Defense', 'TMO': 'Life Sciences Tools & Services',
-    'TJX': 'Apparel Retail', 'TKO': 'Movies & Entertainment', 'TTD': 'Advertising', 'TSCO': 'Other Specialty Retail',
-    'TT': 'Building Products', 'TDG': 'Aerospace & Defense', 'TRV': 'Property & Casualty Insurance', 'TRMB': 'Application Software',
-    'TFC': 'Diversified Banks', 'TYL': 'Application Software', 'TSN': 'Packaged Foods & Meats', 'USB': 'Diversified Banks',
-    'UBER': 'Passenger Ground Transportation', 'UDR': 'Multi-Family Residential REITs', 'ULTA': 'Other Specialty Retail', 'UNP': 'Rail Transportation',
-    'UAL': 'Passenger Airlines', 'UPS': 'Air Freight & Logistics', 'URI': 'Trading Companies & Distributors', 'UNH': 'Managed Health Care',
-    'UHS': 'Health Care Facilities', 'VLO': 'Oil & Gas Refining & Marketing', 'VTR': 'Health Care REITs', 'VLTO': 'Environmental & Facilities Services',
-    'VRSN': 'Internet Services & Infrastructure', 'VRSK': 'Research & Consulting Services', 'VZ': 'Integrated Telecommunication Services', 'VRTX': 'Biotechnology',
-    'VRT': 'Electrical Components & Equipment', 'VTRS': 'Pharmaceuticals', 'VICI': 'Hotel & Resort REITs', 'V': 'Transaction & Payment Processing Services',
-    'VST': 'Electric Utilities', 'VMC': 'Construction Materials', 'WRB': 'Property & Casualty Insurance', 'GWW': 'Industrial Machinery & Supplies & Components',
-    'WAB': 'Construction Machinery & Heavy Transportation Equipment', 'WMT': 'Consumer Staples Merchandise Retail', 'DIS': 'Movies & Entertainment', 'WBD': 'Broadcasting',
-    'WM': 'Environmental & Facilities Services', 'WAT': 'Life Sciences Tools & Services', 'WEC': 'Electric Utilities', 'WFC': 'Diversified Banks',
-    'WELL': 'Health Care REITs', 'WST': 'Health Care Supplies', 'WDC': 'Technology Hardware, Storage & Peripherals', 'WY': 'Timber REITs',
-    'WSM': 'Homefurnishing Retail', 'WMB': 'Oil & Gas Storage & Transportation', 'WTW': 'Insurance Brokers', 'WDAY': 'Application Software',
-    'WYNN': 'Casinos & Gaming', 'XEL': 'Multi-Utilities', 'XYL': 'Industrial Machinery & Supplies & Components', 'YUM': 'Restaurants',
-    'ZBRA': 'Electronic Equipment & Instruments', 'ZBH': 'Health Care Equipment', 'ZTS': 'Pharmaceuticals',
-}
-
-INDEX_SYMBOLS = ['NQ1!', 'ES1!', 'NI225']
-
-# 先物・指数タブに表示する銘柄（3色判定：緑=上昇 / 黄=レンジ / 赤=下降）
-FUTURES_INDEX_SET = frozenset(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT'])
-
-# NASDAQ100構成銘柄（2026年6月時点、slickcharts.com 公開リストより。
-# 2026年1月20日のリバランスでAZNがWMTに置換済み。GOOGとGOOGLの両方を含むため101銘柄。)
-NASDAQ100_SYMBOLS = [
-    'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'GOOG', 'AVGO', 'META', 'TSLA', 'MU',
-    'WMT', 'AMD', 'ASML', 'INTC', 'CSCO', 'COST', 'LRCX', 'ARM', 'AMAT', 'NFLX',
-    'PLTR', 'TXN', 'KLAC', 'LIN', 'SNDK', 'MRVL', 'QCOM', 'PANW', 'ADI', 'PEP',
-    'TMUS', 'STX', 'AMGN', 'APP', 'WDC', 'CRWD', 'GILD', 'ISRG', 'SHOP', 'HON',
-    'BKNG', 'PDD', 'VRTX', 'SBUX', 'FTNT', 'CDNS', 'MAR', 'ADBE', 'ADP', 'CEG',
-    'SNPS', 'MNST', 'CSX', 'CMCSA', 'DDOG', 'MELI', 'INTU', 'MDLZ', 'ABNB', 'ORLY',
-    'NXPI', 'ROST', 'MPWR', 'CTAS', 'AEP', 'DASH', 'LITE', 'REGN', 'WBD', 'BKR',
-    'PCAR', 'FANG', 'FAST', 'EA', 'ODFL', 'XEL', 'ADSK', 'MCHP', 'FER', 'EXC',
-    'IDXX', 'MSTR', 'CCEP', 'KDP', 'ALNY', 'TTWO', 'AXON', 'TRI', 'PYPL', 'PAYX',
-    'WDAY', 'ROP', 'GEHC', 'CPRT', 'DXCM', 'KHC', 'CTSH', 'VRSK', 'ZS', 'INSM',
-    'CHTR',
-]
-
-# NASDAQ100にあってS&P500にない銘柄のセクター情報のみここに定義
-# S&P500と重複する銘柄は SP500_SECTOR_MAP から取得する（後述の get_sector ヘルパー参照）
-NASDAQ100_SECTOR_MAP = {
-    'ARM':  'Semiconductors',
-    'ASML': 'Semiconductor Materials & Equipment',
-    'CCEP': 'Soft Drinks & Non-alcoholic Beverages',
-    'MRVL': 'Semiconductors',
-    'MELI': 'Broadline Retail',
-    'MSTR': 'Application Software',
-    'PDD':  'Broadline Retail',
-    'SHOP': 'Application Software',
-    'ZS':   'Systems Software',
-    'ALNY': 'Biotechnology',
-    'INSM': 'Biotechnology',
-    'FER':  'Construction & Engineering',
-    'TRI':  'Research & Consulting Services',
-}
-
-
-def get_sector(sym):
-    """シンボルのセクター情報を取得する（為替・ETF・SP500 → NASDAQ100追加分 → 日経225 の順で参照）。"""
-    if sym in FOREX_NAMES:
-        return FOREX_NAMES[sym]
-    if sym in ETF_SECTOR_MAP:
-        return ETF_SECTOR_MAP[sym]
-    return (SP500_SECTOR_MAP.get(sym)
-            or NASDAQ100_SECTOR_MAP.get(sym)
-            or NIKKEI225_SECTOR_MAP.get(sym)
-            or '')
-
-
-# 日経225構成銘柄（2026年6月4日時点・公式の日経平均プロフィルより）
-NIKKEI225_SYMBOLS = [
-    'N225',  # 日経平均株価指数（^N225）
-    # 医薬品 (9)
-    "TSE:4151", "TSE:4502", "TSE:4503", "TSE:4506", "TSE:4507",
-    "TSE:4519", "TSE:4523", "TSE:4568", "TSE:4578",
-    # 電気機器 (32)
-    "TSE:285A", "TSE:4062", "TSE:6479", "TSE:6501", "TSE:6503",
-    "TSE:6504", "TSE:6506", "TSE:6526", "TSE:6645", "TSE:6701",
-    "TSE:6702", "TSE:6723", "TSE:6724", "TSE:6752", "TSE:6753",
-    "TSE:6758", "TSE:6762", "TSE:6770", "TSE:6841", "TSE:6857",
-    "TSE:6861", "TSE:6902", "TSE:6920", "TSE:6954", "TSE:6963",
-    "TSE:6971", "TSE:6976", "TSE:6981", "TSE:7735", "TSE:7751",
-    "TSE:7752", "TSE:8035",
-    # 自動車 (10)
-    "TSE:543A", "TSE:7201", "TSE:7202", "TSE:7203", "TSE:7211",
-    "TSE:7261", "TSE:7267", "TSE:7269", "TSE:7270", "TSE:7272",
-    # 精密機器 (6)
-    "TSE:4543", "TSE:4902", "TSE:6146", "TSE:7731", "TSE:7733",
-    "TSE:7741",
-    # 通信 (4)
-    "TSE:9432", "TSE:9433", "TSE:9434", "TSE:9984",
-    # 銀行 (10)
-    "TSE:5831", "TSE:7186", "TSE:8304", "TSE:8306", "TSE:8308",
-    "TSE:8309", "TSE:8316", "TSE:8331", "TSE:8354", "TSE:8411",
-    # その他金融 (3)
-    "TSE:8253", "TSE:8591", "TSE:8697",
-    # 証券 (2)
-    "TSE:8601", "TSE:8604",
-    # 保険 (5)
-    "TSE:8630", "TSE:8725", "TSE:8750", "TSE:8766", "TSE:8795",
-    # 水産 (1)
-    "TSE:1332",
-    # 食品 (10)
-    "TSE:2002", "TSE:2269", "TSE:2282", "TSE:2501", "TSE:2502",
-    "TSE:2503", "TSE:2801", "TSE:2802", "TSE:2871", "TSE:2914",
-    # 小売業 (11)
-    "TSE:3086", "TSE:3092", "TSE:3099", "TSE:3382", "TSE:7453",
-    "TSE:7532", "TSE:8233", "TSE:8252", "TSE:8267", "TSE:9843",
-    "TSE:9983",
-    # サービス (19)
-    "TSE:2413", "TSE:2432", "TSE:3659", "TSE:3697", "TSE:4307",
-    "TSE:4324", "TSE:4385", "TSE:4661", "TSE:4689", "TSE:4704",
-    "TSE:4751", "TSE:4755", "TSE:6098", "TSE:6178", "TSE:6532",
-    "TSE:7974", "TSE:9602", "TSE:9735", "TSE:9766",
-    # 鉱業 (1)
-    "TSE:1605",
-    # 繊維 (2)
-    "TSE:3401", "TSE:3402",
-    # パルプ・紙 (1)
-    "TSE:3861",
-    # 化学 (16)
-    "TSE:3405", "TSE:3407", "TSE:4004", "TSE:4005", "TSE:4021",
-    "TSE:4042", "TSE:4043", "TSE:4061", "TSE:4063", "TSE:4183",
-    "TSE:4188", "TSE:4208", "TSE:4452", "TSE:4901", "TSE:4911",
-    "TSE:6988",
-    # 石油 (2)
-    "TSE:5019", "TSE:5020",
-    # ゴム (2)
-    "TSE:5101", "TSE:5108",
-    # 窯業 (6)
-    "TSE:5201", "TSE:5214", "TSE:5233", "TSE:5301", "TSE:5332",
-    "TSE:5333",
-    # 鉄鋼 (3)
-    "TSE:5401", "TSE:5406", "TSE:5411",
-    # 非鉄・金属 (8)
-    "TSE:3436", "TSE:5706", "TSE:5711", "TSE:5713", "TSE:5714",
-    "TSE:5801", "TSE:5802", "TSE:5803",
-    # 商社 (7)
-    "TSE:2768", "TSE:8001", "TSE:8002", "TSE:8015", "TSE:8031",
-    "TSE:8053", "TSE:8058",
-    # 建設 (9)
-    "TSE:1721", "TSE:1801", "TSE:1802", "TSE:1803", "TSE:1808",
-    "TSE:1812", "TSE:1925", "TSE:1928", "TSE:1963",
-    # 機械 (16)
-    "TSE:5631", "TSE:6103", "TSE:6113", "TSE:6273", "TSE:6301",
-    "TSE:6302", "TSE:6305", "TSE:6326", "TSE:6361", "TSE:6367",
-    "TSE:6471", "TSE:6472", "TSE:6473", "TSE:7004", "TSE:7011",
-    "TSE:7013",
-    # 造船 (1)
-    "TSE:7012",
-    # その他製造 (4)
-    "TSE:7832", "TSE:7911", "TSE:7912", "TSE:7951",
-    # 不動産 (5)
-    "TSE:3289", "TSE:8801", "TSE:8802", "TSE:8804", "TSE:8830",
-    # 鉄道・バス (8)
-    "TSE:9001", "TSE:9005", "TSE:9007", "TSE:9008", "TSE:9009",
-    "TSE:9020", "TSE:9021", "TSE:9022",
-    # 陸運 (2)
-    "TSE:9064", "TSE:9147",
-    # 海運 (3)
-    "TSE:9101", "TSE:9104", "TSE:9107",
-    # 空運 (2)
-    "TSE:9201", "TSE:9202",
-    # 電力 (3)
-    "TSE:9501", "TSE:9502", "TSE:9503",
-    # ガス (2)
-    "TSE:9531", "TSE:9532",
-]
-
-# 日経225のセクター（業種）マップ（公式分類）
-NIKKEI225_SECTOR_MAP = {
-    'N225': '指数',
-    "TSE:4151": "医薬品", "TSE:4502": "医薬品", "TSE:4503": "医薬品", "TSE:4506": "医薬品", "TSE:4507": "医薬品",
-    "TSE:4519": "医薬品", "TSE:4523": "医薬品", "TSE:4568": "医薬品", "TSE:4578": "医薬品",
-    "TSE:285A": "電気機器", "TSE:4062": "電気機器", "TSE:6479": "電気機器", "TSE:6501": "電気機器", "TSE:6503": "電気機器",
-    "TSE:6504": "電気機器", "TSE:6506": "電気機器", "TSE:6526": "電気機器", "TSE:6645": "電気機器", "TSE:6701": "電気機器",
-    "TSE:6702": "電気機器", "TSE:6723": "電気機器", "TSE:6724": "電気機器", "TSE:6752": "電気機器", "TSE:6753": "電気機器",
-    "TSE:6758": "電気機器", "TSE:6762": "電気機器", "TSE:6770": "電気機器", "TSE:6841": "電気機器", "TSE:6857": "電気機器",
-    "TSE:6861": "電気機器", "TSE:6902": "電気機器", "TSE:6920": "電気機器", "TSE:6954": "電気機器", "TSE:6963": "電気機器",
-    "TSE:6971": "電気機器", "TSE:6976": "電気機器", "TSE:6981": "電気機器", "TSE:7735": "電気機器", "TSE:7751": "電気機器",
-    "TSE:7752": "電気機器", "TSE:8035": "電気機器",
-    "TSE:543A": "自動車", "TSE:7201": "自動車", "TSE:7202": "自動車", "TSE:7203": "自動車", "TSE:7211": "自動車",
-    "TSE:7261": "自動車", "TSE:7267": "自動車", "TSE:7269": "自動車", "TSE:7270": "自動車", "TSE:7272": "自動車",
-    "TSE:4543": "精密機器", "TSE:4902": "精密機器", "TSE:6146": "精密機器", "TSE:7731": "精密機器", "TSE:7733": "精密機器",
-    "TSE:7741": "精密機器",
-    "TSE:9432": "通信", "TSE:9433": "通信", "TSE:9434": "通信", "TSE:9984": "通信",
-    "TSE:5831": "銀行", "TSE:7186": "銀行", "TSE:8304": "銀行", "TSE:8306": "銀行", "TSE:8308": "銀行",
-    "TSE:8309": "銀行", "TSE:8316": "銀行", "TSE:8331": "銀行", "TSE:8354": "銀行", "TSE:8411": "銀行",
-    "TSE:8253": "その他金融", "TSE:8591": "その他金融", "TSE:8697": "その他金融",
-    "TSE:8601": "証券", "TSE:8604": "証券",
-    "TSE:8630": "保険", "TSE:8725": "保険", "TSE:8750": "保険", "TSE:8766": "保険", "TSE:8795": "保険",
-    "TSE:1332": "水産",
-    "TSE:2002": "食品", "TSE:2269": "食品", "TSE:2282": "食品", "TSE:2501": "食品", "TSE:2502": "食品",
-    "TSE:2503": "食品", "TSE:2801": "食品", "TSE:2802": "食品", "TSE:2871": "食品", "TSE:2914": "食品",
-    "TSE:3086": "小売業", "TSE:3092": "小売業", "TSE:3099": "小売業", "TSE:3382": "小売業", "TSE:7453": "小売業",
-    "TSE:7532": "小売業", "TSE:8233": "小売業", "TSE:8252": "小売業", "TSE:8267": "小売業", "TSE:9843": "小売業",
-    "TSE:9983": "小売業",
-    "TSE:2413": "サービス", "TSE:2432": "サービス", "TSE:3659": "サービス", "TSE:3697": "サービス", "TSE:4307": "サービス",
-    "TSE:4324": "サービス", "TSE:4385": "サービス", "TSE:4661": "サービス", "TSE:4689": "サービス", "TSE:4704": "サービス",
-    "TSE:4751": "サービス", "TSE:4755": "サービス", "TSE:6098": "サービス", "TSE:6178": "サービス", "TSE:6532": "サービス",
-    "TSE:7974": "サービス", "TSE:9602": "サービス", "TSE:9735": "サービス", "TSE:9766": "サービス",
-    "TSE:1605": "鉱業",
-    "TSE:3401": "繊維", "TSE:3402": "繊維",
-    "TSE:3861": "パルプ・紙",
-    "TSE:3405": "化学", "TSE:3407": "化学", "TSE:4004": "化学", "TSE:4005": "化学", "TSE:4021": "化学",
-    "TSE:4042": "化学", "TSE:4043": "化学", "TSE:4061": "化学", "TSE:4063": "化学", "TSE:4183": "化学",
-    "TSE:4188": "化学", "TSE:4208": "化学", "TSE:4452": "化学", "TSE:4901": "化学", "TSE:4911": "化学",
-    "TSE:6988": "化学",
-    "TSE:5019": "石油", "TSE:5020": "石油",
-    "TSE:5101": "ゴム", "TSE:5108": "ゴム",
-    "TSE:5201": "窯業", "TSE:5214": "窯業", "TSE:5233": "窯業", "TSE:5301": "窯業", "TSE:5332": "窯業",
-    "TSE:5333": "窯業",
-    "TSE:5401": "鉄鋼", "TSE:5406": "鉄鋼", "TSE:5411": "鉄鋼",
-    "TSE:3436": "非鉄・金属", "TSE:5706": "非鉄・金属", "TSE:5711": "非鉄・金属", "TSE:5713": "非鉄・金属", "TSE:5714": "非鉄・金属",
-    "TSE:5801": "非鉄・金属", "TSE:5802": "非鉄・金属", "TSE:5803": "非鉄・金属",
-    "TSE:2768": "商社", "TSE:8001": "商社", "TSE:8002": "商社", "TSE:8015": "商社", "TSE:8031": "商社",
-    "TSE:8053": "商社", "TSE:8058": "商社",
-    "TSE:1721": "建設", "TSE:1801": "建設", "TSE:1802": "建設", "TSE:1803": "建設", "TSE:1808": "建設",
-    "TSE:1812": "建設", "TSE:1925": "建設", "TSE:1928": "建設", "TSE:1963": "建設",
-    "TSE:5631": "機械", "TSE:6103": "機械", "TSE:6113": "機械", "TSE:6273": "機械", "TSE:6301": "機械",
-    "TSE:6302": "機械", "TSE:6305": "機械", "TSE:6326": "機械", "TSE:6361": "機械", "TSE:6367": "機械",
-    "TSE:6471": "機械", "TSE:6472": "機械", "TSE:6473": "機械", "TSE:7004": "機械", "TSE:7011": "機械",
-    "TSE:7013": "機械",
-    "TSE:7012": "造船",
-    "TSE:7832": "その他製造", "TSE:7911": "その他製造", "TSE:7912": "その他製造", "TSE:7951": "その他製造",
-    "TSE:3289": "不動産", "TSE:8801": "不動産", "TSE:8802": "不動産", "TSE:8804": "不動産", "TSE:8830": "不動産",
-    "TSE:9001": "鉄道・バス", "TSE:9005": "鉄道・バス", "TSE:9007": "鉄道・バス", "TSE:9008": "鉄道・バス", "TSE:9009": "鉄道・バス",
-    "TSE:9020": "鉄道・バス", "TSE:9021": "鉄道・バス", "TSE:9022": "鉄道・バス",
-    "TSE:9064": "陸運", "TSE:9147": "陸運",
-    "TSE:9101": "海運", "TSE:9104": "海運", "TSE:9107": "海運",
-    "TSE:9201": "空運", "TSE:9202": "空運",
-    "TSE:9501": "電力", "TSE:9502": "電力", "TSE:9503": "電力",
-    "TSE:9531": "ガス", "TSE:9532": "ガス",
-}
-
-
-def _clean_for_json(obj):
-    """再帰的に NaN/Inf を None に変換する。
-    Flask の jsonify が NaN を出力するとフロントの JSON.parse が失敗するため、
-    レスポンス送信前にすべての float をクリーンアップする。"""
-    import math
-    if obj is None:
-        return None
-    if isinstance(obj, dict):
-        return {k: _clean_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_clean_for_json(v) for v in obj]
-    if isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return None
-        return obj
-    return obj
-
-
-def _cached_json(payload, max_age=1800):
-    """Cache-Control: private, max-age=XXX を付けた JSON レスポンスを返す。"""
-    # NaN/Inf を再帰的に None に変換（フロントの JSON.parse 失敗対策）
-    payload = _clean_for_json(payload)
-    resp = jsonify(payload)
-    # private: 各ユーザーのブラウザにのみキャッシュ。CDNなどには保存しない。
-    resp.headers['Cache-Control'] = f'private, max-age={max_age}'
-    return resp
-
-
-def is_jp_symbol(sym):
-    """日経225銘柄か判定する。'TSE:XXXX' 形式。"""
-    return isinstance(sym, str) and sym.startswith('TSE:')
-
-
-# ===== 色判定（フロントには露出させない内部ロジック）=====
-# スコアから色を判定する関数。閾値はサーバー側だけが知っている。
-# フロントへは color 文字列（'blue'|'green'|'yellow'|'red'|None）のみ返す。
-_SCORE_COLOR_THRESHOLDS = (7, 0, -7)  # 内部閾値
-def _safe_num(v):
-    """NaN/Inf を JSON 安全な None に変換する。"""
-    if v is None:
-        return None
-    try:
-        import math
-        f = float(v)
-        if math.isnan(f) or math.isinf(f):
-            return None
-        return f
-    except (TypeError, ValueError):
-        return None
-
-
-def score_to_color(score):
-    """スコアから色を判定。フロントには露出させない。"""
-    if score is None:
-        return None
-    try:
-        s = float(score)
-    except (TypeError, ValueError):
-        return None
-    if s >= _SCORE_COLOR_THRESHOLDS[0]:
-        return 'blue'
-    if s > _SCORE_COLOR_THRESHOLDS[1]:
-        return 'green'
-    if s <= _SCORE_COLOR_THRESHOLDS[2]:
-        return 'yellow'
-    return 'red'
-
-
-def jp_to_yfinance(sym):
-    """'TSE:7203' → '7203.T'（yfinanceの日本株表記）"""
-    if not is_jp_symbol(sym):
-        return sym
-    return sym.split(':', 1)[1] + '.T'
-
-CALC_PERIOD = 'max'
-DISPLAY_PERIOD = 90
-BG_COLOR = '#131722'
-TEXT_COLOR = 'white'
-GRID_COLOR = '#444444'
-CACHE_SECONDS = 86400  # 24時間（プリフェッチ前提のため長め）
-
-# プリフェッチ用トークン（外部cronからの呼び出しを保護）
-PREFETCH_TOKEN = os.environ.get('PREFETCH_TOKEN', '')
-
-# 永続キャッシュのGitHub URL（GitHub Actions が毎朝ここを更新する）
-PERSISTENT_CACHE_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/cache.json'
-
-chart_cache = {}
-chart_meta_cache = {}  # チャート画像と一緒の最新メタ情報（score, color, ema20_dev）
-thumb_cache = {}     # サムネイル画像とスコアのキャッシュ {symbol: (time, {'thumb': b64, 'score': float})}
-
-
-def get_wma(series, length):
-    weights = np.arange(1, length + 1)
-    return series.rolling(length).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
-
-
-def fetch_and_calculate(symbol, period='max', max_retries=3):
-    """yfinanceでデータ取得＆スコア計算。失敗時は指数バックオフで最大3回リトライ。
-    YFRateLimitErrorは長めに待ってからリトライ。"""
-    df = None
-    for attempt in range(max_retries):
-        try:
-            df_dl = yf.download(symbol, period=period, interval="1d", progress=False, auto_adjust=False)
-            if isinstance(df_dl.columns, pd.MultiIndex):
-                df_dl.columns = df_dl.columns.get_level_values(0)
-            df_dl.columns = df_dl.columns.str.lower()
-            df_dl = df_dl.loc[:, ~df_dl.columns.duplicated()].copy()
-            if df_dl.index.tz is not None:
-                df_dl.index = df_dl.index.tz_localize(None)
-            if df_dl.empty or len(df_dl) < 2:
-                if attempt < max_retries - 1:
-                    time.sleep(5 * (2 ** attempt))  # 5, 10, 20秒
-                    continue
-                return None
-            if 'close' not in df_dl.columns:
-                if 'adj close' in df_dl.columns:
-                    df_dl['close'] = df_dl['adj close']
-                else:
-                    if attempt < max_retries - 1:
-                        time.sleep(5 * (2 ** attempt))
-                        continue
-                    return None
-            df = df_dl
-            break
-        except Exception as e:
-            err_str = str(e)
-            # YFRateLimitErrorは長めの待機（30秒、60秒、120秒）
-            is_rate_limit = 'RateLimit' in err_str or 'Too Many Requests' in err_str
-            wait = 30 * (2 ** attempt) if is_rate_limit else 5 * (2 ** attempt)
-            if attempt < max_retries - 1:
-                print(f"fetch_and_calculate({symbol}) attempt {attempt+1} failed: {e}, retrying in {wait}s...")
-                time.sleep(wait)
-                continue
-            print(f"fetch_and_calculate({symbol}) failed after {max_retries} retries: {e}")
-            return None
-    if df is None:
-        return None
-
-    df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
-    df['sma_50'] = df['close'].rolling(window=50).mean()
-    df['prev_close'] = df['close'].shift(1)
-    df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
-    df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
-    df['total_uvol_sma'] = get_wma(df['uvol'], 10)
-    df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
-    df['discrepancyScore'] = df['discrepancyPercent'] / 2
-    df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
-    df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
-    df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
-    df['volDiffScore'] = np.where(
-        df['volDiff_std'] != 0,
-        (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
-        0
-    )
-    df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
-    return df
-
-
-# 暗号通貨のティッカー対応表（サイト表示名 → TradingViewでのティッカーと取引所）
-CRYPTO_MAP = {
-    'BTC':   ('BTCUSDT',  'BINANCE'),
-    'ETH':   ('ETHUSDT',  'BINANCE'),
-    'SOL':   ('SOLUSDT',  'BINANCE'),
-    'XRP':   ('XRPUSDT',  'BINANCE'),
-    'ADA':   ('ADAUSDT',  'BINANCE'),
-    'DOGE':  ('DOGEUSDT', 'BINANCE'),
-    'AVAX':  ('AVAXUSDT', 'BINANCE'),
-    'LINK':  ('LINKUSDT', 'BINANCE'),
-    'MATIC': ('POLUSDT',  'BINANCE'),
-    'ATOMC': ('ATOMUSDT', 'BINANCE'),
-}
-
-
-# ===== 為替（FX）ペア =====
-FOREX_PAIRS = [
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
-    'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
-]
-
-FOREX_NAMES = {
-    'EURUSD': 'ユーロ/米ドル',
-    'GBPUSD': 'ポンド/米ドル',
-    'USDJPY': '米ドル/円',
-    'USDCHF': '米ドル/スイスフラン',
-    'AUDUSD': '豪ドル/米ドル',
-    'NZDUSD': 'NZドル/米ドル',
-    'USDCAD': '米ドル/カナダドル',
-    'EURJPY': 'ユーロ/円',
-    'GBPJPY': 'ポンド/円',
-    'AUDJPY': '豪ドル/円',
-    'EURGBP': 'ユーロ/ポンド',
-}
-
-
-# ===== ETF（セクター別 + 高配当） =====
-ETF_SECTOR_MAP = {
-    # テクノロジー
-    'XLK': 'テクノロジー(SPDR)', 'VGT': 'テクノロジー(Vanguard)', 'IYW': 'テクノロジー(iShares)',
-    # ヘルスケア
-    'XLV': 'ヘルスケア(SPDR)', 'VHT': 'ヘルスケア(Vanguard)', 'IYH': 'ヘルスケア(iShares)',
-    # 金融
-    'XLF': '金融(SPDR)', 'VFH': '金融(Vanguard)', 'IYF': '金融(iShares)',
-    # エネルギー
-    'XLE': 'エネルギー(SPDR)', 'VDE': 'エネルギー(Vanguard)', 'IYE': 'エネルギー(iShares)',
-    # 一般消費財
-    'XLY': '一般消費財(SPDR)', 'VCR': '一般消費財(Vanguard)', 'IYC': '一般消費財(iShares)',
-    # 生活必需品
-    'XLP': '生活必需品(SPDR)', 'VDC': '生活必需品(Vanguard)', 'IYK': '生活必需品(iShares)',
-    # 資本財
-    'XLI': '資本財(SPDR)', 'VIS': '資本財(Vanguard)', 'IYJ': '資本財(iShares)',
-    # 素材
-    'XLB': '素材(SPDR)', 'VAW': '素材(Vanguard)', 'IYM': '素材(iShares)',
-    # 公益事業
-    'XLU': '公益事業(SPDR)', 'VPU': '公益事業(Vanguard)', 'IDU': '公益事業(iShares)',
-    # 不動産
-    'XLRE': '不動産(SPDR)', 'VNQ': '不動産(Vanguard)', 'IYR': '不動産(iShares)',
-    # 通信サービス
-    'XLC': '通信サービス(SPDR)', 'VOX': '通信サービス(Vanguard)', 'IYZ': '通信サービス(iShares)',
-    # 高配当
-    'VYM': '高配当(Vanguard)', 'HDV': '高配当(iShares Core)',
-    'SPYD': '高配当(SPDR S&P 500)', 'VIG': '配当成長(Vanguard)',
-}
-
-
-def fetch_forex(symbol_key, period=CALC_PERIOD):
-    """yfinanceで為替ペアを取得しスコア計算する。
-    symbol_key は 'EURUSD' 'USDJPY' 形式、内部で 'EURUSD=X' に変換する。
-    為替には出来高がないため volDiffScore は実質ゼロ、20EMA乖離（discrepancyScore）が中心。
-    """
-    if symbol_key not in FOREX_PAIRS:
-        return None
-    yf_sym = symbol_key + '=X'
-    try:
-        ticker = yf.Ticker(yf_sym)
-        df_raw = ticker.history(period=period)
-        if df_raw is None or df_raw.empty:
-            return None
-        df = df_raw.rename(columns={'Open': 'open', 'High': 'high',
-                                    'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-        # 為替のvolumeは0またはNaNなので0に統一
-        if 'volume' not in df.columns:
-            df['volume'] = 0
-        df['volume'] = df['volume'].fillna(0)
-        df = df[['open', 'high', 'low', 'close', 'volume']].copy()
-        for col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        df.index = pd.to_datetime(df.index).tz_localize(None) if df.index.tz else pd.to_datetime(df.index)
-        df.index = df.index.normalize()
-
-        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['sma_50'] = df['close'].rolling(window=50).mean()
-        df['prev_close'] = df['close'].shift(1)
-        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
-        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
-        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
-        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
-        df['discrepancyScore'] = df['discrepancyPercent'] / 2
-        df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
-        df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
-        df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
-        df['volDiffScore'] = np.where(
-            df['volDiff_std'] != 0,
-            (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
-            0
-        )
-        df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
-        return df
-    except Exception as e:
-        print(f"{symbol_key} (forex) error: {e}")
-        return None
-
-
-def fetch_crypto(symbol_key, n_bars=1000):
-    """tvDatafeedで暗号通貨を取得し、個別株と同じスコア計算を適用する。失敗時は最大3回リトライ。"""
-    tv_local = get_tv()
-    if tv_local is None:
-        return None
-    Interval = get_interval()
-    if Interval is None:
-        return None
-    if symbol_key not in CRYPTO_MAP:
-        return None
-    tv_symbol, tv_exchange = CRYPTO_MAP[symbol_key]
-    df_raw = None
-    for attempt in range(3):
-        try:
-            df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
-                                       interval=Interval.in_daily, n_bars=n_bars)
-            if df_raw is None or df_raw.empty:
-                if attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                return None
-            break
-        except Exception as e:
-            if attempt < 2:
-                print(f"fetch_crypto({symbol_key}) attempt {attempt+1} failed: {e}, retrying...")
-                time.sleep(2 ** attempt)
-                continue
-            print(f"fetch_crypto({symbol_key}) failed after 3 retries: {e}")
-            return None
-    if df_raw is None:
-        return None
-    try:
-
-        df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
-                                    'close':'close','volume':'volume'})
-        df = df[['open', 'high', 'low', 'close', 'volume']].copy()
-        for col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
-
-        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['sma_50'] = df['close'].rolling(window=50).mean()
-        df['prev_close'] = df['close'].shift(1)
-        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
-        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
-        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
-        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
-        df['discrepancyScore'] = df['discrepancyPercent'] / 2
-        df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
-        df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
-        df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
-        df['volDiffScore'] = np.where(
-            df['volDiff_std'] != 0,
-            (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
-            0
-        )
-        df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
-        return df
-    except Exception as e:
-        print(f"{symbol_key} (crypto) error: {e}")
-        return None
-
-
-def fetch_jp(symbol_key, n_bars=1000):
-    """tvDatafeedで日経225銘柄を取得し、個別株と同じスコア計算を適用する。
-    symbol_key は 'TSE:7203' 形式。失敗時は最大3回リトライ。
-    """
-    tv_local = get_tv()
-    if tv_local is None:
-        return None
-    Interval = get_interval()
-    if Interval is None:
-        return None
-    if not is_jp_symbol(symbol_key):
-        return None
-    parts = symbol_key.split(':', 1)
-    if len(parts) != 2:
-        return None
-    tv_exchange, tv_symbol = parts[0], parts[1]
-    df_raw = None
-    for attempt in range(3):
-        try:
-            df_raw = tv_local.get_hist(symbol=tv_symbol, exchange=tv_exchange,
-                                       interval=Interval.in_daily, n_bars=n_bars)
-            if df_raw is None or df_raw.empty:
-                if attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                return None
-            break
-        except Exception as e:
-            if attempt < 2:
-                print(f"fetch_jp({symbol_key}) attempt {attempt+1} failed: {e}, retrying...")
-                time.sleep(2 ** attempt)
-                continue
-            print(f"fetch_jp({symbol_key}) failed after 3 retries: {e}")
-            return None
-    if df_raw is None:
-        return None
-    try:
-
-        df = df_raw.rename(columns={'open':'open','high':'high','low':'low',
-                                    'close':'close','volume':'volume'})
-        df = df[['open', 'high', 'low', 'close', 'volume']].copy()
-        for col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
-
-        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['sma_50'] = df['close'].rolling(window=50).mean()
-        df['prev_close'] = df['close'].shift(1)
-        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
-        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
-        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
-        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
-        df['discrepancyScore'] = df['discrepancyPercent'] / 2
-        df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
-        df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
-        df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
-        df['volDiffScore'] = np.where(
-            df['volDiff_std'] != 0,
-            (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
-            0
-        )
-        df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
-        return df
-    except Exception as e:
-        print(f"{symbol_key} (jp) error: {e}")
-        return None
-
-
-def fetch_nq1(n_bars=1000):
-    tv_local = get_tv()
-    if tv_local is None:
-        return None
-    Interval = get_interval()
-    if Interval is None:
-        return None
-    try:
-        df_qqq = tv_local.get_hist(symbol='QQQ', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
-        df_ndtw = tv_local.get_hist(symbol='NDTW', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        df_ndfi = tv_local.get_hist(symbol='NDFI', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        df_ndth = tv_local.get_hist(symbol='NDTH', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        df_uvol = tv_local.get_hist(symbol='UVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
-        df_dvol = tv_local.get_hist(symbol='DVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
-        df_chart = tv_local.get_hist(symbol='NQ1!', exchange='CME_MINI', interval=Interval.in_daily, n_bars=n_bars)
-
-        if any(x is None or x.empty for x in [df_qqq, df_ndtw, df_ndfi, df_ndth, df_uvol, df_dvol, df_chart]):
-            return None
-
-        df = df_qqq.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
-        df = df.join(df_ndtw[['close']].rename(columns={'close':'ndtw'}), how='inner')
-        df = df.join(df_ndfi[['close']].rename(columns={'close':'ndfi'}), how='inner')
-        df = df.join(df_ndth[['close']].rename(columns={'close':'ndth'}), how='inner')
-        df = df.join(df_uvol[['close']].rename(columns={'close':'uVol'}), how='inner')
-        df = df.join(df_dvol[['close']].rename(columns={'close':'dVol'}), how='inner')
-        for col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
-        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
-
-        df_chart = df_chart.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
-        for col in df_chart.columns: df_chart[col] = pd.to_numeric(df_chart[col], errors='coerce')
-        df_chart.index = pd.to_datetime(df_chart.index).normalize().tz_localize(None)
-
-        df['QQQSMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
-        df['ndtwScore'] = df['ndtw'] / 3
-        df['ndfiScore'] = df['ndfi'] / 4
-        df['ndthScore'] = df['ndth'] / 6
-        df['discrepancyPercent'] = (df['Close'] - df['QQQSMA20']) / df['QQQSMA20'] * 100
-        df['discrepancyScore'] = df['discrepancyPercent'] * 3
-        df['uVolSMA10'] = df['uVol'].rolling(window=10).mean()
-        df['dVolSMA10'] = df['dVol'].rolling(window=10).mean()
-        df['volDiff'] = df['uVolSMA10'] - df['dVolSMA10']
-        df['volDiffScore'] = df['volDiff'] / 50000000
-        df['totalScore'] = df['ndtwScore'] + df['ndfiScore'] + df['ndthScore'] + df['discrepancyScore'] + df['volDiffScore']
-        df['isAboveEMA20'] = df['Close'] > df['QQQSMA20']
-
-        colors = []
-        for i in range(len(df)):
-            score = df['totalScore'].iloc[i]
-            is_above = df['isAboveEMA20'].iloc[i]
-            if pd.isna(score): c = '#888888'
-            elif score > 40 and is_above: c = '#32cd32'
-            elif score <= 40 and not is_above: c = '#ff4444'
-            else: c = '#ffd700'
-            colors.append(c)
-        df['candle_color'] = colors
-
-        cols_map = df[['candle_color', 'totalScore']].copy()
-        cols_map.index = cols_map.index - pd.Timedelta(days=1)
-        df_mapped = cols_map.reindex(df_chart.index, method='ffill')
-        df_plot = df_chart.join(df_mapped)
-
-        return df_plot
-    except Exception as e:
-        print(f"NQ1! error: {e}")
-        return None
-
-
-def fetch_es1(n_bars=1000):
-    tv_local = get_tv()
-    if tv_local is None:
-        return None
-    Interval = get_interval()
-    if Interval is None:
-        return None
-    try:
-        df_spy = tv_local.get_hist(symbol='SPY', exchange='AMEX', interval=Interval.in_daily, n_bars=n_bars)
-        if df_spy is None:
-            df_spy = tv_local.get_hist(symbol='SPY', exchange='ARCA', interval=Interval.in_daily, n_bars=n_bars)
-
-        df_ndtw = tv_local.get_hist(symbol='NDTW', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        if df_ndtw is None:
-            df_ndtw = tv_local.get_hist(symbol='NDTW', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
-
-        df_ndfi = tv_local.get_hist(symbol='NDFI', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        if df_ndfi is None:
-            df_ndfi = tv_local.get_hist(symbol='NDFI', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
-
-        df_ndth = tv_local.get_hist(symbol='NDTH', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
-        if df_ndth is None:
-            df_ndth = tv_local.get_hist(symbol='NDTH', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
-
-        df_uvol = tv_local.get_hist(symbol='UVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
-        df_dvol = tv_local.get_hist(symbol='DVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
-        df_chart = tv_local.get_hist(symbol='ES1!', exchange='CME_MINI', interval=Interval.in_daily, n_bars=n_bars)
-
-        if any(x is None or x.empty for x in [df_spy, df_ndtw, df_ndfi, df_ndth, df_uvol, df_dvol, df_chart]):
-            return None
-
-        df = df_spy.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
-        df = df.join(df_ndtw[['close']].rename(columns={'close':'ndtw'}), how='inner')
-        df = df.join(df_ndfi[['close']].rename(columns={'close':'ndfi'}), how='inner')
-        df = df.join(df_ndth[['close']].rename(columns={'close':'ndth'}), how='inner')
-        df = df.join(df_uvol[['close']].rename(columns={'close':'uVol'}), how='inner')
-        df = df.join(df_dvol[['close']].rename(columns={'close':'dVol'}), how='inner')
-        for col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce')
-        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
-
-        df_chart = df_chart.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
-        for col in df_chart.columns: df_chart[col] = pd.to_numeric(df_chart[col], errors='coerce')
-        df_chart.index = pd.to_datetime(df_chart.index).normalize().tz_localize(None)
-
-        df['SPYSMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
-        df['ndtwScore'] = df['ndtw'] / 3
-        df['ndfiScore'] = df['ndfi'] / 4
-        df['ndthScore'] = df['ndth'] / 6
-        df['discrepancyPercent'] = (df['Close'] - df['SPYSMA20']) / df['SPYSMA20'] * 100
-        df['discrepancyScore'] = df['discrepancyPercent'] * 3
-        df['uVolSMA10'] = df['uVol'].rolling(window=10).mean()
-        df['dVolSMA10'] = df['dVol'].rolling(window=10).mean()
-        df['volDiff'] = df['uVolSMA10'] - df['dVolSMA10']
-        df['volDiffScore'] = df['volDiff'] / 50000000
-        df['totalScore'] = df['ndtwScore'] + df['ndfiScore'] + df['ndthScore'] + df['discrepancyScore'] + df['volDiffScore']
-        df['isAboveEMA20'] = df['Close'] > df['SPYSMA20']
-
-        colors = []
-        for i in range(len(df)):
-            score = df['totalScore'].iloc[i]
-            is_above = df['isAboveEMA20'].iloc[i]
-            if pd.isna(score): c = '#888888'
-            elif score > 40 and is_above: c = '#32cd32'
-            elif score <= 40 and not is_above: c = '#ff4444'
-            else: c = '#ffd700'
-            colors.append(c)
-        df['candle_color'] = colors
-
-        cols_map = df[['candle_color', 'totalScore']].copy()
-        cols_map.index = cols_map.index - pd.Timedelta(days=1)
-        df_mapped = cols_map.reindex(df_chart.index, method='ffill')
-        df_plot = df_chart.join(df_mapped)
-
-        return df_plot
-    except Exception as e:
-        print(f"ES1! error: {e}")
-        return None
-
-
-def fetch_n225():
-    """日経平均株価指数（^N225）を yfinance で取得し、スコア計算してチャート用 DataFrame を返す。
-    出来高がないため volDiffScore は 0、totalScore = discrepancyScore のみ。"""
-    try:
-        df = yf.download('^N225', period='max', interval='1d',
-                         auto_adjust=False, progress=False, threads=False)
-        if df is None or df.empty:
-            return None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        df.columns = [str(c).lower() for c in df.columns]
-        if df.index.tz is not None:
-            df.index = df.index.tz_localize(None)
-        df = df.loc[:, ~df.columns.duplicated()].copy()
-
-        # 出来高がない/0の場合はダミー値で埋める（calculate_scoresが動くように）
-        if 'volume' not in df.columns:
-            df['volume'] = 1
-        else:
-            df['volume'] = df['volume'].fillna(0)
-            if df['volume'].sum() == 0:
-                df['volume'] = 1
-
-        if 'close' not in df.columns:
-            if 'adj close' in df.columns:
-                df['close'] = df['adj close']
-            else:
-                return None
-
-        # スコア計算（fetch_and_calculate と同じロジック）
-        df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
-        df['sma_50'] = df['close'].rolling(window=50).mean()
-        df['prev_close'] = df['close'].shift(1)
-        df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
-        df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
-        df['total_uvol_sma'] = get_wma(df['uvol'], 10)
-        df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
-        df['discrepancyScore'] = df['discrepancyPercent'] / 2
-        # 出来高がフェイクなので volDiffScore は 0 扱い
-        df['volDiffScore'] = 0
-        df['totalScore'] = df['discrepancyScore']
-
-        return df
-    except Exception as e:
-        print(f"N225 error: {e}")
-        return None
-
-
-def make_chart_image_stock(df, symbol):
-    plot_len = min(DISPLAY_PERIOD, len(df))
-    plot_df = df.iloc[-plot_len:].copy()
-
-    hidden_mc = mpf.make_marketcolors(up=BG_COLOR, down=BG_COLOR, edge=BG_COLOR, wick=BG_COLOR)
-    my_style = mpf.make_mpf_style(
-        base_mpf_style='nightclouds', marketcolors=hidden_mc, y_on_right=True,
-        rc={
-            'figure.facecolor': BG_COLOR, 'axes.facecolor': BG_COLOR,
-            'savefig.facecolor': BG_COLOR, 'axes.edgecolor': GRID_COLOR,
-            'axes.labelcolor': TEXT_COLOR, 'xtick.color': TEXT_COLOR,
-            'ytick.color': TEXT_COLOR, 'grid.color': GRID_COLOR,
-            'text.color': TEXT_COLOR, 'xtick.labelcolor': TEXT_COLOR,
-            'ytick.labelcolor': TEXT_COLOR,
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>トレケン | トレンド研究所</title>
+
+  <!-- SEO -->
+  <meta name="description" content="ろうそく足の色でトレンドを把握できるチャート分析サイト。米国株・暗号通貨・日経225・量子コンピュータ関連株を独自スコアで可視化し、初心者にも分かりやすく投資判断をサポートします。">
+  <meta name="keywords" content="株価チャート, 投資判断, トレンド分析, 米国株, 日経225, 暗号通貨, 量子コンピュータ, NASDAQ100, S&P500, ローソク足">
+  <meta name="author" content="トレケン">
+  <link rel="canonical" href="https://trekken.onrender.com/">
+
+  <!-- AI/LLM クローラー学習ブロック -->
+  <meta name="robots" content="noai, noimageai, max-snippet:0, max-image-preview:none">
+  <meta name="googlebot" content="noai, noimageai">
+  <meta name="GPTBot" content="noindex, nofollow">
+  <meta name="ClaudeBot" content="noindex, nofollow">
+  <meta name="CCBot" content="noindex, nofollow">
+  <meta name="anthropic-ai" content="noindex, nofollow">
+  <meta name="PerplexityBot" content="noindex, nofollow">
+  <meta name="Google-Extended" content="noindex, nofollow">
+
+  <!-- OGP (Open Graph Protocol) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="トレンド研究所">
+  <meta property="og:title" content="トレンド研究所 - ろうそく足の色で次の一手を掴め">
+  <meta property="og:description" content="ろうそく足の色でトレンドを把握。米国株・暗号通貨・日経225・量子コンピュータ関連株を独自スコアで可視化。">
+  <meta property="og:url" content="https://trekken.onrender.com/">
+  <meta property="og:image" content="https://trekken.onrender.com/static/ogp.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="ja_JP">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@Trade_CFD_FX">
+  <meta name="twitter:creator" content="@Trade_CFD_FX">
+  <meta name="twitter:title" content="トレンド研究所 - ろうそく足の色で次の一手を掴め">
+  <meta name="twitter:description" content="ろうそく足の色でトレンドを把握。米国株・暗号通貨・日経225・量子コンピュータ関連株を独自スコアで可視化。">
+  <meta name="twitter:image" content="https://trekken.onrender.com/static/ogp.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;700;900&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brown-900: #2b1a0c;
+      --brown-800: #3d2510;
+      --brown-700: #5d3a1f;
+      --brown-600: #704a2e;
+      --brown-500: #8a5c3d;
+      --brown-300: #c9a988;
+      --brown-200: #e6d4be;
+      --brown-100: #f1e3d0;
+      --cream-50: #fdf9f3;
+      --cream-100: #faf3e7;
+      --cream-200: #f3e8d4;
+      --gold-400: #d4a85a;
+      --gold-500: #c49a4a;
+      --gold-600: #a87f33;
+      --ink: #2b1a0c;
+      --muted: #7a6650;
+      --line: #e6d4be;
+      --shadow: 0 12px 40px rgba(60, 35, 15, 0.12);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; overflow-x: hidden; }
+
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse at top left, var(--cream-100) 0%, transparent 50%),
+        radial-gradient(ellipse at top right, #fbeacc 0%, transparent 50%),
+        var(--cream-50);
+      font-family: 'Noto Sans JP', sans-serif;
+      color: var(--ink);
+      overflow-x: hidden;
+    }
+
+    /* ===== 浮遊する装飾（完全に背景レイヤー、コンテンツの後ろ） ===== */
+    .floaters {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -1;          /* コンテンツの後ろに完全に下げる */
+      overflow: hidden;
+    }
+    .floater { position: absolute; opacity: 0.22; }
+    .floater.f1 { top: 8%; right: 6%; width: 90px; animation: float1 14s ease-in-out infinite; }
+    .floater.f2 { top: 22%; left: 4%; width: 70px; animation: float2 18s ease-in-out infinite; }
+    .floater.f3 { top: 50%; right: 12%; width: 70px; animation: float3 16s ease-in-out infinite; }
+    .floater.f4 { top: 70%; left: 8%; width: 60px; animation: float1 20s ease-in-out infinite; }
+    @keyframes float1 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-30px) rotate(15deg); } }
+    @keyframes float2 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(25px) rotate(-12deg); } }
+    @keyframes float3 { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-20px) rotate(8deg); } }
+
+    body { background-color: var(--cream-50); }
+
+    /* ===== ヘッダー（ナビ） ===== */
+    .nav-wrap {
+      position: relative;
+      z-index: 10;
+      padding: 20px 28px 0;
+      display: flex;
+      justify-content: center;
+    }
+
+    .nav-pill {
+      background: rgba(255, 248, 236, 0.85);
+      backdrop-filter: blur(10px);
+      border-radius: 999px;
+      padding: 12px 28px;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      box-shadow: 0 4px 20px rgba(60, 35, 15, 0.08);
+      border: 1px solid var(--brown-100);
+    }
+
+    .nav-logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 22px;
+      font-weight: 900;
+      color: var(--brown-800);
+      letter-spacing: 0.5px;
+    }
+    .nav-logo span { color: var(--gold-500); }
+
+    .nav-links {
+      display: flex;
+      gap: 18px;
+      font-size: 13px;
+      font-weight: 700;
+      align-items: center;
+    }
+    .nav-links a { color: var(--brown-700); text-decoration: none; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--gold-600); }
+
+    .nav-dropdown { position: relative; }
+    .nav-dropdown-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      color: var(--brown-700);
+      transition: color 0.2s;
+    }
+    .nav-dropdown-trigger:hover { color: var(--gold-600); }
+    .nav-dropdown-trigger svg { width: 10px; height: 10px; transition: transform 0.25s; }
+    .nav-dropdown:hover .nav-dropdown-trigger svg { transform: rotate(180deg); }
+
+    .nav-dropdown-menu {
+      position: absolute;
+      top: calc(100% + 14px);
+      left: 50%;
+      transform: translateX(-50%) translateY(-6px);
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 12px 36px rgba(60, 35, 15, 0.18);
+      border: 1px solid var(--brown-100);
+      padding: 8px;
+      min-width: 180px;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.25s, transform 0.25s, visibility 0.25s;
+      z-index: 100;
+    }
+    .nav-dropdown-menu::after {
+      content: "";
+      position: absolute;
+      top: -20px;
+      left: 0;
+      right: 0;
+      height: 20px;
+    }
+    .nav-dropdown-menu::before {
+      content: "";
+      position: absolute;
+      top: -6px;
+      left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 12px;
+      height: 12px;
+      background: #fff;
+      border-top: 1px solid var(--brown-100);
+      border-left: 1px solid var(--brown-100);
+    }
+    .nav-dropdown:hover .nav-dropdown-menu,
+    .nav-dropdown:focus-within .nav-dropdown-menu {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
+    }
+    .nav-dropdown-menu a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--brown-800);
+      transition: background 0.15s, color 0.15s;
+    }
+    .nav-dropdown-menu a:hover { background: var(--cream-100); color: var(--gold-600); }
+    .nav-dropdown-menu a svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .nav-dropdown-menu a.ch-x svg    { color: var(--brown-900); }
+    .nav-dropdown-menu a.ch-yt svg   { color: #c8351a; }
+    .nav-dropdown-menu a.ch-note svg { color: var(--gold-500); }
+
+    /* ===== ヒーローエリア ===== */
+    .hero {
+      position: relative;
+      z-index: 5;
+      padding: 80px 28px 60px;
+      max-width: 1200px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .owl-fixed {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      width: auto;
+      height: 30vh;
+      max-height: 360px;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 1;
+      filter: drop-shadow(0 8px 16px rgba(93, 58, 31, 0.25));
+      animation:
+        owlIn 1.2s cubic-bezier(0.22,1,0.36,1) 0.4s forwards,
+        owlFloat 6s ease-in-out 1.6s infinite;
+    }
+    @keyframes owlIn {
+      0%   { opacity: 0; transform: translate(40px, 20px) scale(0.9); }
+      100% { opacity: 0.7; transform: translate(0, 0) scale(1); }
+    }
+    @keyframes owlFloat {
+      0%, 100% { transform: translateY(0) rotate(-1deg); opacity: 0.7; }
+      50%      { transform: translateY(-12px) rotate(1deg); opacity: 0.75; }
+    }
+
+    @media (max-width: 640px) {
+      .owl-fixed { height: 22vh; max-height: 180px; bottom: 8px; right: 8px; opacity: 0.55; }
+      @keyframes owlIn {
+        0%   { opacity: 0; transform: translate(40px, 20px) scale(0.9); }
+        100% { opacity: 0.55; transform: translate(0, 0) scale(1); }
+      }
+      @keyframes owlFloat {
+        0%, 100% { transform: translateY(0) rotate(-1deg); opacity: 0.55; }
+        50%      { transform: translateY(-8px) rotate(1deg); opacity: 0.6; }
+      }
+    }
+
+    .hero-title-en {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(48px, 8vw, 96px);
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -1.5px;
+      color: var(--brown-800);
+      opacity: 0;
+      transform: translateY(30px);
+      animation: heroIn 0.9s cubic-bezier(0.22,1,0.36,1) 0.3s forwards;
+    }
+    .hero-title-en .accent { color: var(--gold-500); }
+
+    .hero-sub-en {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(20px, 3vw, 32px);
+      font-weight: 700;
+      color: var(--brown-600);
+      margin-top: 8px;
+      letter-spacing: 0.5px;
+      opacity: 0;
+      transform: translateY(30px);
+      animation: heroIn 0.9s cubic-bezier(0.22,1,0.36,1) 0.45s forwards;
+    }
+
+    /* スマホでのみ改行を有効にするユーティリティ */
+    .sp-only { display: none; }
+    @media (max-width: 700px) {
+      .sp-only { display: inline; }
+    }
+
+    .hero-tagline {
+      margin-top: 24px;
+      font-size: clamp(16px, 2.2vw, 20px);
+      font-weight: 700;
+      color: var(--brown-700);
+      letter-spacing: 0.3px;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: heroIn 0.8s cubic-bezier(0.22,1,0.36,1) 0.6s forwards;
+    }
+
+    .hero-badge {
+      display: inline-block;
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      color: #fff;
+      padding: 6px 18px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 18px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 12px rgba(168, 127, 51, 0.3);
+      opacity: 0;
+      animation: heroIn 0.8s cubic-bezier(0.22,1,0.36,1) 0.75s forwards;
+    }
+
+    @keyframes heroIn { to { opacity: 1; transform: translateY(0) scale(1); } }
+
+    .social-row {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 32px;
+      flex-wrap: wrap;
+      opacity: 0;
+      animation: heroIn 0.8s cubic-bezier(0.22,1,0.36,1) 0.9s forwards;
+    }
+
+    .social-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 20px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 12px rgba(60, 35, 15, 0.15);
+    }
+    .social-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(60, 35, 15, 0.25); }
+    .social-btn svg { width: 16px; height: 16px; }
+    .sb-x    { background: var(--brown-900); }
+    .sb-yt   { background: #c8351a; }
+    .sb-note { background: var(--gold-500); }
+
+    /* ===== セクション共通 ===== */
+    .section {
+      position: relative;
+      z-index: 5;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 60px 28px;
+    }
+
+    .section-head {
+      margin-bottom: 36px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .section-title-en {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(32px, 5vw, 56px);
+      font-weight: 900;
+      color: var(--brown-800);
+      letter-spacing: -0.5px;
+      line-height: 1;
+    }
+
+    .section-title-jp {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--gold-600);
+      letter-spacing: 1px;
+    }
+    .section-title-jp::before { content: "●"; margin-right: 8px; color: var(--gold-500); }
+
+    .section-divider {
+      height: 2px;
+      background: linear-gradient(to right, var(--brown-700), transparent);
+      margin-bottom: 36px;
+    }
+
+    /* ===== 検索バーのオートサジェスト ===== */
+    .search-input-wrap { position: relative; }
+    .search-suggest {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid var(--brown-200);
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(60, 35, 15, 0.18);
+      max-height: 320px;
+      overflow-y: auto;
+      z-index: 50;
+    }
+    .search-suggest-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(196, 154, 74, 0.1);
+      transition: background 0.15s;
+    }
+    .search-suggest-item:last-child { border-bottom: none; }
+    .search-suggest-item:hover, .search-suggest-item.active {
+      background: linear-gradient(135deg, rgba(196, 154, 74, 0.12), rgba(196, 154, 74, 0.05));
+    }
+    .search-suggest-sym {
+      font-weight: 900;
+      color: var(--brown-800);
+      font-size: 13px;
+      min-width: 70px;
+    }
+    .search-suggest-tag {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 8px;
+      background: var(--cream-100);
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .search-suggest-empty {
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 700px) {
+      .search-suggest { max-height: 260px; }
+      .search-suggest-item { padding: 9px 12px; }
+      .search-suggest-sym { font-size: 13px; min-width: 60px; }
+      .search-suggest-tag { font-size: 9px; }
+    }
+
+    /* ===== 自動更新スケジュール告知バナー ===== */
+    .update-schedule-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: linear-gradient(135deg, rgba(196, 154, 74, 0.08), rgba(196, 154, 74, 0.04));
+      border: 1px solid rgba(196, 154, 74, 0.25);
+      border-radius: 12px;
+      padding: 12px 18px;
+      margin-bottom: 14px;
+    }
+    .update-schedule-icon {
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    .update-schedule-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .update-schedule-line1 {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--brown-800);
+      line-height: 1.3;
+    }
+    .update-schedule-line2 {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+    .update-schedule-line2 strong {
+      color: var(--gold-600);
+      font-weight: 800;
+    }
+    @media (max-width: 700px) {
+      .update-schedule-banner {
+        padding: 10px 14px;
+        gap: 10px;
+      }
+      .update-schedule-icon { font-size: 20px; }
+      .update-schedule-line1 { font-size: 12px; }
+      .update-schedule-line2 { font-size: 10px; }
+    }
+
+    /* ===== 検索＆タブカード ===== */
+    .search-card {
+      background: rgba(255, 252, 245, 0.85);
+      backdrop-filter: blur(10px);
+      border-radius: 24px;
+      padding: 32px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--brown-100);
+    }
+
+    .search-hint {
+      display: inline-block;
+      margin: 0 0 10px 4px;
+      padding: 4px 12px;
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-500));
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      border-radius: 999px;
+      box-shadow: 0 2px 6px rgba(196, 154, 74, 0.3);
+      animation: searchHintPulse 2.5s ease-in-out infinite;
+    }
+    @keyframes searchHintPulse {
+      0%, 100% { transform: translateY(0); box-shadow: 0 2px 6px rgba(196, 154, 74, 0.3); }
+      50% { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(196, 154, 74, 0.45); }
+    }
+    .search-box {
+      width: 100%;
+      padding: 14px 20px;
+      font-size: 14px;
+      border: 2px solid var(--brown-200);
+      border-radius: 12px;
+      font-family: 'Noto Sans JP', sans-serif;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      background: #fff;
+      color: var(--ink);
+    }
+    /* ===== 検索バーのオートサジェスト ===== */
+    .search-input-wrap {
+      position: relative;
+    }
+    .search-suggest {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid var(--brown-200);
+      border-radius: 12px;
+      max-height: 340px;
+      overflow-y: auto;
+      z-index: 100;
+      box-shadow: 0 8px 24px rgba(60, 35, 15, 0.18);
+      padding: 4px;
+    }
+    .search-suggest-item {
+      padding: 10px 14px;
+      cursor: pointer;
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.15s;
+    }
+    .search-suggest-item:hover,
+    .search-suggest-item.is-active {
+      background: linear-gradient(135deg, rgba(196, 154, 74, 0.12), rgba(196, 154, 74, 0.06));
+    }
+    .search-suggest-ticker {
+      font-family: 'Noto Sans JP', sans-serif;
+      font-weight: 900;
+      color: var(--brown-800);
+      font-size: 14px;
+    }
+    .search-suggest-cat {
+      font-size: 10px;
+      color: var(--muted);
+      padding: 2px 8px;
+      background: rgba(196, 154, 74, 0.08);
+      border-radius: 6px;
+      letter-spacing: 0.5px;
+    }
+    .search-suggest-hint {
+      font-size: 11px;
+      color: var(--gold-600);
+      font-weight: 700;
+    }
+    .search-suggest-empty {
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 700px) {
+      .search-suggest { max-height: 280px; }
+      .search-suggest-item { padding: 8px 10px; gap: 6px; }
+      .search-suggest-ticker { font-size: 13px; }
+      .search-suggest-cat { font-size: 9px; padding: 1px 6px; }
+      .search-suggest-hint { font-size: 10px; }
+    }
+
+    .search-box:focus {
+      border-color: var(--gold-500);
+      box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.15);
+    }
+    /* iOS Safari: フォントサイズ16px未満だとフォーカス時に自動ズームする
+       スマホサイズでのみ16pxにしてズームを防止（PCでは14pxのまま見た目維持） */
+    @media (max-width: 768px) {
+      .search-box {
+        font-size: 16px;
+      }
+    }
+    /* 検索ボックスのクリアボタン */
+    .search-input-wrap {
+      position: relative;
+    }
+    .search-input-wrap .search-box {
+      padding-right: 44px;  /* クリアボタン分の余白 */
+    }
+    .search-clear-btn {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      transform: translateY(-50%);
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--brown-100);
+      color: var(--brown-500);
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: none;  /* 入力時のみ表示（JSで切替） */
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, transform 0.15s;
+      font-family: inherit;
+      padding: 0;
+      line-height: 1;
+    }
+    .search-clear-btn:hover {
+      background: var(--brown-200);
+      color: var(--brown-700);
+      transform: translateY(-50%) scale(1.05);
+    }
+    .search-clear-btn:active { transform: translateY(-50%) scale(0.95); }
+    .search-clear-btn.visible { display: flex; }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-top: 18px;
+      border-bottom: 2px solid var(--brown-100);
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    /* note タブの「📌テーマ別」付箋をタブ内に inline 配置（横スワイプ問題を回避） */
+    .note-tab {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .note-hint-inline {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #fff9c4, #fff176);
+      color: #5d4037;
+      padding: 1px 6px;
+      border-radius: 3px;
+      letter-spacing: 0;
+      box-shadow: 0 1px 2px rgba(93, 64, 55, 0.18), 0 0 0 1px rgba(196, 154, 74, 0.25);
+      transform: rotate(-2deg);
+      animation: noteHintPulse 3s ease-in-out infinite;
+      line-height: 1.1;
+    }
+    .note-tab-label {
+      display: inline-block;
+      line-height: 1.2;
+    }
+    @keyframes noteHintPulse {
+      0%, 100% { transform: rotate(-2deg) translateY(0); }
+      50%      { transform: rotate(-2deg) translateY(-1px) scale(1.02); }
+    }
+    /* note タブが選択中は付箋を少し控えめに */
+    .note-tab.active .note-hint-inline {
+      opacity: 0.6;
+      animation: none;
+    }
+
+    /* ===== 条件検索 ===== */
+    /* ===== ワンタッチフィルタ（初心者向け） ===== */
+    .quick-filter-row {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: linear-gradient(135deg, #fdf6e3 0%, #f5e6d3 100%);
+      border-radius: 12px;
+      border: 1px solid var(--brown-100);
+    }
+    .quick-filter-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-700);
+      margin-bottom: 10px;
+      letter-spacing: 0.5px;
+    }
+    .quick-filter-buttons {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
+    .quick-filter-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #fff;
+      border: 2px solid var(--brown-200);
+      border-radius: 10px;
+      cursor: pointer;
+      text-align: left;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .quick-filter-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(60, 35, 15, 0.12);
+    }
+    .quick-filter-btn .qf-icon { font-size: 24px; line-height: 1; }
+    .quick-filter-btn .qf-text { display: flex; flex-direction: column; gap: 2px; }
+    .quick-filter-btn .qf-text strong { font-size: 13px; color: var(--brown-800); font-weight: 700; }
+    .quick-filter-btn .qf-text small { font-size: 10px; color: var(--muted); }
+    .quick-filter-btn.qf-undervalue:hover { border-color: #c9a000; background: #fffbed; }
+    .quick-filter-btn.qf-uptrend:hover    { border-color: #2e8b3a; background: #f0faf2; }
+    .quick-filter-btn.qf-overvalue:hover  { border-color: #00bfff; background: #ecf8ff; }
+    .quick-filter-btn.qf-downtrend:hover  { border-color: #c4302b; background: #fdf1f0; }
+    .quick-filter-btn.active {
+      box-shadow: 0 0 0 3px rgba(196, 154, 74, 0.25);
+      border-color: var(--gold-500);
+    }
+
+    .filter-row {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .filter-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--cream-100);
+      border: 1px solid var(--brown-200);
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--brown-800);
+      cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .filter-toggle:hover { background: var(--brown-100); border-color: var(--gold-500); }
+    .filter-toggle .filter-icon { font-size: 14px; }
+    .filter-toggle .filter-chev { width: 10px; height: 10px; transition: transform 0.25s; }
+    .filter-toggle.open .filter-chev { transform: rotate(180deg); }
+    .filter-toggle.active { background: var(--brown-700); color: #fff; border-color: var(--brown-700); }
+    .filter-toggle.active:hover { background: var(--brown-800); }
+
+    .filter-clear {
+      padding: 7px 12px;
+      background: transparent;
+      border: 1px solid var(--brown-200);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-700);
+      cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: background 0.15s;
+    }
+    .filter-clear:hover { background: var(--cream-100); color: var(--brown-800); }
+
+    .filter-panel {
+      margin-top: 12px;
+      padding: 16px;
+      background: var(--cream-100);
+      border: 1px solid var(--brown-100);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 6px; }
+    .filter-group-title { font-size: 12px; font-weight: 700; color: var(--gold-600); letter-spacing: 0.5px; }
+    .filter-group-title-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .filter-group-title-row .filter-group-title { margin-bottom: 0; }
+    .filter-toggle-actions {
+      display: flex; gap: 4px;
+    }
+    .filter-toggle-btn {
+      background: var(--cream-100);
+      border: 1px solid var(--brown-200);
+      color: var(--brown-700);
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 999px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .filter-toggle-btn:hover {
+      background: var(--gold-400);
+      color: #fff;
+      border-color: var(--gold-500);
+      transform: translateY(-1px);
+    }
+    .filter-toggle-btn:active {
+      transform: translateY(0);
+    }
+    .filter-range-row { display: flex; gap: 6px; align-items: center; }
+    .filter-num {
+      padding: 7px 10px;
+      width: 100px;
+      border: 1px solid var(--brown-200);
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: 'Noto Sans JP', sans-serif;
+      color: var(--ink);
+      background: #fff;
+    }
+    .filter-num:focus { border-color: var(--gold-500); outline: none; }
+    .filter-range-sep { color: var(--muted); font-size: 13px; }
+    .filter-hint { font-size: 11px; color: var(--muted); }
+    .filter-color-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .filter-color-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 10px;
+      background: #fff;
+      border: 1px solid var(--brown-200);
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .filter-color-chip:has(input:checked) { background: var(--cream-50); border-color: var(--gold-500); }
+    .filter-color-chip:has(input:not(:checked)) { opacity: 0.5; }
+    .filter-color-check { display: none; }
+    .filter-color-label { white-space: nowrap; }
+    .filter-status { font-size: 11px; color: var(--muted); padding-top: 6px; border-top: 1px dashed var(--brown-200); }
+    .filter-status.warn { color: #c4302b; }
+
+    .tab {
+      padding: 11px 16px;
+      font-size: 13px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-family: 'Noto Sans JP', sans-serif;
+      font-weight: 700;
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .tab.active { color: var(--brown-800); border-bottom-color: var(--gold-500); }
+
+    /* ===== note銘柄サブタブ ===== */
+    .sub-tabs {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px 8px;
+      background: linear-gradient(to bottom, rgba(196, 154, 74, 0.08), transparent);
+      border-bottom: 1px solid var(--brown-100);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .sub-tabs::before {
+      content: '📝 テーマ:';
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--brown-700);
+      letter-spacing: 0.5px;
+      margin-right: 4px;
+    }
+    .sub-tab {
+      background: var(--cream-100);
+      border: 1px solid var(--brown-100);
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-700);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+      font-family: inherit;
+    }
+    .sub-tab:hover {
+      background: var(--brown-100);
+      color: var(--brown-800);
+      transform: translateY(-1px);
+    }
+    .sub-tab.active {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      color: #fff;
+      border-color: var(--gold-600);
+      box-shadow: 0 2px 8px rgba(196, 154, 74, 0.35);
+    }
+    .tab:hover { color: var(--brown-700); }
+
+    /* ===== トレンド要約バー（相場の強気/弱気を一目判定） ===== */
+    .trend-summary {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 18px;
+      margin: 10px auto;
+      max-width: 540px;
+      border-radius: 14px;
+      border: 2px solid;
+      background: rgba(255, 252, 245, 0.85);
+      backdrop-filter: blur(6px);
+      transition: border-color 0.4s, background 0.4s;
+    }
+    .trend-summary:empty { display: none; }
+    /* 強気相場 (70%+) */
+    .trend-summary.mood-strong {
+      border-color: #2e8b3a;
+      background: linear-gradient(135deg, #f0faf2, #d8f0dc);
+    }
+    /* やや強気 (55-70%) */
+    .trend-summary.mood-mid-up {
+      border-color: #6bb04a;
+      background: linear-gradient(135deg, #f5fbef, #e3f1d4);
+    }
+    /* 中立 (45-55%) */
+    .trend-summary.mood-neutral {
+      border-color: var(--brown-200);
+      background: linear-gradient(135deg, #fbf6e8, #f0e8d0);
+    }
+    /* やや弱気 (30-45%) */
+    .trend-summary.mood-mid-down {
+      border-color: #d97706;
+      background: linear-gradient(135deg, #fef3e2, #fbe2c2);
+    }
+    /* 弱気相場 (30%未満) */
+    .trend-summary.mood-weak {
+      border-color: #c4302b;
+      background: linear-gradient(135deg, #fdf1f0, #f6cfcc);
+    }
+    .trend-mood-icon {
+      font-size: 38px;
+      line-height: 1;
+      filter: drop-shadow(0 2px 4px rgba(60, 35, 15, 0.15));
+    }
+    .trend-mood-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .trend-mood-title {
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      line-height: 1.2;
+    }
+    .mood-strong   .trend-mood-title { color: #1f6e2a; }
+    .mood-mid-up   .trend-mood-title { color: #4d8a36; }
+    .mood-neutral  .trend-mood-title { color: var(--brown-800); }
+    .mood-mid-down .trend-mood-title { color: #b35906; }
+    .mood-weak     .trend-mood-title { color: #9b1f1a; }
+    .trend-mood-detail {
+      font-size: 12px;
+      color: var(--brown-700);
+      font-weight: 600;
+    }
+    .trend-mood-detail strong {
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .trend-summary-progress {
+      width: 100%;
+      height: 6px;
+      background: rgba(60, 35, 15, 0.12);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .trend-summary-progress-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .mood-strong   .trend-summary-progress-fill { background: linear-gradient(90deg, #32cd32, #2e8b3a); }
+    .mood-mid-up   .trend-summary-progress-fill { background: linear-gradient(90deg, #6bb04a, #4d8a36); }
+    .mood-neutral  .trend-summary-progress-fill { background: linear-gradient(90deg, var(--gold-500), var(--gold-600)); }
+    .mood-mid-down .trend-summary-progress-fill { background: linear-gradient(90deg, #f59e0b, #d97706); }
+    .mood-weak     .trend-summary-progress-fill { background: linear-gradient(90deg, #ef4444, #c4302b); }
+
+    /* ===== トレンドサマリー：クリック可能＆フィルタON状態 ===== */
+    .trend-summary { transition: transform 0.2s, box-shadow 0.3s, filter 0.2s; user-select: none; }
+    .trend-summary[style*="pointer"]:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+    .trend-summary.filter-active {
+      box-shadow: 0 0 0 3px var(--gold-500), 0 6px 20px rgba(196, 154, 74, 0.3);
+      transform: scale(1.005);
+    }
+
+    /* スコアデータ未取得時：枠なし、控えめ表示 */
+    .trend-summary.trend-summary-empty {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      padding: 12px 16px;
+      text-align: center;
+      animation: none;
+      transform: none !important;
+    }
+    .trend-summary.trend-summary-empty:hover {
+      transform: none !important;
+      filter: none;
+    }
+    .trend-summary.trend-summary-empty .trend-summary-meta {
+      color: var(--brown-500);
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0.75;
+    }
+    .trend-summary-hint {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--brown-700);
+      opacity: 0.85;
+      letter-spacing: 0.3px;
+    }
+    .trend-summary.filter-active .trend-summary-hint {
+      color: var(--brown-800);
+      font-weight: 700;
+      opacity: 1;
+    }
+    .trend-summary-meta { opacity: 0.7; font-size: 11px; color: var(--muted); }
+
+    .sp500-toolbar {
+      margin-top: 14px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .overview-btn {
+      background: var(--brown-700);
+      color: #fff;
+      border: none;
+      padding: 9px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif;
+      transition: background 0.2s;
+    }
+    .overview-btn:hover { background: var(--brown-800); }
+    .overview-sort {
+      padding: 8px 12px;
+      border: 1px solid var(--brown-200);
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: 'Noto Sans JP', sans-serif;
+      color: var(--ink);
+      background: #fff;
+      cursor: pointer;
+    }
+
+    /* ===== ① 銘柄チップの千鳥フェードイン ===== */
+    @keyframes chipFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===== ② タブのスムーススライドインジケータ ===== */
+    .tabs { position: relative; }
+    .tabs::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      width: var(--tab-width, 0px);
+      height: 2px;
+      background: linear-gradient(90deg, var(--gold-500), var(--gold-600));
+      border-radius: 2px;
+      transform: translateX(var(--tab-left, 0px));
+      transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                  width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+    }
+    .tab.active { border-bottom-color: transparent !important; }
+
+    /* ===== ③ クイックフィルタの呼吸（注目誘導） ===== */
+    @keyframes quickFilterBreath {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(196, 154, 74, 0); }
+      50%      { box-shadow: 0 0 0 4px rgba(196, 154, 74, 0.10); }
+    }
+    .quick-filter-btn:not(.active) {
+      animation: quickFilterBreath 5s ease-in-out infinite;
+    }
+    .quick-filter-btn.qf-undervalue:not(.active) { animation-delay: 0s; }
+    .quick-filter-btn.qf-uptrend:not(.active)    { animation-delay: 1.25s; }
+    .quick-filter-btn.qf-overvalue:not(.active)  { animation-delay: 2.5s; }
+    .quick-filter-btn.qf-downtrend:not(.active)  { animation-delay: 3.75s; }
+    /* hover時はパルスを止めて干渉を防ぐ */
+    .quick-filter-btn:hover { animation: none; }
+
+    /* ===== ④ 見出しの装飾線アニメ ===== */
+    .section-title-en {
+      position: relative;
+      display: inline-block;
+    }
+    .section-title-en::after {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 0;
+      width: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--gold-500), transparent);
+      border-radius: 2px;
+      transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+    }
+    .reveal.visible .section-title-en::after { width: 55%; }
+
+    /* ===== ⑤ ナビpillに微かなホバーglow ===== */
+    .nav-pill { transition: box-shadow 0.4s ease, transform 0.4s ease; }
+    .nav-pill:hover {
+      box-shadow: 0 6px 28px rgba(196, 154, 74, 0.18);
+      transform: translateY(-1px);
+    }
+
+    /* ===== ⑥ サムネイルカードの繊細なホバー ===== */
+    .thumb-card { transition: transform 0.25s cubic-bezier(0.22,1,0.36,1), box-shadow 0.25s, border-color 0.25s; }
+    .thumb-card:hover {
+      transform: translateY(-4px) scale(1.015);
+      box-shadow: 0 14px 28px rgba(60, 35, 15, 0.22);
+    }
+
+    /* ===== ⑦ ノートカードのホバー強化 ===== */
+    .note-card { transition: transform 0.35s cubic-bezier(0.22,1,0.36,1), box-shadow 0.35s; }
+    .note-card-thumb img { transition: transform 0.6s cubic-bezier(0.22,1,0.36,1); }
+    .note-card:hover .note-card-thumb img { transform: scale(1.06); }
+
+    .symbol-list {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+      gap: 6px;
+      max-height: 280px;
+      overflow-y: auto;
+      padding: 4px;
+    }
+    .symbol-chip {
+      padding: 9px 6px;
+      background: var(--cream-100);
+      border: 1px solid var(--brown-100);
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-800);
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+                  background 0.15s, box-shadow 0.2s;
+      user-select: none;
+      animation: chipFadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: calc(var(--i, 0) * 0.012s);
+    }
+    .symbol-chip:hover {
+      background: var(--brown-700);
+      color: #fff;
+      transform: translateY(-2px) scale(1.03);
+      box-shadow: 0 4px 12px rgba(196, 154, 74, 0.25);
+    }
+    .symbol-chip.active { background: var(--brown-700); color: #fff; }
+    .symbol-chip.futures {
+      background: linear-gradient(135deg, #f4dba0 0%, var(--gold-500) 100%);
+      border-color: var(--gold-500);
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(168, 127, 51, 0.3);
+    }
+    .symbol-chip.futures:hover { background: linear-gradient(135deg, var(--gold-500), var(--gold-600)); color: #fff; }
+    .symbol-chip.futures.active { background: linear-gradient(135deg, var(--gold-600), var(--brown-700)); color: #fff; }
+    /* 日経銘柄チップ（赤白配色） */
+    .symbol-chip.nikkei {
+      background: linear-gradient(135deg, #fff0f0 0%, #e8b4b4 100%);
+      border-color: #c9534f;
+      color: #7a1a1a;
+    }
+    .symbol-chip.nikkei:hover { background: linear-gradient(135deg, #c9534f, #9b2c2c); color: #fff; }
+    .symbol-chip.nikkei.active { background: linear-gradient(135deg, #9b2c2c, #6b1a1a); color: #fff; }
+    /* NASDAQ100銘柄チップ（青系配色） */
+    .symbol-chip.nasdaq {
+      background: linear-gradient(135deg, #eaf3fc 0%, #b3d4f0 100%);
+      border-color: #4a7fa8;
+      color: #1f3a5f;
+    }
+    .symbol-chip.nasdaq:hover { background: linear-gradient(135deg, #4a7fa8, #2b4a73); color: #fff; }
+    .symbol-chip.nasdaq.active { background: linear-gradient(135deg, #2b4a73, #1c2e4a); color: #fff; }
+    /* 量子コンピュータ銘柄チップ（紫系配色） */
+    .symbol-chip.quantum {
+      background: linear-gradient(135deg, #f3edfc 0%, #c8b3eb 100%);
+      border-color: #7a5cc4;
+      color: #3a2870;
+    }
+    .symbol-chip.quantum:hover { background: linear-gradient(135deg, #7a5cc4, #4a3490); color: #fff; }
+    .symbol-chip.quantum.active { background: linear-gradient(135deg, #4a3490, #2a1f5c); color: #fff; }
+    /* 宇宙関連銘柄チップ（ディープブルー/ナイトスカイ配色） */
+    .symbol-chip.space {
+      background: linear-gradient(135deg, #e8f0fa 0%, #a8c4e3 100%);
+      border-color: #2a4a78;
+      color: #1a2e52;
+    }
+    .symbol-chip.space:hover { background: linear-gradient(135deg, #2a4a78, #15294a); color: #fff; }
+    .symbol-chip.space.active { background: linear-gradient(135deg, #15294a, #0a1729); color: #fff; }
+
+    /* 水素エネルギー銘柄チップ（シアン系配色） */
+    .symbol-chip.hydrogen {
+      background: linear-gradient(135deg, #e0f7fa, #b2ebf2);
+      border-color: #4dd0e1;
+      color: #006064;
+    }
+    .symbol-chip.hydrogen:hover {
+      background: linear-gradient(135deg, #b2ebf2, #80deea);
+      border-color: #00bcd4;
+      box-shadow: 0 4px 12px rgba(0, 188, 212, 0.25);
+    }
+    .symbol-chip.hydrogen.active {
+      background: linear-gradient(135deg, #006064, #004d40);
+      color: #fff;
+      border-color: #00838f;
+    }
+
+    /* 太陽光銘柄チップ（イエロー〜オレンジ系配色） */
+    .symbol-chip.solar {
+      background: linear-gradient(135deg, #fff9c4, #fff176);
+      border-color: #ffd54f;
+      color: #5d4037;
+    }
+    .symbol-chip.solar:hover {
+      background: linear-gradient(135deg, #fff176, #ffd54f);
+      border-color: #ffa726;
+      box-shadow: 0 4px 12px rgba(255, 167, 38, 0.3);
+    }
+    .symbol-chip.solar.active {
+      background: linear-gradient(135deg, #f57c00, #e65100);
+      color: #fff;
+      border-color: #ef6c00;
+    }
+
+    /* ウォッチリスト銘柄チップ（金/茶系） */
+    .symbol-chip.watchlist-chip {
+      background: linear-gradient(135deg, #fff4e0, #ffe0b3);
+      border-color: var(--gold-400);
+      color: var(--brown-800);
+      position: relative;
+    }
+    .symbol-chip.watchlist-chip::after {
+      content: '⭐';
+      position: absolute;
+      top: -4px; right: -4px;
+      font-size: 10px;
+      background: var(--gold-500);
+      color: #fff;
+      border-radius: 50%;
+      width: 14px; height: 14px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 3px rgba(196, 154, 74, 0.4);
+    }
+    .symbol-chip.watchlist-chip:hover {
+      background: linear-gradient(135deg, #ffe0b3, #ffcc80);
+      border-color: var(--gold-500);
+      box-shadow: 0 4px 12px rgba(196, 154, 74, 0.3);
+    }
+    .symbol-chip.watchlist-chip.active {
+      background: linear-gradient(135deg, var(--brown-800), var(--brown-900));
+      color: #fff;
+    }
+    /* 為替銘柄チップ（ティール系配色） */
+    .symbol-chip.forex {
+      background: linear-gradient(135deg, #e8f5f0 0%, #99d4c2 100%);
+      border-color: #2a8a73;
+      color: #134a3e;
+    }
+    .symbol-chip.forex:hover { background: linear-gradient(135deg, #2a8a73, #155a48); color: #fff; }
+    .symbol-chip.forex.active { background: linear-gradient(135deg, #155a48, #0a3026); color: #fff; }
+    /* ETF銘柄チップ（オリーブ/カーキ系配色） */
+    .symbol-chip.etf {
+      background: linear-gradient(135deg, #f4f1e0 0%, #d4d0a8 100%);
+      border-color: #7a7a4a;
+      color: #4a4528;
+    }
+    .symbol-chip.etf:hover { background: linear-gradient(135deg, #7a7a4a, #4a4528); color: #fff; }
+    .symbol-chip.etf.active { background: linear-gradient(135deg, #4a4528, #2a2818); color: #fff; }
+
+    /* ===== ETFタブ専用: セクター見出し ===== */
+    .sector-header {
+      grid-column: 1 / -1;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px;
+      margin: 6px 0 2px;
+      background: linear-gradient(135deg, var(--brown-100), var(--cream-200));
+      border-left: 4px solid var(--gold-500);
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--brown-800);
+      cursor: pointer;
+      transition: background 0.25s, transform 0.15s, box-shadow 0.25s;
+      user-select: none;
+    }
+    .sector-header:hover {
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-500));
+      color: #fff;
+      transform: translateX(2px);
+      box-shadow: 0 3px 8px rgba(196, 154, 74, 0.35);
+    }
+    .sector-header-name { letter-spacing: 0.5px; }
+    .sector-header-action {
+      font-size: 11px;
+      padding: 3px 8px;
+      background: rgba(255, 255, 255, 0.4);
+      border-radius: 999px;
+      font-weight: 700;
+      transition: background 0.25s;
+    }
+    .sector-header:hover .sector-header-action {
+      background: rgba(255, 255, 255, 0.6);
+      color: var(--brown-800);
+    }
+
+    /* ===== セクター一気見：チャート縦並び ===== */
+    .sector-compare {
+      display: flex; flex-direction: column; gap: 16px;
+      padding: 8px 0;
+    }
+    .sector-compare-item {
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid var(--brown-100);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 2px 8px rgba(93, 58, 31, 0.06);
+    }
+    .sector-compare-symbol {
+      font-family: 'Playfair Display', serif;
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--brown-800);
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sector-compare-symbol::before {
+      content: '📈';
+      font-size: 16px;
+    }
+    .sector-compare-item img {
+      width: 100%; height: auto; display: block;
+      border-radius: 8px;
+      background: #131722;
+    }
+    .sector-compare-error {
+      padding: 20px;
+      text-align: center;
+      color: #c4302b;
+      font-size: 13px;
+    }
+
+    /* ===== ETFタブ専用：セクターブロック2列レイアウト ===== */
+    .symbol-list.etf-mode {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 14px 12px !important;
+      /* ETFタブはスクロール無しで全表示するため、高さ制限と内部スクロールを解除 */
+      max-height: none !important;
+      overflow-y: visible !important;
+    }
+    .etf-sector-block {
+      display: flex; flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .etf-sector-block .sector-header {
+      grid-column: auto;  /* etf-mode 内では auto に戻す */
+      margin: 0;
+    }
+    .etf-sector-block .sector-symbols {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+      gap: 5px;
+    }
+    /* スマホでも2カラムを維持（全セクターを一望できるよう、各カラムをコンパクトに） */
+    @media (max-width: 700px) {
+      .symbol-list.etf-mode {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 10px 8px !important;
+      }
+      .etf-sector-block .sector-header {
+        font-size: 12px;
+      }
+      .etf-sector-block .sector-symbols {
+        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+        gap: 4px;
+      }
+    }
+
+    .no-result { grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
+    .count-info { margin-top: 10px; font-size: 11px; color: var(--muted); text-align: right; }
+
+    /* 一気見グリッド */
+    .overview-grid {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 8px;
+      background: var(--cream-100);
+      border-radius: 12px;
+    }
+    .thumb-card {
+      background: #1a1208;
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      border: 2px solid transparent;
+    }
+    .thumb-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(60, 35, 15, 0.25);
+      border-color: var(--gold-500);
+    }
+    .thumb-card img { width: 100%; height: auto; display: block; object-fit: contain; background: #131722; }
+    .thumb-card .thumb-placeholder {
+      width: 100%; height: 240px; display: flex; align-items: center; justify-content: center;
+      color: #888; font-size: 12px; background: #2a2014;
+    }
+    .thumb-info { padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+
+    @media (max-width: 640px) {
+      .overview-grid { grid-template-columns: 1fr; gap: 12px; max-height: 75vh; }
+    }
+    .thumb-symbol { font-weight: 700; color: #fff; }
+    .thumb-score { font-weight: 700; }
+    .ts-blue { color: #00bfff; } .ts-green { color: #32cd32; }
+    .ts-yellow { color: #ffd700; } .ts-red { color: #ff4444; } .ts-na { color: #777; }
+    .overview-loading { padding: 30px; text-align: center; color: var(--muted); font-size: 13px; grid-column: 1 / -1; }
+
+    /* ===== チャートエリア ===== */
+    .chart-area {
+      width: 100%;
+      max-width: 1280px;
+      margin: 0 auto 40px;
+      display: none;
+      gap: 16px;
+      padding: 0 28px;
+    }
+    .chart-area.active {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .chart-main {
+      width: 100%;
+      background: #131722;
+      border-radius: 16px;
+      overflow: hidden;
+      min-width: 0;
+      box-shadow: var(--shadow);
+    }
+    .info-panel {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .info-card {
+      background: rgba(255, 252, 245, 0.95);
+      border-radius: 16px;
+      padding: 16px 18px;
+      color: var(--ink);
+      border: 1px solid var(--brown-100);
+      box-shadow: 0 4px 16px rgba(60, 35, 15, 0.08);
+    }
+    .info-card-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gold-600);
+      margin-bottom: 12px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .info-card-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; }
+    .info-card-title-row .info-card-title { margin-bottom: 0; }
+    .compare-btn {
+      background: var(--brown-700); color: #fff; border: none; padding: 6px 12px;
+      border-radius: 999px; font-size: 11px; font-weight: 700; cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif; white-space: nowrap; transition: background 0.2s;
+    }
+
+    /* チップに最新スコアの色マーカー（小さい丸）を表示 */
+    .symbol-chip[data-score-color] {
+      padding-left: 20px;
+      position: relative;
+    }
+    .symbol-chip[data-score-color]::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 9px;
+      height: 9px;
+      border-radius: 2px;  /* 四角（ほんのり角丸） */
+      background: var(--score-marker-color, transparent);
+      box-shadow: 0 0 0 1.5px rgba(255,255,255,0.65), 0 1px 3px rgba(0,0,0,0.18);
+    }
+
+    /* WL切替セレクター（ウォッチリストタブ内） */
+    .wl-tab-selector {
+      display: flex;
+      gap: 8px;
+      margin: 0 auto 14px;
+      padding: 0 4px;
+      max-width: 1280px;
+      flex-wrap: wrap;
+    }
+    .wl-tab-btn {
+      flex: 1;
+      min-width: 80px;
+      padding: 10px 14px;
+      background: rgba(255, 252, 245, 0.9);
+      border: 1.5px solid var(--brown-200);
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--brown-700);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .wl-tab-btn:hover {
+      background: var(--brown-100);
+      transform: translateY(-1px);
+    }
+    .wl-tab-btn.active {
+      background: linear-gradient(135deg, var(--gold-300), var(--gold-500));
+      color: white;
+      border-color: var(--gold-500);
+      box-shadow: 0 2px 8px rgba(196, 154, 74, 0.3);
+    }
+    .wl-tab-count {
+      font-size: 11px;
+      opacity: 0.8;
+      margin-left: 2px;
+    }
+    /* チャート画面の3つボタン用コンテナ */
+    .watchlist-btn-container {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .watchlist-btn-container .watchlist-btn {
+      flex: 1;
+      min-width: 70px;
+    }
+    /* ⭐ ウォッチリスト追加ボタン */
+    .watchlist-btn {
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-500)) !important;
+      color: #fff !important;
+      border: none !important;
+      font-weight: 700;
+      transition: all 0.2s;
+    }
+    .watchlist-btn:hover {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600)) !important;
+      transform: translateY(-1px);
+    }
+    .watchlist-btn.active {
+      background: linear-gradient(135deg, var(--brown-700), var(--brown-800)) !important;
+    }
+    .compare-btn:hover { background: var(--brown-800); }
+    .compare-btn:disabled { background: #aaa; cursor: not-allowed; }
+    .chart-header-actions { display: flex; align-items: center; gap: 8px; }
+    .chart-action {
+      background: rgba(196, 154, 74, 0.25); color: #fff;
+      border: 1px solid rgba(196, 154, 74, 0.5); padding: 5px 10px;
+      border-radius: 999px; font-size: 11px; font-weight: 700; cursor: pointer;
+      font-family: 'Noto Sans JP', sans-serif; white-space: nowrap;
+    }
+    .chart-action:hover { background: rgba(196, 154, 74, 0.5); }
+    .peer-color-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+    .commentary-list { list-style: none; padding: 0; margin: 0; font-size: 13px; line-height: 1.7; }
+    .commentary-list li { padding: 4px 0; color: var(--brown-800); }
+
+    .profile-name { font-size: 14px; font-weight: 700; color: var(--brown-800); line-height: 1.4; margin-bottom: 8px; }
+    .profile-meta { font-size: 11px; color: var(--muted); line-height: 1.7; margin-bottom: 10px; }
+    .profile-meta span { display: inline-block; margin-right: 10px; white-space: nowrap; }
+    .profile-meta .meta-label { color: var(--gold-600); font-weight: 700; margin-right: 4px; }
+    .profile-summary {
+      font-size: 12px; color: var(--brown-700); line-height: 1.6; max-height: 140px;
+      overflow-y: auto; padding-right: 4px;
+      border-top: 1px solid var(--brown-100); padding-top: 10px; margin-top: 6px;
+    }
+    .profile-summary::-webkit-scrollbar { width: 4px; }
+    .profile-summary::-webkit-scrollbar-thumb { background: var(--brown-200); border-radius: 2px; }
+    .peer-sector-name { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+    .peer-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+    .peer-list li {
+      display: grid;
+      grid-template-columns: minmax(60px, auto) 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--brown-100);
+    }
+    .peer-list li:last-child { border-bottom: none; }
+    .peer-name { font-weight: 700; cursor: pointer; color: var(--brown-800); }
+    .peer-name:hover { color: var(--gold-600); }
+    .peer-cell { display: flex; gap: 4px; align-items: baseline; justify-content: flex-end; }
+    .peer-cell-label { font-size: 10px; color: var(--muted); font-weight: 700; }
+    .peer-cell-value { font-weight: 700; font-size: 13px; }
+    .peer-change { font-weight: 700; }
+    .peer-up { color: #2e8b3a; } .peer-down { color: #c4302b; } .peer-na { color: #999; }
+    .peer-score-blue   { color: #00bfff; }
+    .peer-score-green  { color: #2e8b3a; }
+    .peer-score-yellow { color: #c9a000; }
+    .peer-score-red    { color: #c4302b; }
+    .peer-score-na     { color: #999; }
+    .info-empty { font-size: 12px; color: #999; padding: 8px 0; }
+
+    .chart-header {
+      padding: 14px 20px; color: white; font-size: 14px; font-weight: 700;
+      background: #1e2230; display: flex; justify-content: space-between; align-items: center;
+    }
+    .chart-close {
+      background: rgba(255,255,255,0.1); border: none; color: white;
+      width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;
+    }
+    .chart-close:hover { background: rgba(255,255,255,0.25); }
+    .chart-body {
+      min-height: 200px;
+      display: block;
+      position: relative;  /* 子要素の absolute 配置の基準 */
+    }
+    .chart-body img { width: 100%; display: block; }
+    .chart-loading {
+      padding: 40px;
+      color: #888;
+      font-size: 13px;
+      text-align: center;
+      min-height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chart-error {
+      padding: 30px;
+      color: #ff6b6b;
+      font-size: 13px;
+      min-height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chart-error { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 30px 20px; text-align: center; }
+    .chart-error-hint {
+      font-size: 12px;
+      color: var(--brown-400);
+      opacity: 0.85;
+      max-width: 90%;
+      line-height: 1.5;
+    }
+    .chart-retry-btn {
+      margin-top: 4px;
+      padding: 8px 20px;
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-500));
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 2px 6px rgba(196, 154, 74, 0.3);
+      transition: all 0.2s;
+    }
+    .chart-retry-btn:hover {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(196, 154, 74, 0.4);
+    }
+    .chart-retry-btn:active { transform: translateY(0); }
+
+    /* 古いキャッシュ表示時の控えめな通知 */
+    .chart-stale-notice {
+      position: absolute;
+      top: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(196, 154, 74, 0.92);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(93, 64, 55, 0.25);
+      z-index: 5;
+      pointer-events: auto;
+    }
+    .chart-retry-btn-small {
+      background: #fff;
+      color: #5d4037;
+      border: none;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .chart-retry-btn-small:hover {
+      background: var(--cream-100);
+    }
+    
+
+    /* ===== Note記事セクション ===== */
+    /* ===== Note記事は横スクロール（PC・スマホ共通） ===== */
+    .note-grid-wrap { position: relative; }
+    .note-grid-wrap::after {
+      content: '';
+      position: absolute;
+      top: 0; right: 0; bottom: 16px;
+      width: 36px;
+      pointer-events: none;
+      background: linear-gradient(to right, transparent, var(--cream-50));
+      border-radius: 0 12px 12px 0;
+    }
+    .note-grid {
+      display: flex;
+      gap: 18px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-snap-type: x proximity;
+      scroll-padding-left: 4px;
+      padding: 8px 4px 16px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: var(--gold-500) transparent;
+    }
+    .note-grid::-webkit-scrollbar { height: 8px; }
+    .note-grid::-webkit-scrollbar-track {
+      background: var(--brown-100);
+      border-radius: 4px;
+    }
+    .note-grid::-webkit-scrollbar-thumb {
+      background: linear-gradient(90deg, var(--gold-500), var(--gold-600));
+      border-radius: 4px;
+    }
+    .note-grid::-webkit-scrollbar-thumb:hover { background: var(--gold-600); }
+    .note-card {
+      flex: 0 0 300px;
+      scroll-snap-align: start;
+      background: #fff;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(60, 35, 15, 0.1);
+      border: 1px solid var(--brown-100);
+      transition: transform 0.25s, box-shadow 0.25s;
+      text-decoration: none;
+      color: var(--ink);
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    .note-card.visible { opacity: 1; transform: translateY(0); transition: transform 0.6s cubic-bezier(0.22,1,0.36,1), opacity 0.6s; }
+    .note-card:hover { transform: translateY(-6px); box-shadow: 0 16px 36px rgba(60, 35, 15, 0.18); }
+    .note-card-thumb {
+      width: 100%; aspect-ratio: 16 / 9;
+      background: linear-gradient(135deg, var(--brown-100), var(--cream-200));
+      display: flex; align-items: center; justify-content: center;
+      color: var(--brown-300); font-size: 36px; overflow: hidden;
+    }
+    .note-card-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .note-card-body { padding: 20px 22px 22px; flex: 1; display: flex; flex-direction: column; }
+    .note-card-num { font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 700; color: var(--gold-600); margin-bottom: 8px; }
+    .note-card-title {
+      font-size: 15px; font-weight: 700; line-height: 1.5; color: var(--brown-800);
+      margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .note-card-preview {
+      font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 16px;
+      flex: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .note-card-action { display: inline-flex; align-items: center; gap: 6px; color: var(--gold-600); font-size: 12px; font-weight: 700; }
+    .note-card-action svg { width: 14px; height: 14px; transition: transform 0.2s; }
+    .note-card:hover .note-card-action svg { transform: translateX(4px); }
+    .note-loading { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; flex: 1 1 100%; min-width: 100%; }
+
+    /* ===== ② 色凡例バナー（2行構成） ===== */
+    .legend-bar {
+      max-width: 1200px;
+      width: 100%;
+      margin: 0;
+      padding: 12px 0 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+      z-index: 5;
+    }
+
+    /* info-panel を左右2カラムに（PC、スマホ縦どちらでも） */
+    .info-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: start;
+      width: 100%;
+    }
+    .info-panel-right {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-width: 0;
+    }
+    .legend-bar-title {
+      text-align: center;
+      font-size: 11px;
+      color: var(--gold-600);
+      letter-spacing: 1px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .legend-bar-title::before { content: "● "; }
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 10px 16px;
+      background: rgba(255, 252, 245, 0.7);
+      border-radius: 12px;
+      border: 1px solid var(--brown-100);
+      box-shadow: 0 2px 8px rgba(60, 35, 15, 0.04);
+    }
+    .legend-row-label {
+      font-size: 12px;
+      color: var(--brown-800);
+      font-weight: 900;
+      letter-spacing: 0.3px;
+      min-width: 110px;
+      padding-right: 14px;
+      border-right: 1px solid var(--brown-100);
+    }
+    .legend-row-items {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-700);
+    }
+    .legend-dot {
+      width: 13px;
+      height: 13px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+    .legend-dot.ld-blue   { background: #00bfff; }
+    .legend-dot.ld-green  { background: #32cd32; }
+    .legend-dot.ld-yellow { background: #ffd700; }
+    .legend-dot.ld-red    { background: #ff4444; }
+
+    @media (max-width: 700px) {
+      .legend-bar { padding: 12px 18px 4px; }
+      .legend-row { flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 14px; }
+      .legend-row-label {
+        min-width: auto;
+        padding-right: 0;
+        padding-bottom: 6px;
+        border-right: none;
+        border-bottom: 1px solid var(--brown-100);
+        width: 100%;
+        font-size: 11px;
+      }
+      .legend-row-items { gap: 12px; }
+    }
+
+    /* ===== ① 今日の注目銘柄 ===== */
+    .featured-section {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 30px 28px 20px;
+      position: relative;
+      z-index: 5;
+    }
+    .featured-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+    }
+    /* 4ブロック版：常に横並び（PC/スマホとも4カラム） */
+    .featured-row.featured-row-4 {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .featured-block {
+      background: rgba(255, 252, 245, 0.85);
+      backdrop-filter: blur(10px);
+      border-radius: 18px;
+      padding: 20px 22px;
+      border: 1px solid var(--brown-100);
+      box-shadow: 0 4px 16px rgba(60, 35, 15, 0.06);
+    }
+    .featured-block.undervalue { border-top: 3px solid #c9a000; }
+    .featured-block.uptrend    { border-top: 3px solid #00bfff; }
+    /* 4ブロック横並び時は padding を抑制 */
+    .featured-row.featured-row-4 .featured-block {
+      padding: 14px 12px;
+    }
+    .featured-row.featured-row-4 .featured-title {
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+    .featured-row.featured-row-4 .featured-title .featured-icon { font-size: 18px; }
+    .featured-row.featured-row-4 .featured-title strong { font-size: 12px; }
+    /* テーマ別ブロックの上ボーダー色 */
+    .featured-block.theme-quantum  { border-top: 3px solid #8b5cf6; }
+    .featured-block.theme-space    { border-top: 3px solid #6366f1; }
+    .featured-block.theme-hydrogen { border-top: 3px solid #06b6d4; }
+    .featured-block.theme-solar    { border-top: 3px solid #f59e0b; }
+    .featured-title {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .featured-title .featured-icon { font-size: 22px; line-height: 1; }
+    .featured-title strong {
+      font-size: 16px;
+      color: var(--brown-800);
+      font-weight: 900;
+    }
+    .featured-title small {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .featured-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .featured-card {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding: 10px 14px;
+      background: #fff;
+      border-radius: 10px;
+      border: 1px solid var(--brown-100);
+      cursor: pointer;
+      transition: transform 0.2s cubic-bezier(0.22,1,0.36,1), box-shadow 0.2s, border-color 0.2s;
+      text-decoration: none;
+    }
+    .featured-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(60, 35, 15, 0.12);
+      border-color: var(--gold-500);
+    }
+    .featured-card-rank {
+      font-family: 'Playfair Display', serif;
+      font-size: 22px;
+      font-weight: 900;
+      color: var(--gold-500);
+      width: 28px;
+      text-align: center;
+    }
+    .featured-card-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .featured-card-symbol { font-size: 14px; font-weight: 900; color: var(--brown-800); }
+    .featured-card-sector {
+      font-size: 10px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 220px;
+    }
+    .featured-card-meta { text-align: right; }
+    .featured-card-score { font-size: 18px; font-weight: 900; line-height: 1.1; }
+    .featured-card-change { font-size: 10px; font-weight: 700; margin-top: 2px; }
+
+    /* note銘柄ランキング用：1行コンパクト表示（rank / symbol / score / change） */
+    .featured-card.featured-card-compact {
+      grid-template-columns: 26px 1fr auto auto;
+      gap: 10px;
+      padding: 6px 10px;
+      align-items: center;
+    }
+    .featured-card.featured-card-compact .featured-card-rank {
+      font-size: 16px;
+      width: 26px;
+    }
+    .featured-card.featured-card-compact .featured-card-symbol {
+      font-size: 13px;
+      font-weight: 900;
+      color: var(--brown-800);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .featured-card.featured-card-compact .featured-card-score {
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1;
+      min-width: 32px;
+      text-align: right;
+    }
+    .featured-card.featured-card-compact .featured-card-change {
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      min-width: 50px;
+      text-align: right;
+      margin-top: 0;
+    }
+    /* コンパクト版は cards 間の隙間も詰める */
+    .featured-block .featured-cards:has(.featured-card-compact) {
+      gap: 5px;
+    }
+    /* スマホ：2行構成（1行目：順位+ティッカー+スコア / 2行目：変動率はスコアの下） */
+    @media (max-width: 900px) {
+      .featured-card.featured-card-compact {
+        grid-template-columns: auto 1fr auto;
+        grid-template-rows: auto auto;
+        grid-template-areas:
+          "rank symbol score"
+          ".    .      change";
+        column-gap: 5px;
+        row-gap: 1px;
+        padding: 5px 6px;
+        align-items: center;
+      }
+      .featured-card.featured-card-compact .featured-card-rank {
+        grid-area: rank;
+        align-self: center;
+        font-size: 16px;
+        width: auto;
+        min-width: 12px;
+        line-height: 1;
+        font-family: 'Playfair Display', serif;
+        text-align: center;
+      }
+      .featured-card.featured-card-compact .featured-card-symbol {
+        grid-area: symbol;
+        align-self: center;
+        font-size: 12px;
+        text-align: left;
+        line-height: 1.1;
+        font-weight: 900;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .featured-card.featured-card-compact .featured-card-score {
+        grid-area: score;
+        align-self: center;
+        font-size: 13px;
+        text-align: right;
+        min-width: 0;
+        line-height: 1.1;
+        font-weight: 900;
+      }
+      .featured-card.featured-card-compact .featured-card-change {
+        grid-area: change;
+        font-size: 9px;
+        text-align: right;
+        min-width: 0;
+        line-height: 1.1;
+        margin-top: 0;
+        font-weight: 700;
+      }
+    }
+
+    /* スマホ縦向きのみ：3行構成（上：順位+ティッカー / 中：スコア / 下：変動率） */
+    @media (max-width: 500px) {
+      .featured-card.featured-card-compact {
+        grid-template-columns: auto 1fr;
+        grid-template-rows: auto auto auto;
+        grid-template-areas:
+          "rank symbol"
+          ".    score"
+          ".    change";
+        gap: 1px 4px;
+        padding: 5px 6px;
+      }
+      .featured-card.featured-card-compact .featured-card-rank {
+        align-self: start;
+        padding-top: 1px;
+      }
+      .featured-card.featured-card-compact .featured-card-symbol {
+        align-self: start;
+      }
+      .featured-card.featured-card-compact .featured-card-score {
+        text-align: right;
+        font-size: 13px;
+        font-weight: 900;
+      }
+      .featured-card.featured-card-compact .featured-card-change {
+        text-align: right;
+        font-size: 10px;
+      }
+    }
+    .fc-blue   { color: #00bfff; }
+    .fc-green  { color: #2e8b3a; }
+    .fc-yellow { color: #c9a000; }
+    .fc-red    { color: #c4302b; }
+    .featured-loading { color: var(--muted); font-size: 12px; padding: 14px; text-align: center; }
+
+    @media (max-width: 900px) {
+      .featured-row { grid-template-columns: 1fr; }
+      /* 4ブロック版は横並びを維持（スマホ縦・横とも4カラム） */
+      .featured-row.featured-row-4 {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+      }
+      .featured-section { padding: 18px 6px 10px; }
+      .featured-row.featured-row-4 .featured-block {
+        padding: 8px 4px;
+        border-radius: 10px;
+      }
+      /* 4カラムのとき、タイトル等を縮小 */
+      .featured-row.featured-row-4 .featured-title {
+        gap: 2px;
+        margin-bottom: 6px;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+      }
+      .featured-row.featured-row-4 .featured-title .featured-icon { font-size: 16px; }
+      .featured-row.featured-row-4 .featured-title strong { font-size: 9px; line-height: 1.2; }
+      .featured-block .featured-cards:has(.featured-card-compact) { gap: 4px; }
+    }
+
+    /* ===== ③ 免責事項 ===== */
+    .footer-disclaimer {
+      max-width: 700px;
+      margin: 14px auto 18px;
+      padding: 12px 18px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      font-size: 11px;
+      line-height: 1.7;
+      color: var(--cream-200);
+      letter-spacing: 0.3px;
+    }
+    .footer-disclaimer-label {
+      display: inline-block;
+      font-weight: 700;
+      color: var(--gold-400);
+      margin-right: 6px;
+    }
+
+    /* ===== ポリシー系モーダル ===== */
+    .policy-modal-overlay {
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(43, 26, 12, 0.55);
+      backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+      padding: 20px;
+      animation: policyOverlayIn 0.25s ease;
+    }
+    .policy-modal-overlay.active { display: flex; }
+    @keyframes policyOverlayIn { from { opacity: 0; } to { opacity: 1; } }
+    .policy-modal {
+      background: var(--cream-50);
+      border-radius: 16px;
+      max-width: 720px; width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 60px rgba(43, 26, 12, 0.4);
+      animation: policyModalIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      border: 1px solid var(--brown-100);
+    }
+    @keyframes policyModalIn { from { opacity: 0; transform: translateY(20px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .policy-modal-header {
+      position: sticky; top: 0;
+      background: linear-gradient(135deg, var(--brown-800), var(--brown-700));
+      color: var(--cream-50);
+      padding: 18px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-radius: 16px 16px 0 0;
+      z-index: 1;
+    }
+    .policy-modal-title {
+      font-size: 18px; font-weight: 800;
+      letter-spacing: 0.5px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .policy-modal-close {
+      background: rgba(255, 255, 255, 0.15);
+      border: none;
+      color: var(--cream-50);
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.2s;
+      font-size: 16px;
+    }
+    .policy-modal-close:hover { background: rgba(255, 255, 255, 0.3); }
+    .policy-modal-body {
+      padding: 24px 28px;
+      color: var(--brown-800);
+      font-size: 13px;
+      line-height: 1.85;
+    }
+    .policy-modal-body h3 {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--brown-800);
+      margin: 18px 0 6px;
+      padding-bottom: 4px;
+      border-bottom: 2px solid var(--gold-400);
+      display: inline-block;
+    }
+    .policy-modal-body h3:first-child { margin-top: 0; }
+    .policy-modal-body p { margin: 6px 0 10px; }
+    .policy-modal-body ul { padding-left: 22px; margin: 4px 0 10px; }
+    .policy-modal-body li { margin-bottom: 4px; }
+    .policy-modal-body strong { color: var(--brown-900); }
+    .policy-updated {
+      margin-top: 20px; padding-top: 12px;
+      border-top: 1px solid var(--brown-100);
+      font-size: 11px; color: var(--brown-500); text-align: right;
+    }
+
+    /* フッター ポリシーリンク */
+    .footer-links {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      gap: 8px 18px;
+      margin: 18px 0 12px;
+      font-size: 12px;
+    }
+    .footer-link {
+      color: var(--cream-200);
+      background: none; border: none;
+      cursor: pointer;
+      font-family: inherit; font-size: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(212, 168, 90, 0.4);
+      text-underline-offset: 3px;
+      transition: color 0.2s;
+      padding: 0;
+    }
+    .footer-link:hover { color: var(--gold-400); }
+
+    /* ===== フッター ===== */
+    .footer { margin-top: 60px; padding: 40px 28px 30px; background: var(--brown-800); color: var(--cream-100); text-align: center; font-size: 12px; }
+    .footer-logo { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 900; margin-bottom: 8px; }
+    .footer-logo span { color: var(--gold-400); }
+
+    .reveal { opacity: 0; transform: translateY(30px); transition: opacity 0.8s, transform 0.8s cubic-bezier(0.22,1,0.36,1); }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .nav-pill { padding: 10px 18px; }
+      .hero { padding: 50px 18px 40px; }
+      .section { padding: 40px 18px; }
+      .search-card { padding: 22px; }
+      .chart-area { padding: 0 18px; }
+      .note-card { flex: 0 0 260px; }
+    }
+
+    /* ===== ローディング画面 ===== */
+    .loader {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background:
+        radial-gradient(ellipse at top left, var(--cream-100) 0%, transparent 50%),
+        radial-gradient(ellipse at top right, #fbeacc 0%, transparent 50%),
+        var(--cream-50);
+      transition: opacity 0.8s ease, visibility 0.8s ease;
+    }
+    .loader.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    .loader-owl {
+      width: 140px; height: 140px; border-radius: 50%; object-fit: cover;
+      border: 5px solid #fff;
+      box-shadow: 0 12px 32px rgba(93, 58, 31, 0.25), 0 0 0 6px rgba(212, 168, 90, 0.35);
+      animation: loaderOwlIn 0.7s cubic-bezier(0.22,1,0.36,1), loaderOwlPulse 1.8s ease-in-out 0.7s infinite;
+    }
+    @keyframes loaderOwlIn { 0% { opacity: 0; transform: translateY(20px) scale(0.85); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes loaderOwlPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    .loader-logo {
+      margin-top: 24px;
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(28px, 5vw, 44px); font-weight: 900; color: var(--brown-800);
+      letter-spacing: 1px; opacity: 0;
+      animation: loaderTextIn 0.7s cubic-bezier(0.22,1,0.36,1) 0.3s forwards;
+    }
+    .loader-logo .accent { color: var(--gold-500); }
+    @keyframes loaderTextIn { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+    .loader-sub {
+      margin-top: 6px;
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(11px, 1.6vw, 14px); font-weight: 700; color: var(--brown-600);
+      letter-spacing: 2px; text-transform: uppercase; opacity: 0;
+      animation: loaderTextIn 0.7s cubic-bezier(0.22,1,0.36,1) 0.5s forwards;
+    }
+    .loader-progress {
+      margin-top: 32px; width: 220px; height: 4px;
+      background: var(--brown-100); border-radius: 2px; overflow: hidden;
+      opacity: 0; animation: loaderTextIn 0.7s cubic-bezier(0.22,1,0.36,1) 0.7s forwards;
+    }
+    .loader-progress-bar {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--gold-500), var(--brown-700));
+      border-radius: 2px;
+      animation: loaderProgress 2s cubic-bezier(0.4, 0, 0.2, 1) 0.8s forwards;
+    }
+    @keyframes loaderProgress { 0% { width: 0%; } 50% { width: 60%; } 100% { width: 100%; } }
+  </style>
+</head>
+<body>
+
+  <!-- ローディング画面（オープニング） -->
+  <div class="loader" id="loader">
+    <img class="loader-owl" alt="トレケン"
+         src="data:image/jpeg;base64,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">
+    <div class="loader-logo">トレンド<span class="accent">研究所</span></div>
+    <div class="loader-sub">Trend Research Lab</div>
+    <div class="loader-progress"><div class="loader-progress-bar"></div></div>
+  </div>
+
+  <!-- 浮遊する装飾 -->
+  <div class="floaters" aria-hidden="true">
+    <svg class="floater f1" viewBox="0 0 64 120" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="featherGrad1" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#8a5c3d"/>
+          <stop offset="60%" stop-color="#c9a988"/>
+          <stop offset="100%" stop-color="#e6d4be"/>
+        </linearGradient>
+      </defs>
+      <path d="M32 4 C 44 18, 50 40, 50 70 C 50 90, 42 108, 32 116 C 22 108, 14 90, 14 70 C 14 40, 20 18, 32 4 Z" fill="url(#featherGrad1)"/>
+      <path d="M32 6 L32 114" stroke="#5d3a1f" stroke-width="1.5" stroke-linecap="round"/>
+      <g stroke="#704a2e" stroke-width="0.7" fill="none" opacity="0.7">
+        <path d="M32 20 Q 22 22, 18 32"/> <path d="M32 30 Q 20 32, 16 44"/>
+        <path d="M32 42 Q 18 44, 15 58"/> <path d="M32 56 Q 18 58, 16 72"/>
+        <path d="M32 70 Q 18 72, 17 86"/> <path d="M32 84 Q 20 86, 19 98"/>
+        <path d="M32 20 Q 42 22, 46 32"/> <path d="M32 30 Q 44 32, 48 44"/>
+        <path d="M32 42 Q 46 44, 49 58"/> <path d="M32 56 Q 46 58, 48 72"/>
+        <path d="M32 70 Q 46 72, 47 86"/> <path d="M32 84 Q 44 86, 45 98"/>
+      </g>
+    </svg>
+    <svg class="floater f2" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M32 4 L36 28 L60 32 L36 36 L32 60 L28 36 L4 32 L28 28 Z" fill="#d4a85a"/>
+    </svg>
+    <svg class="floater f3" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="32" cy="32" r="26" fill="none" stroke="#c49a4a" stroke-width="3"/>
+      <circle cx="32" cy="32" r="14" fill="#d4a85a" opacity="0.6"/>
+    </svg>
+    <svg class="floater f4" viewBox="0 0 64 120" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="featherGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#704a2e"/>
+          <stop offset="60%" stop-color="#8a5c3d"/>
+          <stop offset="100%" stop-color="#c9a988"/>
+        </linearGradient>
+      </defs>
+      <path d="M32 4 C 44 18, 50 40, 50 70 C 50 90, 42 108, 32 116 C 22 108, 14 90, 14 70 C 14 40, 20 18, 32 4 Z" fill="url(#featherGrad2)"/>
+      <path d="M32 6 L32 114" stroke="#3d2510" stroke-width="1.5" stroke-linecap="round"/>
+      <g stroke="#5d3a1f" stroke-width="0.7" fill="none" opacity="0.7">
+        <path d="M32 24 Q 22 26, 18 36"/> <path d="M32 38 Q 19 40, 16 52"/>
+        <path d="M32 52 Q 18 54, 16 68"/> <path d="M32 68 Q 18 70, 17 84"/>
+        <path d="M32 24 Q 42 26, 46 36"/> <path d="M32 38 Q 45 40, 48 52"/>
+        <path d="M32 52 Q 46 54, 48 68"/> <path d="M32 68 Q 46 70, 47 84"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- ナビゲーション -->
+  <div class="nav-wrap">
+    <div class="nav-pill">
+      <div class="nav-logo">Tore<span>ken</span></div>
+      <div class="nav-links">
+        <a href="#search">銘柄を探す</a>
+        <a href="#notes">記事</a>
+        <div class="nav-dropdown" tabindex="0">
+          <span class="nav-dropdown-trigger">
+            チャンネル
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 4 6 8 10 4"/></svg>
+          </span>
+          <div class="nav-dropdown-menu" role="menu">
+            <a class="ch-x" href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.743l7.733-8.835L1.254 2.25H8.08l4.256 5.622L18.244 2.25Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z"/></svg>
+              X (@Trade_CFD_FX)
+            </a>
+            <a class="ch-yt" href="https://www.youtube.com/@トレンド研究所" target="_blank" rel="noopener" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              YouTube
+            </a>
+            <a class="ch-note" href="https://note.com/natukb" target="_blank" rel="noopener" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 0h-19C1.1 0 0 1.1 0 2.5v19C0 22.9 1.1 24 2.5 24h19c1.4 0 2.5-1.1 2.5-2.5v-19C24 1.1 22.9 0 21.5 0zM7 17.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm10-4H7v-2h10v2zm0-4H7V7.5h10V9.5z"/></svg>
+              Note
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ヒーロー -->
+  <section class="hero">
+    <h1 class="hero-title-en">トレンド<span class="accent">研究所</span></h1>
+    <div class="hero-sub-en">Candle Color Tells The Trend</div>
+    <div class="hero-tagline">ーろうそく足の色でトレンド可視化 — <br class="sp-only">独自スコアでチャートを多角的に分析</div>
+    <div class="hero-badge">投資判断の参考情報としてのチャートデータベース</div>
+  </section>
+
+
+  <!-- ① テーマ別 注目銘柄（note銘柄カテゴリの上位5） -->
+  <section class="featured-section reveal" id="featured">
+    <div class="featured-row featured-row-4">
+      <div class="featured-block theme-quantum">
+        <div class="featured-title">
+          <span class="featured-icon">⚛️</span>
+          <strong>量子コンピュータ TOP5</strong>
+        </div>
+        <div class="featured-cards" id="quantumFeatured">
+          <div class="featured-loading">読み込み中...</div>
+        </div>
+      </div>
+      <div class="featured-block theme-space">
+        <div class="featured-title">
+          <span class="featured-icon">🚀</span>
+          <strong>宇宙関連 TOP5</strong>
+        </div>
+        <div class="featured-cards" id="spaceFeatured">
+          <div class="featured-loading">読み込み中...</div>
+        </div>
+      </div>
+      <div class="featured-block theme-hydrogen">
+        <div class="featured-title">
+          <span class="featured-icon">💧</span>
+          <strong>水素エネルギー TOP5</strong>
+        </div>
+        <div class="featured-cards" id="hydrogenFeatured">
+          <div class="featured-loading">読み込み中...</div>
+        </div>
+      </div>
+      <div class="featured-block theme-solar">
+        <div class="featured-title">
+          <span class="featured-icon">☀️</span>
+          <strong>太陽光 TOP5</strong>
+        </div>
+        <div class="featured-cards" id="solarFeatured">
+          <div class="featured-loading">読み込み中...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 銘柄検索＆タブ -->
+  <section class="section reveal" id="search">
+    <div class="section-head">
+      <div>
+        <div class="section-title-jp">銘柄を探す</div>
+        <div class="section-title-en">Search Stocks</div>
+      </div>
+    </div>
+    <div class="section-divider"></div>
+
+    <div class="search-card">
+      <div class="search-hint">✨ リスト以外の銘柄もEnterで検索可能！</div>
+      <div class="search-input-wrap">
+        <input type="text" class="search-box" id="searchBox" placeholder="🔍 銘柄名を入力してEnter（例: TSLA, 7203, BTC-USD）" autocomplete="off">
+        <button type="button" class="search-clear-btn" id="searchClearBtn" aria-label="入力をクリア" onclick="clearSearchBox()">✕</button>
+        <!-- 検索候補ドロップダウン -->
+        <div class="search-suggest" id="searchSuggest" style="display:none;"></div>
+      </div>
+
+      <div class="quick-filter-row">
+        <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）</div>
+        <div class="quick-filter-buttons">
+          <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued')" title="EMA20から大きく下方乖離、反発の可能性">
+            <span class="qf-icon">💎</span>
+            <span class="qf-text">
+              <strong>割安銘柄</strong>
+              <small>強い下降・反発候補（黄・赤）</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend')" title="EMA20より上、上昇基調">
+            <span class="qf-icon">🌟</span>
+            <span class="qf-text">
+              <strong>上昇トレンド</strong>
+              <small>勢いがある銘柄（緑+青）</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-overvalue" onclick="applyQuickFilter('overvalued')" title="EMA20から大きく上方乖離、過熱気味">
+            <span class="qf-icon">⚠️</span>
+            <span class="qf-text">
+              <strong>割高（過熱）</strong>
+              <small>強い上昇・買われすぎ（青）</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-downtrend" onclick="applyQuickFilter('downtrend')" title="EMA20より下、下降基調">
+            <span class="qf-icon">📉</span>
+            <span class="qf-text">
+              <strong>下降トレンド</strong>
+              <small>逆風が吹く銘柄（赤+黄）</small>
+            </span>
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <button class="filter-toggle" id="filterToggle" onclick="toggleFilterPanel()">
+          <span class="filter-icon">⚙</span>
+          <span id="filterToggleLabel">条件で絞る</span>
+          <svg class="filter-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2 4 6 8 10 4"/></svg>
+        </button>
+        <button class="filter-clear" id="filterClear" onclick="clearFilters()" style="display:none;">条件をクリア</button>
+      </div>
+
+      <div class="filter-panel" id="filterPanel" style="display:none;">
+        <div class="filter-group">
+          <div class="filter-group-title">スコアの範囲</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="scoreMin" placeholder="最小" step="0.1">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="scoreMax" placeholder="最大" step="0.1">
+          </div>
+          <div class="filter-hint">例: 5以上 → 最小に「5」　空欄で無制限</div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title-row">
+            <div class="filter-group-title">トレンド色</div>
+            <div class="filter-toggle-actions">
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('color', true)">全選択</button>
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('color', false)">全解除</button>
+            </div>
+          </div>
+          <div class="filter-color-row">
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="blue" checked>
+              <span class="filter-color-label ts-blue">● 強い上昇</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="green" checked>
+              <span class="filter-color-label ts-green">● 上昇</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="red" checked>
+              <span class="filter-color-label ts-red">● 下降</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-color-check" value="yellow" checked>
+              <span class="filter-color-label ts-yellow">● 強い下降</span>
+            </label>
+          </div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title-row">
+            <div class="filter-group-title">対象グループ</div>
+            <div class="filter-toggle-actions">
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('group', true)">全選択</button>
+              <button type="button" class="filter-toggle-btn" onclick="toggleAllFilters('group', false)">全解除</button>
+            </div>
+          </div>
+          <div class="filter-color-row">
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="G1" checked>
+              <span class="filter-color-label">先物・指数</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="G3" checked>
+              <span class="filter-color-label">暗号通貨</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="FOREX" checked>
+              <span class="filter-color-label">💱 為替</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="ETF" checked>
+              <span class="filter-color-label">📦 ETF</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="SP500" checked>
+              <span class="filter-color-label">S&amp;P500</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="NASDAQ100" checked>
+              <span class="filter-color-label">NASDAQ100</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="QUANTUM" checked>
+              <span class="filter-color-label">⚛️ 量子</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="SPACE" checked>
+              <span class="filter-color-label">🚀 宇宙</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="HYDROGEN" checked>
+              <span class="filter-color-label">💧 水素</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="SOLAR" checked>
+              <span class="filter-color-label">☀️ 太陽光</span>
+            </label>
+            <label class="filter-color-chip">
+              <input type="checkbox" class="filter-group-check" value="NIKKEI225" checked>
+              <span class="filter-color-label">日経225</span>
+            </label>
+          </div>
+          <div class="filter-hint">チェックされたグループだけが検索対象になります</div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title">1週間の変動率</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="changeMin" placeholder="最小%" step="0.5">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="changeMax" placeholder="最大%" step="0.5">
+          </div>
+          <div class="filter-hint">例: +3%以上上昇 → 最小に「3」</div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title">20EMAとの乖離率</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="ema20Min" placeholder="最小%" step="0.5">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="ema20Max" placeholder="最大%" step="0.5">
+          </div>
+          <div class="filter-hint">例: 20EMAより5%以上上 → 最小に「5」、下方乖離は最大に「-5」</div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-group-title">50SMAとの乖離率</div>
+          <div class="filter-range-row">
+            <input type="number" class="filter-num" id="sma50Min" placeholder="最小%" step="0.5">
+            <span class="filter-range-sep">〜</span>
+            <input type="number" class="filter-num" id="sma50Max" placeholder="最大%" step="0.5">
+          </div>
+          <div class="filter-hint">中期トレンドからの乖離。例: -10%以下 → 最大に「-10」</div>
+        </div>
+        <div class="filter-status" id="filterStatus"></div>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-group="G1">先物・指数</button>
+        <button class="tab" data-group="G3">暗号通貨</button>
+        <button class="tab" data-group="FOREX">💱 為替</button>
+        <button class="tab" data-group="SP500">S&amp;P 500</button>
+        <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
+        <button class="tab" data-group="NIKKEI225">日経 225</button>
+        <button class="tab" data-group="ETF">📦 ETF</button>
+        <button class="tab note-tab" id="noteTabBtn" data-group="NOTE"><span class="note-hint-inline">📌テーマ別</span><span class="note-tab-label">📝 note銘柄</span></button>
+        <button class="tab" data-group="WATCHLIST">⭐ ウォッチリスト</button>
+      </div>
+
+      <!-- note銘柄サブタブ（テーマ切替） -->
+      <div class="sub-tabs" id="subTabs" style="display:none;">
+        <button class="sub-tab" data-subgroup="QUANTUM">⚛️ 量子コンピュータ</button>
+        <button class="sub-tab" data-subgroup="SPACE">🚀 宇宙関連</button>
+        <button class="sub-tab" data-subgroup="HYDROGEN">💧 水素</button>
+        <button class="sub-tab" data-subgroup="SOLAR">☀️ 太陽光</button>
+      </div>
+
+      <!-- トレンド要約バー（タブ別の銘柄数内訳） -->
+      <div class="trend-summary" id="trendSummary"></div>
+
+      <div class="sp500-toolbar" id="sp500Toolbar" style="display:none;">
+        <button class="overview-btn" id="overviewBtn" onclick="toggleOverview()">📊 全銘柄を一気見</button>
+        <select class="overview-sort" id="overviewSort" onchange="renderOverview()" style="display:none;">
+          <option value="score_desc">スコア降順</option>
+          <option value="score_asc">スコア昇順</option>
+          <option value="symbol_asc">コード順</option>
+          <option value="sector">業種順</option>
+        </select>
+      </div>
+
+      <div class="symbol-list" id="symbolList"></div>
+      <div class="overview-grid" id="overviewGrid" style="display:none;"></div>
+      <div class="count-info" id="countInfo"></div>
+    </div>
+  </section>
+
+  <!-- チャート表示エリア -->
+  <div class="chart-area" id="chartArea">
+    <div class="chart-main">
+      <div class="chart-header">
+        <span id="chartTitle">📈 ---</span>
+        <div class="chart-header-actions">
+          <button class="chart-action" id="restoreBtn" style="display:none" onclick="restoreSingleChart()">📈 元のチャートに戻す</button>
+          <div class="watchlist-btn-container" id="watchlistBtnContainer" style="display:none">
+            <button class="chart-action watchlist-btn" id="wlBtn_WL1" onclick="toggleWatchlist('WL1')">☆ WL1</button>
+            <button class="chart-action watchlist-btn" id="wlBtn_WL2" onclick="toggleWatchlist('WL2')">☆ WL2</button>
+            <button class="chart-action watchlist-btn" id="wlBtn_WL3" onclick="toggleWatchlist('WL3')">☆ WL3</button>
+          </div>
+          <button class="chart-close" onclick="closeChart()" title="閉じる">✕</button>
+        </div>
+      </div>
+      <div class="chart-body" id="chartBody"></div>
+    </div>
+    <!-- 色凡例バナー（チャート直下） -->
+    <div class="legend-bar" id="legendBar">
+      <div class="legend-bar-title">ローソク足の色の説明</div>
+      <div class="legend-row">
+        <div class="legend-row-label">ES1!,NQ1!</div>
+        <div class="legend-row-items">
+          <span class="legend-item"><span class="legend-dot ld-green"></span>上昇トレンド</span>
+          <span class="legend-item"><span class="legend-dot ld-yellow"></span>レンジ</span>
+          <span class="legend-item"><span class="legend-dot ld-red"></span>下降トレンド</span>
+        </div>
+      </div>
+      <div class="legend-row">
+        <div class="legend-row-label">その他銘柄</div>
+        <div class="legend-row-items">
+          <span class="legend-item"><span class="legend-dot ld-blue"></span>上昇トレンド</span>
+          <span class="legend-item"><span class="legend-dot ld-green"></span>上昇転換付近</span>
+          <span class="legend-item"><span class="legend-dot ld-red"></span>下降転換付近</span>
+          <span class="legend-item"><span class="legend-dot ld-yellow"></span>下降トレンド</span>
+        </div>
+      </div>
+    </div>
+    <div class="info-panel" id="infoPanel">
+      <div class="info-card info-card-profile" id="profileCard" style="display:none;">
+        <div class="info-card-title">🏢 銘柄概要</div>
+        <div class="profile-name" id="profileName"></div>
+        <div class="profile-meta" id="profileMeta"></div>
+        <div class="profile-summary" id="profileSummary"></div>
+      </div>
+      <div class="info-panel-right">
+        <div class="info-card">
+          <div class="info-card-title">📊 トレンド解説</div>
+          <ul class="commentary-list" id="commentaryList">
+            <li class="info-empty">チャートを選択すると表示されます</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <div class="info-card-title-row">
+            <div class="info-card-title">🏭 同業他社の動き（1週間）</div>
+            <button class="compare-btn" id="compareBtn" style="display:none" onclick="runCompare()">📊 同業比較</button>
+          </div>
+          <div class="peer-sector-name" id="peerSectorName"></div>
+          <ul class="peer-list" id="peerList">
+            <li class="info-empty">チャートを選択すると表示されます</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Note記事セクション -->
+  <section class="section reveal" id="notes">
+    <div class="section-head">
+      <div>
+        <div class="section-title-jp">記事</div>
+        <div class="section-title-en">Latest Articles</div>
+      </div>
+      <div style="margin-left:auto; font-size: 12px; color: var(--muted); align-self: flex-end;">
+        ← 横スクロールでもっと見る →
+      </div>
+    </div>
+    <div class="section-divider"></div>
+    <div class="note-grid-wrap">
+      <div class="note-grid" id="noteGrid">
+        <div class="note-loading">記事を読み込み中...</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- フッター -->
+  <footer class="footer">
+    <div class="footer-logo">Tore<span>ken</span></div>
+    <div class="footer-disclaimer">
+      <span class="footer-disclaimer-label">⚠️ 免責事項</span>
+      当サイトは投資判断の参考となる情報提供のみを目的としており、特定銘柄の売買を推奨・勧誘するものではありません。
+      掲載情報の正確性・完全性・適時性は保証されません。投資には元本割れリスクがあり、最終的な投資判断はご自身の責任で行ってください。
+      過去のチャート・スコアは将来の結果を保証するものではありません。
+      運営者は金融商品取引業者ではなく、本サイトは金融商品取引法上の投資助言・代理業に該当する助言を行うものではありません。
+    </div>
+
+    <div class="footer-links">
+      <button class="footer-link" onclick="openPolicy('disclaimer')">📜 免責事項（詳細）</button>
+      <button class="footer-link" onclick="openPolicy('privacy')">🔒 プライバシーポリシー</button>
+      <button class="footer-link" onclick="openPolicy('terms')">📋 利用規約</button>
+      <a class="footer-link" href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener">📧 お問い合わせ (X)</a>
+    </div>
+
+    <div>© 2026 トレケン / トレンド研究所</div>
+  </footer>
+
+  <!-- ===== ポリシー系モーダル ===== -->
+  <div class="policy-modal-overlay" id="policyOverlay" onclick="closePolicyOnOverlay(event)">
+    <div class="policy-modal" id="policyModal">
+      <div class="policy-modal-header">
+        <div class="policy-modal-title" id="policyTitle">タイトル</div>
+        <button class="policy-modal-close" onclick="closePolicy()" aria-label="閉じる">✕</button>
+      </div>
+      <div class="policy-modal-body" id="policyBody"></div>
+    </div>
+  </div>
+
+  <!-- ポリシー内容データ -->
+  <script>
+    const POLICY_CONTENT = {
+      disclaimer: {
+        title: '⚠️ 免責事項',
+        body: `
+          <h3>1. 情報提供の目的</h3>
+          <p>当サイト「トレンド研究所」（以下「当サイト」）は、株式・ETF・暗号通貨・為替・先物等の金融商品に関するチャート、独自スコア、関連データを <strong>客観的な参考情報</strong> として提供するものです。</p>
+          <p>当サイトは特定の金融商品の売買を <strong>推奨・勧誘するものではありません</strong>。</p>
+
+          <h3>2. 投資助言業に関する位置づけ</h3>
+          <p>当サイト運営者は <strong>金融商品取引法上の金融商品取引業者（投資助言・代理業）として登録しておりません</strong>。当サイトの情報は、特定の投資判断を勧めるものではなく、個別の助言にも該当しません。投資判断は利用者ご自身の責任と判断で行ってください。</p>
+
+          <h3>3. データの正確性</h3>
+          <p>当サイトの株価データ、企業情報、スコア計算結果等は、第三者データソース（Yahoo Finance、TradingView 等）から取得した情報を加工して表示しています。これらの情報には以下のリスクがあります：</p>
+          <ul>
+            <li>データソース側の遅延・誤り・欠落</li>
+            <li>計算ロジック上の誤差</li>
+            <li>表示時点と現在の市場価格との乖離</li>
+          </ul>
+          <p>当サイト運営者は、情報の正確性、完全性、適時性、有用性について <strong>一切の保証を行いません</strong>。</p>
+
+          <h3>4. リスクと自己責任</h3>
+          <p>株式・ETF・暗号通貨・為替・先物等への投資は、市場変動により <strong>元本を上回る損失が発生する可能性</strong> があります。過去のチャート・スコア・分析結果は、将来の運用成果や価格動向を保証するものではありません。</p>
+          <p>利用者は、自身の知識・経験・財務状況・投資目的等を十分考慮した上で、自己責任により投資判断を行うものとし、当サイトの情報を理由とする一切の損害・損失について、当サイト運営者は責任を負いません。</p>
+
+          <h3>5. 著作権・知的財産</h3>
+          <p>当サイトに掲載されている文章、画像、ロゴ、独自スコア計算ロジック等の著作権は、運営者または各権利者に帰属します。無断転載・無断複製は禁止します。</p>
+
+          <h3>6. サービスの変更・停止</h3>
+          <p>当サイトは予告なく内容を変更、または運営を停止することがあります。これに伴い利用者に発生した損害について、運営者は責任を負いません。</p>
+
+          <div class="policy-updated">最終更新日：2026年6月</div>
+        `,
+      },
+      privacy: {
+        title: '🔒 プライバシーポリシー',
+        body: `
+          <h3>1. 取得する情報</h3>
+          <p>当サイトでは、サービス改善および不正アクセス防止のため、以下の情報を取得する場合があります：</p>
+          <ul>
+            <li>アクセスログ（IPアドレス、アクセス日時、ブラウザ情報、リファラ等）</li>
+            <li>Cookie（一部機能の動作やアクセス解析のため）</li>
+          </ul>
+          <p>当サイトでは、氏名・住所・電話番号等の <strong>個人を直接特定する情報を取得していません</strong>。</p>
+
+          <h3>2. 情報の利用目的</h3>
+          <ul>
+            <li>サービスの提供・改善・新機能の検討</li>
+            <li>不正アクセス・サイバー攻撃の検知・防御</li>
+            <li>アクセス傾向の統計分析</li>
+          </ul>
+
+          <h3>3. 第三者提供</h3>
+          <p>取得した情報を <strong>第三者に販売・提供することはありません</strong>。ただし、法令に基づく場合（裁判所・警察等からの正式な要請等）はこの限りではありません。</p>
+
+          <h3>4. Cookie の管理</h3>
+          <p>利用者はブラウザの設定により Cookie の受け入れを拒否することができます。ただし、その場合、一部機能が正常に動作しない可能性があります。</p>
+
+          <h3>5. 外部サービス</h3>
+          <p>当サイトはホスティング、データ取得等で以下の外部サービスを利用しています。各サービスのプライバシーポリシーが適用される場合があります：</p>
+          <ul>
+            <li>Render（ホスティング）</li>
+            <li>GitHub（ソースコード管理、永続キャッシュ）</li>
+            <li>Yahoo Finance / TradingView（金融データ取得）</li>
+            <li>note（記事フィード取得）</li>
+          </ul>
+
+          <h3>6. お問い合わせ</h3>
+          <p>本ポリシーに関するご質問は X (旧 Twitter) <a href="https://x.com/Trade_CFD_FX" target="_blank" rel="noopener" style="color:var(--brown-700);text-decoration:underline;">@Trade_CFD_FX</a> までご連絡ください。</p>
+
+          <div class="policy-updated">最終更新日：2026年6月</div>
+        `,
+      },
+      terms: {
+        title: '📋 利用規約',
+        body: `
+          <h3>第1条（適用）</h3>
+          <p>本規約は、当サイト「トレンド研究所」の利用に関する条件を、利用者と運営者の間で定めるものです。利用者は本規約に同意したうえで当サイトを利用するものとします。</p>
+
+          <h3>第2条（利用目的）</h3>
+          <p>当サイトは、個人投資家が金融商品の動向を参考情報として確認することを目的としています。商用利用、再配布、データの転用は別途禁止規定が適用されます。</p>
+
+          <h3>第3条（禁止事項）</h3>
+          <p>利用者は当サイトの利用にあたり、以下の行為を行ってはいけません：</p>
+          <ul>
+            <li>当サイト掲載情報を、運営者の事前同意なく <strong>商用目的で転載・再配布</strong> すること</li>
+            <li>大量・自動・連続的アクセス（スクレイピング、ボット、過度なAPI呼出し等）</li>
+            <li>当サイトのサーバ、ネットワーク、システムに過大な負荷を与える行為</li>
+            <li>不正アクセス、システム改竄、リバースエンジニアリング</li>
+            <li>他の利用者・第三者・運営者に不利益・損害を与える行為</li>
+            <li>法令・公序良俗に違反する行為</li>
+            <li>当サイトの情報を投資助言・運用助言・推奨として第三者に提供する行為</li>
+          </ul>
+
+          <h3>第4条（リンクについて）</h3>
+          <p>当サイトへのリンクは原則自由ですが、当サイトを誤解させるような表記、または当サイトの信用・名誉を損なう文脈でのリンクは禁止します。</p>
+
+          <h3>第5条（免責）</h3>
+          <p>当サイトの利用に関する免責事項は別途「免責事項」に定めるところによります。投資判断は利用者ご自身の責任と判断で行うものとし、運営者は一切の責任を負いません。</p>
+
+          <h3>第6条（サービスの変更・停止）</h3>
+          <p>運営者は、利用者への事前通知なく、当サイトの内容変更・一時停止・終了を行うことができ、これに起因する損害について責任を負いません。</p>
+
+          <h3>第7条（準拠法・管轄）</h3>
+          <p>本規約の解釈および当サイトの利用に関する一切の紛争は、日本法を準拠法とし、運営者所在地を管轄する裁判所を第一審の専属的合意管轄とします。</p>
+
+          <h3>第8条（規約の変更）</h3>
+          <p>運営者は必要に応じて本規約を変更できます。変更後の規約は当サイトに掲載した時点で効力を生じます。利用者は定期的に本規約をご確認ください。</p>
+
+          <div class="policy-updated">最終更新日：2026年6月</div>
+        `,
+      },
+    };
+
+    function openPolicy(key) {
+      const data = POLICY_CONTENT[key];
+      if (!data) return;
+      document.getElementById('policyTitle').innerHTML = data.title;
+      document.getElementById('policyBody').innerHTML = data.body;
+      document.getElementById('policyOverlay').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+    function closePolicy() {
+      document.getElementById('policyOverlay').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+    function closePolicyOnOverlay(e) {
+      if (e.target.id === 'policyOverlay') closePolicy();
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closePolicy();
+    });
+  </script>
+
+  <script>
+
+    // ローディング画面
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        const loader = document.getElementById('loader');
+        if (loader) loader.classList.add('hidden');
+        setTimeout(() => { if (loader) loader.remove(); }, 900);
+      }, 2300);
+    });
+
+    const GROUPS = {
+      G1: [
+        // 先物
+        'NQ1!', 'ES1!',
+        // 主要指数連動ETF
+        'RSP',   // S&P500 イコールウェイト
+        'SPY',   // S&P500
+        'DIA',   // Dow30
+        'QQQ',   // NASDAQ100
+        'QQQE',  // NASDAQ100 イコールウェイト
+        'IWM',   // ラッセル2000（米国小型株）
+        'VTI',   // 米国株式全市場
+        'VT',    // 全世界株式
+      ],
+      G3: ['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','ATOMC'],
+      FOREX: [
+        // メジャー通貨（USDペア）
+        'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
+        // クロス円
+        'EURJPY', 'GBPJPY', 'AUDJPY',
+        // その他人気ペア
+        'EURGBP',
+      ],
+      ETF: [
+        // セクター別ETF（11セクター × 3ファミリー: SPDR / Vanguard / iShares）
+        'XLK', 'VGT', 'IYW',      // テクノロジー
+        'XLV', 'VHT', 'IYH',      // ヘルスケア
+        'XLF', 'VFH', 'IYF',      // 金融
+        'XLE', 'VDE', 'IYE',      // エネルギー
+        'XLY', 'VCR', 'IYC',      // 一般消費財
+        'XLP', 'VDC', 'IYK',      // 生活必需品
+        'XLI', 'VIS', 'IYJ',      // 資本財
+        'XLB', 'VAW', 'IYM',      // 素材
+        'XLU', 'VPU', 'IDU',      // 公益事業
+        'XLRE', 'VNQ', 'IYR',     // 不動産
+        'XLC', 'VOX', 'IYZ',      // 通信サービス
+        // 高配当ETF
+        'VYM', 'HDV', 'SPYD', 'VIG',
+      ],
+      NASDAQ100: [
+        'NVDA','AAPL','MSFT','AMZN','GOOGL','GOOG','AVGO','META','TSLA','MU',
+        'WMT','AMD','ASML','INTC','CSCO','COST','LRCX','ARM','AMAT','NFLX',
+        'PLTR','TXN','KLAC','LIN','SNDK','MRVL','QCOM','PANW','ADI','PEP',
+        'TMUS','STX','AMGN','APP','WDC','CRWD','GILD','ISRG','SHOP','HON',
+        'BKNG','PDD','VRTX','SBUX','FTNT','CDNS','MAR','ADBE','ADP','CEG',
+        'SNPS','MNST','CSX','CMCSA','DDOG','MELI','INTU','MDLZ','ABNB','ORLY',
+        'NXPI','ROST','MPWR','CTAS','AEP','DASH','LITE','REGN','WBD','BKR',
+        'PCAR','FANG','FAST','EA','ODFL','XEL','ADSK','MCHP','FER','EXC',
+        'IDXX','MSTR','CCEP','KDP','ALNY','TTWO','AXON','TRI','PYPL','PAYX',
+        'WDAY','ROP','GEHC','CPRT','DXCM','KHC','CTSH','VRSK','ZS','INSM',
+        'CHTR',
+      ],
+      QUANTUM: [
+        // ピュアプレイ量子コンピュータ企業
+        'IONQ', 'RGTI', 'QBTS', 'QUBT',
+        // 量子セキュリティ
+        'LAES',
+        // ハイブリッド戦略（量子事業を持つ大手）
+        'IBM', 'GOOGL', 'MSFT', 'AMZN', 'NVDA', 'HON', 'INTC', 'MRVL',
+      ],
+      SPACE: [
+        // ピュアプレイ宇宙企業（打ち上げ・衛星・月面）
+        'RKLB', 'ASTS', 'LUNR', 'PL', 'BKSY', 'RDW', 'IRDM', 'SIDU',
+        // 関連大手（防衛・航空宇宙）
+        'LMT', 'BA', 'NOC', 'LHX', 'GE',
+      ],
+      HYDROGEN: [
+        // ピュアプレイ水素燃料電池・FCEV
+        'PLUG', 'BE', 'BLDP', 'FCEL', 'HYZN',
+        // 産業ガス大手・水素エンジン
+        'LIN', 'APD', 'CMI',
+        // 日本（水素ピュアプレイ）
+        'TSE:8088', 'TSE:1407',
+      ],
+      SOLAR: [
+        // 米国（純プレイ：パネル・インバーター・架台・住宅リース）
+        'FSLR', 'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY',
+        // 中国系ADR
+        'JKS', 'CSIQ', 'DQ',
+        // 日本
+        'TSE:3856', 'TSE:1407',
+      ],
+      NIKKEI225: [
+        'N225',  // 日経平均株価指数（先頭に表示）
+        'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
+        'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
+        'TSE:6645','TSE:6674','TSE:6701','TSE:6702','TSE:6723','TSE:6724','TSE:6752','TSE:6753','TSE:6758',
+        'TSE:6762','TSE:6770','TSE:6841','TSE:6857','TSE:6861','TSE:6902','TSE:6920','TSE:6952','TSE:6954','TSE:6963',
+        'TSE:6971','TSE:6976','TSE:6981','TSE:7735','TSE:7751','TSE:7752','TSE:8035',
+        'TSE:543A','TSE:7201','TSE:7202','TSE:7203','TSE:7205','TSE:7211','TSE:7261','TSE:7267','TSE:7269','TSE:7270','TSE:7272',
+        'TSE:3407','TSE:4004','TSE:4005','TSE:4021','TSE:4042','TSE:4043','TSE:4061','TSE:4183','TSE:4188',
+        'TSE:4208','TSE:4452','TSE:4631','TSE:6988',
+        'TSE:6103','TSE:6113','TSE:6273','TSE:6301','TSE:6302','TSE:6305','TSE:6326','TSE:6361','TSE:6367',
+        'TSE:6369','TSE:6471','TSE:6472','TSE:7004','TSE:7011','TSE:7013',
+        'TSE:5401','TSE:5406','TSE:5411',
+        'TSE:3436','TSE:5703','TSE:5706','TSE:5711','TSE:5713','TSE:5714','TSE:5801','TSE:5802','TSE:5803',
+        'TSE:5947','TSE:1605','TSE:5020','TSE:5101','TSE:5108',
+        'TSE:4901','TSE:5201','TSE:5214','TSE:5233','TSE:5301','TSE:5332','TSE:5333',
+        'TSE:2002','TSE:2269','TSE:2282','TSE:2501','TSE:2502','TSE:2503','TSE:2531','TSE:2801','TSE:2802',
+        'TSE:2871','TSE:2914',
+        'TSE:3001','TSE:3861','TSE:3893','TSE:3941',
+        'TSE:5831','TSE:7186','TSE:8304','TSE:8306','TSE:8308','TSE:8309','TSE:8316','TSE:8331','TSE:8354','TSE:8355','TSE:8411',
+        'TSE:8601','TSE:8604','TSE:8628',
+        'TSE:8725','TSE:8750','TSE:8766','TSE:8795',
+        'TSE:8253','TSE:8591','TSE:8697',
+        'TSE:3289','TSE:8801','TSE:8802','TSE:8804','TSE:8830',
+        'TSE:2768','TSE:8001','TSE:8002','TSE:8008','TSE:8015','TSE:8031','TSE:8053','TSE:8058',
+        'TSE:2651','TSE:2753','TSE:3086','TSE:3099','TSE:3382','TSE:7532','TSE:8267','TSE:9843','TSE:9983',
+        'TSE:4689','TSE:4704','TSE:4716','TSE:4732','TSE:4739','TSE:9432','TSE:9433','TSE:9434','TSE:9613','TSE:9984',
+        'TSE:2413','TSE:2432','TSE:4324','TSE:6098','TSE:9602','TSE:9735',
+        'TSE:9501','TSE:9502','TSE:9503','TSE:9531','TSE:9532',
+        'TSE:9001','TSE:9005','TSE:9007','TSE:9008','TSE:9009','TSE:9020','TSE:9021','TSE:9022',
+        'TSE:9101','TSE:9104','TSE:9107','TSE:9202','TSE:9064',
+        'TSE:1721','TSE:1801','TSE:1802','TSE:1803','TSE:1808','TSE:1812','TSE:1925','TSE:1928','TSE:5631',
+        'TSE:5012','TSE:4902','TSE:7912','TSE:7951','TSE:7974',
+        'TSE:4543','TSE:6146','TSE:7731','TSE:7733','TSE:7741','TSE:7762',
+      ],
+      SP500: [
+'MMM','AOS','ABT','ABBV','ACN','ADBE','AMD','AES','AFL','A','APD','ABNB','AKAM','ALB','ARE',
+        'ALGN','ALLE','LNT','ALL','GOOGL','GOOG','MO','AMZN','AMCR','AEE','AEP','AXP','AIG','AMT','AWK',
+        'AMP','AME','AMGN','APH','ADI','AON','APA','APO','AAPL','AMAT','APP','APTV','ACGL','ADM','ARES',
+        'ANET','AJG','AIZ','T','ATO','ADSK','ADP','AZO','AVB','AVY','AXON','BKR','BALL','BAC','BAX',
+        'BDX','BRK-B','BBY','TECH','BIIB','BLK','BX','XYZ','BK','BA','BKNG','BSX','BMY','AVGO','BR',
+        'BRO','BF-B','BLDR','BG','BXP','CHRW','CDNS','CPT','CPB','COF','CAH','CCL','CARR','CVNA','CASY',
+        'CAT','CBOE','CBRE','CDW','COR','CNC','CNP','CF','CRL','SCHW','CHTR','CVX','CMG','CB','CHD',
+        'CIEN','CI','CINF','CTAS','CSCO','C','CFG','CLX','CME','CMS','KO','CTSH','COHR','COIN','CL',
+        'CMCSA','FIX','CAG','COP','ED','STZ','CEG','COO','CPRT','GLW','CPAY','CTVA','CSGP','COST','CTRA',
+        'CRH','CRWD','CCI','CSX','CMI','CVS','DHR','DRI','DDOG','DVA','DECK','DE','DELL','DAL','DVN',
+        'DXCM','FANG','DLR','DG','DLTR','D','DPZ','DASH','DOV','DOW','DHI','DTE','DUK','DD','ETN',
+        'EBAY','SATS','ECL','EIX','EW','EA','ELV','EME','EMR','ETR','EOG','EPAM','EQT','EFX','EQIX',
+        'EQR','ERIE','ESS','EL','EG','EVRG','ES','EXC','EXE','EXPE','EXPD','EXR','XOM','FFIV','FDS',
+        'FICO','FAST','FRT','FDX','FIS','FITB','FSLR','FE','FISV','F','FTNT','FTV','FOXA','FOX','BEN',
+        'FCX','GRMN','IT','GE','GEHC','GEV','GEN','GNRC','GD','GIS','GM','GPC','GILD','GPN','GL',
+        'GDDY','GS','HAL','HIG','HAS','HCA','DOC','HSIC','HSY','HPE','HLT','HD','HON','HRL','HST',
+        'HWM','HPQ','HUBB','HUM','HBAN','HII','IBM','IEX','IDXX','ITW','INCY','IR','PODD','INTC','IBKR',
+        'ICE','IFF','IP','INTU','ISRG','IVZ','INVH','IQV','IRM','JBHT','JBL','JKHY','J','JNJ','JCI',
+        'JPM','KVUE','KDP','KEY','KEYS','KMB','KIM','KMI','KKR','KLAC','KHC','KR','LHX','LH','LRCX',
+        'LVS','LDOS','LEN','LII','LLY','LIN','LYV','LMT','L','LOW','LULU','LITE','LYB','MTB','MPC',
+        'MAR','MRSH','MLM','MAS','MA','MKC','MCD','MCK','MDT','MRK','META','MET','MTD','MGM','MCHP',
+        'MU','MSFT','MAA','MRNA','TAP','MDLZ','MPWR','MNST','MCO','MS','MOS','MSI','MSCI','NDAQ','NTAP',
+        'NFLX','NEM','NWSA','NWS','NEE','NKE','NI','NDSN','NSC','NTRS','NOC','NCLH','NRG','NUE','NVDA',
+        'NVR','NXPI','ORLY','OXY','ODFL','OMC','ON','OKE','ORCL','OTIS','PCAR','PKG','PLTR','PANW','PSKY',
+        'PH','PAYX','PYPL','PNR','PEP','PFE','PCG','PM','PSX','PNW','PNC','POOL','PPG','PPL','PFG',
+        'PG','PGR','PLD','PRU','PEG','PTC','PSA','PHM','PWR','QCOM','DGX','Q','RL','RJF','RTX',
+        'O','REG','REGN','RF','RSG','RMD','RVTY','HOOD','ROK','ROL','ROP','ROST','RCL','SPGI','CRM',
+        'SNDK','SBAC','SLB','STX','SRE','NOW','SHW','SPG','SWKS','SJM','SW','SNA','SOLV','SO','LUV',
+        'SWK','SBUX','STT','STLD','STE','SYK','SMCI','SYF','SNPS','SYY','TMUS','TROW','TTWO','TPR','TRGP',
+        'TGT','TEL','TDY','TER','TSLA','TXN','TPL','TXT','TMO','TJX','TKO','TTD','TSCO','TT','TDG',
+        'TRV','TRMB','TFC','TYL','TSN','USB','UBER','UDR','ULTA','UNP','UAL','UPS','URI','UNH','UHS',
+        'VLO','VTR','VLTO','VRSN','VRSK','VZ','VRTX','VRT','VTRS','VICI','V','VST','VMC','WRB','GWW',
+        'WAB','WMT','DIS','WBD','WM','WAT','WEC','WFC','WELL','WST','WDC','WY','WSM','WMB','WTW',
+        'WDAY','WYNN','XEL','XYL','YUM','ZBRA','ZBH','ZTS'
+      ]
+    };
+
+    const FUTURES_SET = new Set(['NQ1!', 'ES1!', 'N225']);
+
+    // 先物・指数タブの全銘柄（色判定で3色になる）
+    const FUTURES_INDEX_SET_FRONT = new Set(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']);
+
+    // スコア色キー → CSS色
+    const _SCORE_COLOR_MAP = {
+      blue:   '#00bfff',
+      green:  '#32cd32',
+      red:    '#ff4444',
+      yellow: '#ffd700',
+    };
+
+    // chip にスコア色マーカー（小さい丸）を適用
+    function _applyScoreColor(chip, sym) {
+      if (!metaData || !metaData.items) return;
+      const meta = metaData.items.find(it => it.symbol === sym);
+      if (!meta) return;
+      // 全銘柄：サーバーが返した4色判定の color をそのまま使う（添付コード準拠）
+      const colorKey = meta.color;
+      const cssColor = _SCORE_COLOR_MAP[colorKey];
+      if (cssColor) {
+        chip.style.setProperty('--score-marker-color', cssColor);
+        chip.setAttribute('data-score-color', '');
+      }
+    }
+    const NIKKEI_SET = new Set(GROUPS.NIKKEI225);
+    const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
+    const QUANTUM_SET = new Set(GROUPS.QUANTUM);
+    const SPACE_SET = new Set(GROUPS.SPACE);
+    const HYDROGEN_SET = new Set(GROUPS.HYDROGEN);
+    const SOLAR_SET = new Set(GROUPS.SOLAR);
+    const FOREX_SET = new Set(GROUPS.FOREX);
+    const ETF_SET = new Set(GROUPS.ETF);
+
+    // ETF タブ用：セクター構造（見出し + 銘柄）
+    const ETF_SECTORS = [
+      { name: 'テクノロジー',   symbols: ['XLK', 'VGT', 'IYW'] },
+      { name: 'ヘルスケア',     symbols: ['XLV', 'VHT', 'IYH'] },
+      { name: '金融',           symbols: ['XLF', 'VFH', 'IYF'] },
+      { name: 'エネルギー',     symbols: ['XLE', 'VDE', 'IYE'] },
+      { name: '一般消費財',     symbols: ['XLY', 'VCR', 'IYC'] },
+      { name: '生活必需品',     symbols: ['XLP', 'VDC', 'IYK'] },
+      { name: '資本財',         symbols: ['XLI', 'VIS', 'IYJ'] },
+      { name: '素材',           symbols: ['XLB', 'VAW', 'IYM'] },
+      { name: '公益事業',       symbols: ['XLU', 'VPU', 'IDU'] },
+      { name: '不動産',         symbols: ['XLRE', 'VNQ', 'IYR'] },
+      { name: '通信サービス',   symbols: ['XLC', 'VOX', 'IYZ'] },
+      { name: '高配当',         symbols: ['VYM', 'HDV', 'SPYD', 'VIG'] },
+    ];
+
+    // ===== 条件検索フィルタ =====
+    let metaData = null;
+    let filterActive = false;
+    const filterState = {
+      scoreMin: null, scoreMax: null,
+      changeMin: null, changeMax: null,
+      ema20Min: null, ema20Max: null,
+      sma50Min: null, sma50Max: null,
+      colors: new Set(['blue', 'green', 'red', 'yellow']),
+      groups: new Set(['G1', 'G3', 'FOREX', 'ETF', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR', 'NIKKEI225', 'WATCHLIST']),
+    };
+
+    function toggleFilterPanel() {
+      const panel = document.getElementById('filterPanel');
+      const btn = document.getElementById('filterToggle');
+      const open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'flex';
+      btn.classList.toggle('open', !open);
+      if (!open && !metaData) fetchMetaData();
+    }
+
+    async function fetchMetaData() {
+      try {
+        const res = await fetch('/symbols-meta');
+        metaData = await res.json();
+        const total = metaData.total || 0;
+        const cached = metaData.cached_count || 0;
+        console.log(`[fetchMetaData] loaded: ${cached}/${total} symbols with scores`);
+        try { updateFilterStatus(); } catch (e) { console.error('updateFilterStatus error:', e); }
+        try { updateTrendSummary(); } catch (e) { console.error('updateTrendSummary error:', e); }
+      } catch (e) {
+        console.error('[fetchMetaData] failed:', e);
+        const st = document.getElementById('filterStatus');
+        if (st) {
+          st.className = 'filter-status warn';
+          st.textContent = '⚠️ メタデータの取得に失敗しました';
         }
-    )
+      }
+    }
 
-    fig = plt.figure(figsize=(12, 7), facecolor=BG_COLOR)
-    fig.subplots_adjust(top=0.92, bottom=0.15, left=0.05, right=0.90)
-    ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
-    ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    ax_main.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
+    function updateFilterStatus() {
+      const st = document.getElementById('filterStatus');
+      if (!metaData) { st.textContent = '読み込み中...'; return; }
+      const cached = metaData.cached_count || 0;
+      const total = metaData.total || 0;
+      st.className = 'filter-status' + (cached < total ? ' warn' : '');
+      st.textContent = `${cached} / ${total} 銘柄にスコア・変動率データあり`;
+    }
 
-    add_plots = []
-    if 'ema_20' in plot_df.columns and plot_df['ema_20'].notna().any():
-        add_plots.append(mpf.make_addplot(plot_df['ema_20'], color='orange', width=1.5, ax=ax_main))
-    if 'sma_50' in plot_df.columns and plot_df['sma_50'].notna().any():
-        add_plots.append(mpf.make_addplot(plot_df['sma_50'], color='cyan', width=1.5, ax=ax_main))
+    function readFilterInputs() {
+      const sMin = document.getElementById('scoreMin').value;
+      const sMax = document.getElementById('scoreMax').value;
+      const cMin = document.getElementById('changeMin').value;
+      const cMax = document.getElementById('changeMax').value;
+      const eMin = document.getElementById('ema20Min').value;
+      const eMax = document.getElementById('ema20Max').value;
+      const smaMin = document.getElementById('sma50Min').value;
+      const smaMax = document.getElementById('sma50Max').value;
+      filterState.scoreMin = sMin === '' ? null : parseFloat(sMin);
+      filterState.scoreMax = sMax === '' ? null : parseFloat(sMax);
+      filterState.changeMin = cMin === '' ? null : parseFloat(cMin);
+      filterState.changeMax = cMax === '' ? null : parseFloat(cMax);
+      filterState.ema20Min = eMin === '' ? null : parseFloat(eMin);
+      filterState.ema20Max = eMax === '' ? null : parseFloat(eMax);
+      filterState.sma50Min = smaMin === '' ? null : parseFloat(smaMin);
+      filterState.sma50Max = smaMax === '' ? null : parseFloat(smaMax);
+      filterState.colors.clear();
+      document.querySelectorAll('.filter-color-check').forEach(cb => {
+        if (cb.checked) filterState.colors.add(cb.value);
+      });
+      filterState.groups.clear();
+      document.querySelectorAll('.filter-group-check').forEach(cb => {
+        if (cb.checked) filterState.groups.add(cb.value);
+      });
+      filterActive = (
+        filterState.scoreMin !== null || filterState.scoreMax !== null ||
+        filterState.changeMin !== null || filterState.changeMax !== null ||
+        filterState.ema20Min !== null || filterState.ema20Max !== null ||
+        filterState.sma50Min !== null || filterState.sma50Max !== null ||
+        filterState.colors.size < 4 ||
+        filterState.groups.size < 9
+      );
+      document.getElementById('filterToggle').classList.toggle('active', filterActive);
+      document.getElementById('filterClear').style.display = filterActive ? 'inline-block' : 'none';
+    }
 
-    try:
-        if add_plots:
-            mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
-                     addplot=add_plots, warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
-        else:
-            mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
-                     warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
-    except Exception:
-        plt.close(fig)
-        return None
+    function clearFilters() {
+      document.getElementById('scoreMin').value = '';
+      document.getElementById('scoreMax').value = '';
+      document.getElementById('changeMin').value = '';
+      document.getElementById('changeMax').value = '';
+      document.getElementById('ema20Min').value = '';
+      document.getElementById('ema20Max').value = '';
+      document.getElementById('sma50Min').value = '';
+      document.getElementById('sma50Max').value = '';
+      document.querySelectorAll('.filter-color-check').forEach(cb => cb.checked = true);
+      document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
+      document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
+      readFilterInputs();
+      renderSymbolList();
+    }
 
-    current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
-    ax_main.xaxis.grid(False)
-    xmin, xmax = ax_main.get_xlim()
-    ax_main.set_xlim(xmin, xmax + 5)
+    function applyQuickFilter(type) {
+      // 色チェックボックスのマッピング
+      const colorMap = {
+        'undervalued': ['yellow', 'red'],   // 強い下降・反発候補
+        'uptrend':     ['green', 'blue'],   // 上昇トレンド全般
+        'overvalued':  ['blue'],            // 強い上昇・過熱
+        'downtrend':   ['red', 'yellow'],   // 下降トレンド全般
+      };
+      const targetColors = colorMap[type];
+      if (!targetColors) return;
 
-    # 全銘柄：4色判定（青/緑/赤/黄）添付コード準拠
-    for j in range(len(plot_df)):
-        row = plot_df.iloc[j]
-        score = row['totalScore']
-        if pd.isna(score):    c = '#888888'
-        elif score >= 7:      c = '#00bfff'    # 青：上昇トレンド
-        elif score > 0:       c = '#32cd32'    # 緑：上昇転換付近
-        elif score <= -7:     c = '#ffd700'    # 黄：下降トレンド
-        else:                 c = '#ff4444'    # 赤：下降転換付近
-        ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.5, zorder=10)
-        body_bottom = min(row['open'], row['close'])
-        body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
-        rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
-        ax_main.add_patch(rect)
+      // 既存の数値・グループ設定をリセット（色とボタン状態は新規セット）
+      document.getElementById('scoreMin').value = '';
+      document.getElementById('scoreMax').value = '';
+      document.getElementById('changeMin').value = '';
+      document.getElementById('changeMax').value = '';
+      document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
 
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
-    buf.seek(0)
-    img_b64 = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    return img_b64
+      // 色チェックボックスをセット
+      document.querySelectorAll('.filter-color-check').forEach(cb => {
+        cb.checked = targetColors.includes(cb.value);
+      });
 
+      // ボタンのactive表示を更新
+      const typeToClass = {
+        'undervalued': 'qf-undervalue',
+        'uptrend': 'qf-uptrend',
+        'overvalued': 'qf-overvalue',
+        'downtrend': 'qf-downtrend',
+      };
+      document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.querySelector('.quick-filter-btn.' + typeToClass[type]);
+      if (activeBtn) activeBtn.classList.add('active');
 
-def make_chart_image_nq(df, symbol):
-    """NQ1!/ES1! 用のチャート画像生成。大文字カラム(Open/High/Low/Close)と
-    candle_color 列を使う。スコアによる色分けは fetch_nq1 / fetch_es1 が付与済み。"""
-    plot_len = min(DISPLAY_PERIOD, len(df))
-    plot_df = df.iloc[-plot_len:].copy()
+      // フィルタパネルを開いて状態が見えるようにする
+      const panel = document.getElementById('filterPanel');
+      const toggle = document.getElementById('filterToggle');
+      panel.style.display = 'flex';
+      toggle.classList.add('open');
 
-    hidden_mc = mpf.make_marketcolors(up=BG_COLOR, down=BG_COLOR, edge=BG_COLOR, wick=BG_COLOR)
-    my_style = mpf.make_mpf_style(
-        base_mpf_style='nightclouds', marketcolors=hidden_mc, y_on_right=True,
-        rc={
-            'figure.facecolor': BG_COLOR, 'axes.facecolor': BG_COLOR,
-            'savefig.facecolor': BG_COLOR, 'axes.edgecolor': GRID_COLOR,
-            'axes.labelcolor': TEXT_COLOR, 'xtick.color': TEXT_COLOR,
-            'ytick.color': TEXT_COLOR, 'grid.color': GRID_COLOR,
-            'text.color': TEXT_COLOR, 'xtick.labelcolor': TEXT_COLOR,
-            'ytick.labelcolor': TEXT_COLOR,
+      // メタデータ未取得なら取得
+      if (!metaData) fetchMetaData();
+
+      readFilterInputs();
+      renderSymbolList();
+    }
+
+    function scoreColor(score) {
+      // フロント側では色判定の閾値ロジックを持たない（サーバー側で判定済み）
+      // 互換性のため、metaオブジェクトから取り出して返す関数として残す
+      return null;
+    }
+    // meta オブジェクトから color を取り出すヘルパー
+    function colorOf(meta) {
+      return meta && meta.color ? meta.color : null;
+    }
+
+    function passesFilter(sym) {
+      if (!filterActive) return true;
+      if (!metaData) return true;
+      const meta = metaData.items.find(it => it.symbol === sym);
+      if (!meta) return false;
+      const sc = meta.score, ch = meta.week_change;
+      const e20 = meta.ema20_dev, s50 = meta.sma50_dev;
+      if (filterState.scoreMin !== null && (sc === null || sc === undefined || sc < filterState.scoreMin)) return false;
+      if (filterState.scoreMax !== null && (sc === null || sc === undefined || sc > filterState.scoreMax)) return false;
+      if (filterState.changeMin !== null && (ch === null || ch === undefined || ch < filterState.changeMin)) return false;
+      if (filterState.changeMax !== null && (ch === null || ch === undefined || ch > filterState.changeMax)) return false;
+      if (filterState.ema20Min !== null && (e20 === null || e20 === undefined || e20 < filterState.ema20Min)) return false;
+      if (filterState.ema20Max !== null && (e20 === null || e20 === undefined || e20 > filterState.ema20Max)) return false;
+      if (filterState.sma50Min !== null && (s50 === null || s50 === undefined || s50 < filterState.sma50Min)) return false;
+      if (filterState.sma50Max !== null && (s50 === null || s50 === undefined || s50 > filterState.sma50Max)) return false;
+      if (filterState.colors.size < 4) {
+        // サーバー側で判定済みの meta.color を使う
+        const col = meta.color || null;
+        if (col === null || !filterState.colors.has(col)) return false;
+      }
+      return true;
+    }
+
+    function toggleAllFilters(kind, checked) {
+      // kind: 'color' or 'group'
+      const selector = kind === 'color' ? '.filter-color-check' : '.filter-group-check';
+      document.querySelectorAll(selector).forEach(cb => { cb.checked = checked; });
+      readFilterInputs();
+      renderSymbolList();
+    }
+
+    function attachFilterListeners() {
+      ['scoreMin', 'scoreMax', 'changeMin', 'changeMax', 'ema20Min', 'ema20Max', 'sma50Min', 'sma50Max'].forEach(id => {
+        document.getElementById(id).addEventListener('input', () => { readFilterInputs(); renderSymbolList(); });
+      });
+      document.querySelectorAll('.filter-color-check').forEach(cb => {
+        cb.addEventListener('change', () => { readFilterInputs(); renderSymbolList(); });
+      });
+      document.querySelectorAll('.filter-group-check').forEach(cb => {
+        cb.addEventListener('change', () => { readFilterInputs(); renderSymbolList(); });
+      });
+    }
+
+    let currentGroup = 'G1';
+    let currentQuery = '';
+    let trendFilterActive = false;  // 上昇中銘柄フィルタ ON/OFF
+
+    // ===== ウォッチリスト（localStorage永続化、3つ管理：WL1/WL2/WL3）=====
+    const WATCHLIST_IDS = ['WL1', 'WL2', 'WL3'];
+    const WATCHLIST_KEYS = {
+      WL1: 'trekken_watchlist_wl1_v1',
+      WL2: 'trekken_watchlist_wl2_v1',
+      WL3: 'trekken_watchlist_wl3_v1',
+    };
+    const _LEGACY_WATCHLIST_KEY = 'trekken_watchlist_v1';
+    // 現在ウォッチリストタブで選択中のWL
+    let currentWatchlistId = 'WL1';
+
+    // 旧データからの一回限りマイグレーション
+    (function migrateLegacyWatchlist() {
+      try {
+        const raw = localStorage.getItem(_LEGACY_WATCHLIST_KEY);
+        if (!raw) return;
+        // WL1 が空のときだけ移行
+        const wl1Raw = localStorage.getItem(WATCHLIST_KEYS.WL1);
+        if (!wl1Raw) {
+          localStorage.setItem(WATCHLIST_KEYS.WL1, raw);
+          console.log('[watchlist] legacy data migrated to WL1');
         }
-    )
+        localStorage.removeItem(_LEGACY_WATCHLIST_KEY);
+      } catch (e) { /* ignore */ }
+    })();
 
-    fig = plt.figure(figsize=(12, 7), facecolor=BG_COLOR)
-    fig.subplots_adjust(top=0.92, bottom=0.15, left=0.05, right=0.90)
-    ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
-    ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    ax_main.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
+    function _validWlId(id) { return WATCHLIST_IDS.indexOf(id) >= 0 ? id : 'WL1'; }
+    function loadWatchlist(id) {
+      id = _validWlId(id);
+      try {
+        const raw = localStorage.getItem(WATCHLIST_KEYS[id]);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+      } catch (e) { return []; }
+    }
+    function saveWatchlist(id, list) {
+      id = _validWlId(id);
+      try {
+        localStorage.setItem(WATCHLIST_KEYS[id], JSON.stringify(list));
+      } catch (e) { console.warn('watchlist save failed:', e); }
+    }
+    function isInWatchlist(id, sym) {
+      return loadWatchlist(id).includes(sym);
+    }
 
-    try:
-        mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
-                 warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
-    except Exception:
-        plt.close(fig)
-        return None
+    function _showWatchlistTabSelector() {
+      let selector = document.getElementById('watchlistTabSelector');
+      if (!selector) {
+        selector = document.createElement('div');
+        selector.id = 'watchlistTabSelector';
+        selector.className = 'wl-tab-selector';
+        const list = document.getElementById('symbolList');
+        if (list && list.parentNode) {
+          list.parentNode.insertBefore(selector, list);
+        }
+      }
+      // 内容更新
+      const counts = WATCHLIST_IDS.map(id => loadWatchlist(id).length);
+      selector.innerHTML = WATCHLIST_IDS.map((id, idx) => {
+        const active = id === currentWatchlistId ? ' active' : '';
+        return '<button class="wl-tab-btn' + active + '" onclick="selectWatchlist(\'' + id + '\')">' +
+               id + ' <span class="wl-tab-count">(' + counts[idx] + ')</span></button>';
+      }).join('');
+      selector.style.display = '';
+    }
+    function _hideWatchlistTabSelector() {
+      const selector = document.getElementById('watchlistTabSelector');
+      if (selector) selector.style.display = 'none';
+    }
+    window.selectWatchlist = function(id) {
+      currentWatchlistId = _validWlId(id);
+      renderSymbolList();
+    };
+    function isInAnyWatchlist(sym) {
+      return WATCHLIST_IDS.some(id => isInWatchlist(id, sym));
+    }
+    function addToWatchlist(id, sym) {
+      const list = loadWatchlist(id);
+      if (!list.includes(sym)) {
+        list.push(sym);
+        saveWatchlist(id, list);
+      }
+    }
+    function removeFromWatchlist(id, sym) {
+      const list = loadWatchlist(id).filter(s => s !== sym);
+      saveWatchlist(id, list);
+    }
+    let activeSymbol = null;
+    let lastPeerSymbols = [];
+    let lastChartImage = null;
+    let compareMode = false;
 
-    current_score = plot_df['totalScore'].iloc[-1] if 'totalScore' in plot_df.columns and not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
-    ax_main.xaxis.grid(False)
-    xmin, xmax = ax_main.get_xlim()
-    ax_main.set_xlim(xmin, xmax + 5)
+    function sortSymbols(arr) {
+      const futures = [], nikkei = [], others = [];
+      arr.forEach(s => {
+        if (FUTURES_SET.has(s)) futures.push(s);
+        else if (NIKKEI_SET.has(s)) nikkei.push(s);
+        else others.push(s);
+      });
+      futures.sort();
+      nikkei.sort((a, b) => a.localeCompare(b));
+      others.sort((a, b) => a.localeCompare(b));
+      return [...futures, ...others, ...nikkei];
+    }
 
-    for j in range(len(plot_df)):
-        row = plot_df.iloc[j]
-        c = row.get('candle_color', '#888888')
-        if pd.isna(c): c = '#888888'
-        ax_main.plot([j, j], [row['Low'], row['High']], color=c, linewidth=1.5, zorder=10)
-        body_bottom = min(row['Open'], row['Close'])
-        body_height = max(abs(row['Open'] - row['Close']), row['Close'] * 0.0005)
-        rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
-        ax_main.add_patch(rect)
+    function updateTrendSummary() {
+      const summary = document.getElementById('trendSummary');
+      if (!summary) return;
+      if (!metaData || !metaData.items) {
+        summary.innerHTML = '';
+        summary.className = 'trend-summary';
+        return;
+      }
+      const groupSymbols = GROUPS[currentGroup] || [];
+      const total = groupSymbols.length;
+      let upCount = 0, evaluated = 0;
+      groupSymbols.forEach(sym => {
+        const meta = metaData.items.find(it => it.symbol === sym);
+        if (!meta || meta.score === null || meta.score === undefined) return;
+        evaluated++;
+        if (meta.score > 0) upCount++;
+      });
+      if (evaluated === 0) {
+        summary.className = 'trend-summary trend-summary-empty';
+        summary.innerHTML = '<span class="trend-summary-meta">朝に自動更新されます</span>';
+        summary.style.cursor = 'default';
+        summary.onclick = null;
+        return;
+      }
+      const percent = total > 0 ? Math.round((upCount / total) * 100) : 0;
 
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
-    buf.seek(0)
-    img_b64 = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    return img_b64
+      // 5段階の相場判定
+      let moodClass, moodIcon, moodTitle;
+      if (percent >= 70) {
+        moodClass = 'mood-strong';
+        moodIcon = '🔥';
+        moodTitle = '強気相場';
+      } else if (percent >= 55) {
+        moodClass = 'mood-mid-up';
+        moodIcon = '📈';
+        moodTitle = 'やや強気';
+      } else if (percent >= 45) {
+        moodClass = 'mood-neutral';
+        moodIcon = '🌤';
+        moodTitle = '中立・様子見';
+      } else if (percent >= 30) {
+        moodClass = 'mood-mid-down';
+        moodIcon = '📉';
+        moodTitle = 'やや弱気';
+      } else {
+        moodClass = 'mood-weak';
+        moodIcon = '⚠️';
+        moodTitle = '弱気相場';
+      }
 
+      let extraClass = trendFilterActive ? ' filter-active' : '';
+      summary.className = 'trend-summary ' + moodClass + extraClass;
+      const hint = trendFilterActive
+        ? `<div class="trend-summary-hint">📋 上昇中銘柄をスコア順で表示中（タップで解除）</div>`
+        : (upCount > 0 ? `<div class="trend-summary-hint">👆 タップで上昇中銘柄のみ表示</div>` : '');
+      summary.innerHTML = `
+        <div class="trend-mood-icon">${moodIcon}</div>
+        <div class="trend-mood-body">
+          <div class="trend-mood-title">${moodTitle}</div>
+          <div class="trend-mood-detail">
+            <strong>${upCount}</strong> / ${total} 銘柄が上昇中 (${percent}%)
+          </div>
+          <div class="trend-summary-progress">
+            <div class="trend-summary-progress-fill" style="width: ${percent}%"></div>
+          </div>
+          ${hint}
+        </div>
+      `;
+      // クリックでフィルタON/OFF
+      summary.style.cursor = upCount > 0 || trendFilterActive ? 'pointer' : 'default';
+      summary.onclick = () => {
+        if (upCount === 0 && !trendFilterActive) return;
+        trendFilterActive = !trendFilterActive;
+        updateTrendSummary();
+        renderSymbolList();
+      };
+    }
 
-def make_thumbnail_image(df, symbol):
-    """通常チャートと同じローソク足サムネイル（フル装備、サイズ小さめ）。一気見画面用。"""
-    try:
-        plot_len = min(DISPLAY_PERIOD, len(df))
-        plot_df = df.iloc[-plot_len:].copy()
-        if plot_df.empty or len(plot_df) < 2:
-            return None
+    function renderSymbolList() {
+      // WL切替セレクター表示制御
+      if (currentGroup !== 'WATCHLIST') {
+        _hideWatchlistTabSelector();
+      }
 
-        hidden_mc = mpf.make_marketcolors(up=BG_COLOR, down=BG_COLOR, edge=BG_COLOR, wick=BG_COLOR)
-        my_style = mpf.make_mpf_style(
-            base_mpf_style='nightclouds', marketcolors=hidden_mc, y_on_right=True,
-            rc={
-                'figure.facecolor': BG_COLOR, 'axes.facecolor': BG_COLOR,
-                'savefig.facecolor': BG_COLOR, 'axes.edgecolor': GRID_COLOR,
-                'axes.labelcolor': TEXT_COLOR, 'xtick.color': TEXT_COLOR,
-                'ytick.color': TEXT_COLOR, 'grid.color': GRID_COLOR,
-                'text.color': TEXT_COLOR, 'xtick.labelcolor': TEXT_COLOR,
-                'ytick.labelcolor': TEXT_COLOR,
+      const list = document.getElementById('symbolList');
+      const countInfo = document.getElementById('countInfo');
+      const toolbar = document.getElementById('sp500Toolbar');
+      const q = currentQuery.trim().toUpperCase();
+      list.classList.remove('etf-mode');  // ETFタブ以外では2列モードを解除
+
+      toolbar.style.display = (currentGroup === 'SP500' || currentGroup === 'NIKKEI225' || currentGroup === 'NASDAQ100') ? 'flex' : 'none';
+
+      let displaySymbols, totalCount;
+
+      // === 上昇中銘柄フィルタ（トレンドサマリーで有効化）===
+      if (trendFilterActive) {
+        const groupSymbols = GROUPS[currentGroup] || [];
+        // メタデータからscore > 0の銘柄だけ抽出
+        const rising = [];
+        if (metaData && metaData.items) {
+          groupSymbols.forEach(sym => {
+            const meta = metaData.items.find(it => it.symbol === sym);
+            if (meta && typeof meta.score === 'number' && meta.score > 0) {
+              rising.push({ sym, score: meta.score });
             }
-        )
-
-        fig = plt.figure(figsize=(6, 4), facecolor=BG_COLOR, dpi=100)
-        fig.subplots_adjust(top=0.90, bottom=0.15, left=0.07, right=0.90)
-        ax_main = fig.add_subplot(111, facecolor=BG_COLOR)
-        ax_main.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR, labelsize=8)
-        ax_main.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR, labelsize=8)
-
-        add_plots = []
-        if 'ema_20' in plot_df.columns and plot_df['ema_20'].notna().any():
-            add_plots.append(mpf.make_addplot(plot_df['ema_20'], color='orange', width=1.0, ax=ax_main))
-        if 'sma_50' in plot_df.columns and plot_df['sma_50'].notna().any():
-            add_plots.append(mpf.make_addplot(plot_df['sma_50'], color='cyan', width=1.0, ax=ax_main))
-
-        try:
-            if add_plots:
-                mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
-                         addplot=add_plots, warn_too_much_data=10000,
-                         returnfig=False, datetime_format='%Y-%m')
-            else:
-                mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
-                         warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
-        except Exception:
-            plt.close(fig)
-            return None
-
-        current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-        ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
-        ax_main.xaxis.grid(False)
-        xmin, xmax = ax_main.get_xlim()
-        ax_main.set_xlim(xmin, xmax + 5)
-
-        for j in range(len(plot_df)):
-            row = plot_df.iloc[j]
-            score = row['totalScore']
-            if pd.isna(score):    c = '#888888'
-            elif score >= 7:      c = '#00bfff'
-            elif score > 0:       c = '#32cd32'
-            elif score <= -7:     c = '#ffd700'
-            else:                 c = '#ff4444'
-            ax_main.plot([j, j], [row['low'], row['high']], color=c, linewidth=1.0, zorder=10)
-            body_bottom = min(row['open'], row['close'])
-            body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
-            rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
-            ax_main.add_patch(rect)
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
-        buf.seek(0)
-        img_b64 = base64.b64encode(buf.read()).decode('utf-8')
-        plt.close(fig)
-        return img_b64
-    except Exception as e:
-        print(f"thumbnail {symbol} error: {e}")
-        return None
-
-
-@app.route('/chart/<symbol>')
-@limiter.limit("30 per minute")
-def chart(symbol):
-    if not is_valid_symbol(symbol):
-        return jsonify({'error': 'Invalid symbol'}), 400
-    symbol_upper = symbol.upper()
-    now = time.time()
-
-    if symbol_upper in chart_cache:
-        cached_time, cached_img = chart_cache[symbol_upper]
-        if now - cached_time < CACHE_SECONDS:
-            meta = chart_meta_cache.get(symbol_upper) or {}
-            return _cached_json({
-                'image': cached_img, 'symbol': symbol_upper, 'cached': True,
-                'score': meta.get('score'),
-                'ema20_dev': meta.get('ema20_dev'),
-                'color': meta.get('color'),
-            }, max_age=1800)
-
-    # NEW: メモリキャッシュに無い場合、GitHubから個別ファイル取得を試みる（リスト内銘柄）
-    if symbol_upper not in chart_cache:
-        github_img = fetch_chart_from_github(symbol_upper)
-        if github_img:
-            chart_cache[symbol_upper] = (now, github_img)
-            print(f"/chart/{symbol_upper}: loaded from GitHub on-demand")
-            # GitHub 由来は score なしだが、thumb_cache の score を流用してフロントへ
-            tc = thumb_cache.get(symbol_upper)
-            tc_data = tc[1] if tc else {}
-            return _cached_json({
-                'image': github_img, 'symbol': symbol_upper, 'cached': True, 'source': 'github',
-                'score': tc_data.get('score'),
-                'ema20_dev': tc_data.get('ema20_dev'),
-                'color': score_to_color(tc_data.get('score')),
-            }, max_age=1800)
-
-    def _fallback_to_stale_cache(reason):
-        """新規取得に失敗した場合、期限切れキャッシュがあればそれを返す。"""
-        if symbol_upper in chart_cache:
-            _, cached_img = chart_cache[symbol_upper]
-            print(f"/chart/{symbol_upper}: serving stale cache ({reason})")
-            return _cached_json({
-                'image': cached_img, 'symbol': symbol_upper,
-                'cached': True, 'stale': True,
-                'note': f'最新データ取得失敗のため、前回のチャートを表示中（{reason}）'
-            }, max_age=300)
-        return None
-
-    try:
-        if symbol_upper == 'NQ1!':
-            df = fetch_nq1()
-            if df is None:
-                stale = _fallback_to_stale_cache('NQ1! 取得失敗')
-                if stale: return stale
-                return jsonify({'error': 'NQ1! のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_nq(df, 'NASDAQ Futures')
-        elif symbol_upper == 'ES1!':
-            df = fetch_es1()
-            if df is None:
-                stale = _fallback_to_stale_cache('ES1! 取得失敗')
-                if stale: return stale
-                return jsonify({'error': 'ES1! のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_nq(df, 'S&P 500 Futures')
-        elif symbol_upper == 'N225':
-            df = fetch_n225()
-            if df is None:
-                stale = _fallback_to_stale_cache('N225 取得失敗')
-                if stale: return stale
-                return jsonify({'error': 'N225 のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_stock(df, 'N225')
-        elif symbol_upper in CRYPTO_MAP:
-            df = fetch_crypto(symbol_upper)
-            if df is None:
-                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
-                if stale: return stale
-                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_stock(df, symbol_upper)
-        elif symbol_upper in FOREX_PAIRS:
-            df = fetch_forex(symbol_upper)
-            if df is None:
-                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
-                if stale: return stale
-                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_stock(df, symbol_upper)
-        elif is_jp_symbol(symbol_upper):
-            df = fetch_jp(symbol_upper)
-            if df is None:
-                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
-                if stale: return stale
-                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_stock(df, symbol_upper)
-        elif symbol_upper.isdigit() and len(symbol_upper) == 4:
-            # 4桁数字は日本株として扱う（例: 7203 → TSE:7203）
-            jp_sym = f'TSE:{symbol_upper}'
-            df = fetch_jp(jp_sym)
-            if df is None:
-                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
-                if stale: return stale
-                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_stock(df, jp_sym)
-            symbol_upper = jp_sym  # キャッシュキー統一
-        else:
-            # 登録済み銘柄 or 未登録銘柄でも yfinance で取得を試みる
-            df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
-            if df is None:
-                stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
-                if stale: return stale
-                return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_stock(df, symbol_upper)
-
-        if img_b64 is None:
-            stale = _fallback_to_stale_cache('チャート生成失敗')
-            if stale: return stale
-            return jsonify({'error': 'チャート生成に失敗しました'}), 500
-
-        chart_cache[symbol_upper] = (now, img_b64)
-        # 最新の score, ema20_dev, color を計算してメタキャッシュに保存
-        try:
-            last_score_val = float(df['totalScore'].iloc[-1]) if 'totalScore' in df.columns and not pd.isna(df['totalScore'].iloc[-1]) else None
-        except Exception:
-            last_score_val = None
-        ema20_dev_val = None
-        try:
-            last_close = float(df['close'].iloc[-1])
-            if 'ema_20' in df.columns:
-                last_ema20 = df['ema_20'].iloc[-1]
-                if not pd.isna(last_ema20) and float(last_ema20) != 0:
-                    ema20_dev_val = (last_close - float(last_ema20)) / float(last_ema20) * 100
-        except Exception:
-            pass
-        chart_meta_cache[symbol_upper] = {
-            'score': last_score_val,
-            'ema20_dev': ema20_dev_val,
-            'color': score_to_color(last_score_val),
+          });
         }
-        return _cached_json({
-            'image': img_b64, 'symbol': symbol_upper, 'cached': False,
-            'score': last_score_val,
-            'ema20_dev': ema20_dev_val,
-            'color': score_to_color(last_score_val),
-        }, max_age=1800)
-    except Exception as e:
-        stale = _fallback_to_stale_cache(str(e)[:50])
-        if stale: return stale
-        return jsonify({'error': str(e)}), 500
+        // スコア降順ソート
+        rising.sort((a, b) => b.score - a.score);
+        const sortedSymbols = rising.map(r => r.sym);
+        totalCount = sortedSymbols.length;
+        displaySymbols = sortedSymbols;
+
+        list.innerHTML = '';
+        if (sortedSymbols.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--brown-500); font-size: 13px;';
+          empty.innerHTML = 'このタブには上昇中の銘柄がありません';
+          list.appendChild(empty);
+        } else {
+          sortedSymbols.forEach((sym, idx) => {
+            const chip = document.createElement('div');
+            let cls = 'symbol-chip';
+            if (sym === activeSymbol) cls += ' active';
+            // カテゴリクラスも維持
+            if (FUTURES_SET.has(sym)) cls += ' futures';
+            else if (HYDROGEN_SET.has(sym)) cls += ' hydrogen';
+            else if (SOLAR_SET.has(sym)) cls += ' solar';
+            else if (QUANTUM_SET.has(sym)) cls += ' quantum';
+            else if (SPACE_SET.has(sym)) cls += ' space';
+            else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
+            else if (FOREX_SET.has(sym)) cls += ' forex';
+            else if (ETF_SET.has(sym)) cls += ' etf';
+            else if (NASDAQ_SET.has(sym)) cls += ' nasdaq';
+            chip.className = cls;
+            chip.style.setProperty('--i', idx);
+            chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+            chip.title = `スコア: ${rising[idx].score}`;
+            chip.onclick = () => loadChart(sym);
+            _applyScoreColor(chip, sym);
+            list.appendChild(chip);
+          });
+        }
+        countInfo.textContent = `${totalCount} 銘柄 (上昇中)`;
+        return;
+      }
+
+      if (filterActive) {
+        const allSymbols = [], seen = new Set();
+        // 選択されたグループのみを対象にする
+        const targetGroups = Array.from(filterState.groups);
+        targetGroups.forEach(g => {
+          (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
+        });
+        let pool = allSymbols.filter(s => passesFilter(s));
+        if (q) pool = pool.filter(s => s.toUpperCase().includes(q));
+        displaySymbols = sortSymbols(pool);
+        totalCount = allSymbols.length;
+      } else if (q) {
+        const allSymbols = [], seen = new Set();
+        ['G1', 'G3', 'FOREX', 'ETF', 'NIKKEI225', 'SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR'].forEach(g => {
+          (GROUPS[g] || []).forEach(s => { if (!seen.has(s)) { seen.add(s); allSymbols.push(s); } });
+        });
+        displaySymbols = sortSymbols(allSymbols.filter(s => s.toUpperCase().includes(q)));
+        totalCount = allSymbols.length;
+      } else if (currentGroup === 'WATCHLIST') {
+        // WL切替UIを表示
+        _showWatchlistTabSelector();
+        // ウォッチリスト（localStorageから読込：選択中のWL）
+        const watchlist = loadWatchlist(currentWatchlistId);
+        totalCount = watchlist.length;
+        displaySymbols = watchlist;
+
+        list.innerHTML = '';
+        if (watchlist.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--brown-500); font-size: 13px; line-height: 1.8;';
+          empty.innerHTML = '⭐ ' + currentWatchlistId + ' は空です<br><span style="font-size:11px;">チャート表示時に「⭐ ' + currentWatchlistId + '」ボタンで追加できます</span>';
+          list.appendChild(empty);
+        } else {
+          watchlist.forEach((sym, idx) => {
+            const chip = document.createElement('div');
+            let cls = 'symbol-chip watchlist-chip';
+            if (sym === activeSymbol) cls += ' active';
+            chip.className = cls;
+            chip.style.setProperty('--i', idx);
+            chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+            chip.onclick = () => loadChart(sym);
+            // 右クリックで削除確認
+            chip.oncontextmenu = (e) => {
+              e.preventDefault();
+              if (confirm(`${sym} を ${currentWatchlistId} から外しますか？`)) {
+                removeFromWatchlist(currentWatchlistId, sym);
+                renderSymbolList();
+              }
+            };
+            chip.title = `${sym}  (右クリックで削除)`;
+            _applyScoreColor(chip, sym);
+            list.appendChild(chip);
+          });
+        }
+        countInfo.textContent = `${totalCount} 銘柄`;
+        return;
+      } else if (currentGroup === 'ETF') {
+        // ETF タブ専用：セクターブロックを2列で表示（見出し+3銘柄を1ブロックとする）
+        const symbols = GROUPS.ETF || [];
+        totalCount = symbols.length;
+        displaySymbols = symbols; // ソートしない
+
+        list.innerHTML = '';
+        list.classList.add('etf-mode');  // 2列モードを有効化
+        let idx = 0;
+        ETF_SECTORS.forEach(sector => {
+          // セクターブロック（見出し + 銘柄まとめ）
+          const block = document.createElement('div');
+          block.className = 'etf-sector-block';
+
+          // セクター見出し
+          const header = document.createElement('div');
+          header.className = 'sector-header';
+          header.innerHTML = `<span class="sector-header-name">${sector.name}</span><span class="sector-header-action">📊 一気見</span>`;
+          header.onclick = () => loadSectorCompare(sector.name, sector.symbols);
+          block.appendChild(header);
+
+          // 銘柄まとめ
+          const symbolsWrap = document.createElement('div');
+          symbolsWrap.className = 'sector-symbols';
+          sector.symbols.forEach(sym => {
+            const chip = document.createElement('div');
+            let cls = 'symbol-chip etf';
+            if (sym === activeSymbol) cls += ' active';
+            chip.className = cls;
+            chip.style.setProperty('--i', idx++);
+            chip.textContent = sym;
+            chip.onclick = () => loadChart(sym);
+            _applyScoreColor(chip, sym);
+            symbolsWrap.appendChild(chip);
+          });
+          block.appendChild(symbolsWrap);
+
+          list.appendChild(block);
+        });
+        countInfo.textContent = `${totalCount} / ${totalCount} 銘柄`;
+        return;
+      } else {
+        const symbols = GROUPS[currentGroup] || [];
+        displaySymbols = sortSymbols(symbols);
+        totalCount = symbols.length;
+      }
+
+      list.innerHTML = '';
+      if (displaySymbols.length === 0) {
+        const div = document.createElement('div');
+        div.className = 'no-result';
+        div.textContent = '該当する銘柄がありません';
+        list.appendChild(div);
+      } else {
+        displaySymbols.forEach((sym, idx) => {
+          const chip = document.createElement('div');
+          let cls = 'symbol-chip';
+          if (sym === activeSymbol) cls += ' active';
+          if (FUTURES_SET.has(sym)) cls += ' futures';
+          else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
+          else if (FOREX_SET.has(sym) && currentGroup === 'FOREX') cls += ' forex';
+          else if (ETF_SET.has(sym) && currentGroup === 'ETF') cls += ' etf';
+          else if (HYDROGEN_SET.has(sym) && currentGroup === 'HYDROGEN') cls += ' hydrogen';
+          else if (SOLAR_SET.has(sym) && currentGroup === 'SOLAR') cls += ' solar';
+          else if (QUANTUM_SET.has(sym) && currentGroup === 'QUANTUM') cls += ' quantum';
+          else if (SPACE_SET.has(sym) && currentGroup === 'SPACE') cls += ' space';
+          else if (NASDAQ_SET.has(sym) && currentGroup === 'NASDAQ100') cls += ' nasdaq';
+          chip.className = cls;
+          chip.style.setProperty('--i', idx);
+          // TSE:で始まる銘柄はコード番号だけ表示（TSE:7203 → 7203）
+          chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+          chip.onclick = () => loadChart(sym);
+          _applyScoreColor(chip, sym);
+          list.appendChild(chip);
+        });
+      }
+
+      if (filterActive) {
+        countInfo.textContent = `${displaySymbols.length} 件ヒット（条件絞り込み中）`;
+      } else if (q) {
+        countInfo.textContent = `${displaySymbols.length} 件ヒット（全 ${totalCount} 銘柄から）`;
+      } else {
+        countInfo.textContent = `${displaySymbols.length} / ${totalCount} 銘柄`;
+      }
+    }
+
+    async function loadSectorCompare(sectorName, symbols) {
+      activeSymbol = null;
+      compareMode = false;
+      lastChartImage = null;
+      lastPeerSymbols = [];
+      renderSymbolList();
+      const wbtnC = document.getElementById('watchlistBtnContainer'); if (wbtnC) wbtnC.style.display = 'none';
+
+      const area = document.getElementById('chartArea');
+      const title = document.getElementById('chartTitle');
+      const body = document.getElementById('chartBody');
+      const commentaryList = document.getElementById('commentaryList');
+      const peerSectorName = document.getElementById('peerSectorName');
+      const peerList = document.getElementById('peerList');
+      const compareBtn = document.getElementById('compareBtn');
+      const restoreBtn = document.getElementById('restoreBtn');
+      const profileCard = document.getElementById('profileCard');
+
+      area.classList.add('active');
+      title.textContent = `📊 ${sectorName}セクター（${symbols.join(' / ')}）`;
+      body.innerHTML = `<div class="chart-loading">${symbols.length}銘柄のチャート取得中...</div>`;
+      commentaryList.innerHTML = `<li class="info-empty">${escapeHtml(sectorName)}セクターの${symbols.length}つのETFを並べて比較中</li>`;
+      peerSectorName.textContent = '';
+      peerList.innerHTML = '<li class="info-empty">セクター一気見モード</li>';
+      compareBtn.style.display = 'none';
+      restoreBtn.style.display = 'none';
+      profileCard.style.display = 'none';
+      const _ip = document.getElementById('infoPanel');
+      if (_ip) _ip.classList.remove('has-profile');
+
+      // 各銘柄を並列で取得
+      const promises = symbols.map(s =>
+        fetch(`/chart/${encodeURIComponent(s)}`)
+          .then(r => r.json())
+          .then(d => ({ symbol: s, image: d.image, error: d.error }))
+          .catch(e => ({ symbol: s, error: String(e) }))
+      );
+      const results = await Promise.all(promises);
+
+      let chartsHtml = '<div class="sector-compare">';
+      for (const r of results) {
+        chartsHtml += `<div class="sector-compare-item">`;
+        chartsHtml += `<div class="sector-compare-symbol">${escapeHtml(r.symbol)}</div>`;
+        if (r.image) {
+          chartsHtml += `<img src="data:image/png;base64,${r.image}" alt="${escapeHtml(r.symbol)}チャート">`;
+        } else {
+          chartsHtml += `<div class="sector-compare-error">⚠️ ${escapeHtml(r.error || '取得失敗')}</div>`;
+        }
+        chartsHtml += `</div>`;
+      }
+      chartsHtml += '</div>';
+      body.innerHTML = chartsHtml;
+    }
+
+    // WL1/WL2/WL3 のうち指定IDに追加/削除をトグル
+    function toggleWatchlist(id) {
+      if (!activeSymbol) return;
+      id = _validWlId(id || 'WL1');
+      if (isInWatchlist(id, activeSymbol)) {
+        removeFromWatchlist(id, activeSymbol);
+      } else {
+        addToWatchlist(id, activeSymbol);
+      }
+      updateWatchlistBtn();
+      // ウォッチリストタブで該当WL表示中なら再描画
+      if (currentGroup === 'WATCHLIST' && currentWatchlistId === id) {
+        renderSymbolList();
+      }
+      // 全銘柄のアイコン更新（リスト内も）
+      if (currentGroup === 'WATCHLIST') renderSymbolList();
+    }
+
+    // 3つのボタンの表示を更新
+    function updateWatchlistBtn() {
+      const container = document.getElementById('watchlistBtnContainer');
+      if (!container) return;
+      if (!activeSymbol) {
+        container.style.display = 'none';
+        return;
+      }
+      container.style.display = '';
+      WATCHLIST_IDS.forEach(id => {
+        const btn = document.getElementById('wlBtn_' + id);
+        if (!btn) return;
+        if (isInWatchlist(id, activeSymbol)) {
+          btn.textContent = '⭐ ' + id;
+          btn.classList.add('active');
+          btn.title = id + ' に登録済み（タップで外す）';
+        } else {
+          btn.textContent = '☆ ' + id;
+          btn.classList.remove('active');
+          btn.title = id + ' に追加';
+        }
+      });
+    }
+
+    // ===== チャート/info キャッシュ（localStorage 永続化、24時間TTL、最大30銘柄）=====
+    const _PERSIST_KEY_CHART = 'trekken_chart_cache_v1';
+    const _PERSIST_KEY_INFO  = 'trekken_info_cache_v1';
+    const _CACHE_TTL = 24 * 60 * 60 * 1000;  // 24時間
+    const _MAX_CHART_ITEMS = 30;             // chart は画像が大きい（~100KB/件）
+    const _MAX_INFO_ITEMS  = 1000;           // info はテキストのみ軽量（~5KB/件）
+
+    // localStorage からキャッシュを復元（期限切れは自動で除外）
+    function _loadPersistCache(storageKey) {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return new Map();
+        const obj = JSON.parse(raw);
+        const now = Date.now();
+        const map = new Map();
+        Object.entries(obj).forEach(([k, v]) => {
+          if (v && typeof v.ts === 'number' && (now - v.ts) < _CACHE_TTL) {
+            map.set(k, v);
+          }
+        });
+        return map;
+      } catch (e) {
+        console.warn('cache load failed:', e);
+        return new Map();
+      }
+    }
+
+    // localStorage に保存（容量オーバー時は古いものから削除して再試行）
+    function _savePersistCache(storageKey, map) {
+      try {
+        const obj = {};
+        map.forEach((v, k) => { obj[k] = v; });
+        localStorage.setItem(storageKey, JSON.stringify(obj));
+      } catch (e) {
+        if (e.name === 'QuotaExceededError' && map.size > 5) {
+          // 古いエントリを削除して再試行
+          const firstKey = map.keys().next().value;
+          map.delete(firstKey);
+          _savePersistCache(storageKey, map);
+        }
+      }
+    }
+
+    // 起動時にlocalStorageから復元
+    const _chartMemCache = _loadPersistCache(_PERSIST_KEY_CHART);
+    const _infoMemCache  = _loadPersistCache(_PERSIST_KEY_INFO);
+
+    function _getMemCached(map, key) {
+      const c = map.get(key);
+      if (!c) return null;
+      if (Date.now() - c.ts > _CACHE_TTL) {
+        map.delete(key);
+        return null;
+      }
+      // LRU：アクセスされたものを末尾に移動
+      map.delete(key);
+      map.set(key, c);
+      return c.value;
+    }
+
+    function _setMemCached(map, key, value, storageKey, maxItems) {
+      map.set(key, { value, ts: Date.now() });
+      const limit = maxItems || _MAX_CHART_ITEMS;
+      // LRU上限超過時：古いものから削除
+      while (map.size > limit) {
+        const firstKey = map.keys().next().value;
+        map.delete(firstKey);
+      }
+      // localStorage に永続化（容量オーバー時は最小限の保存を試みる）
+      if (storageKey) _savePersistCache(storageKey, map);
+    }
+
+    // ===== 検索バー オートサジェスト =====
+    // 不足していた米国株（リスト・prefetchには含めず、検索のみ対応）
+    const EXTRA_KNOWN_SYMBOLS = [
+      // 中国ADR
+      'BABA', 'JD', 'BIDU', 'PDD', 'NIO', 'LI', 'XPEV', 'NTES', 'TME', 'BILI', 'IQ', 'TAL', 'EDU', 'YMM', 'TIGR', 'FUTU',
+      // AI/データ
+      'PLTR', 'PATH', 'AI', 'BBAI', 'SOUN', 'SERV', 'TEM', 'INOD', 'GLBE', 'DOCN', 'NICE',
+      // 仮想通貨関連
+      'COIN', 'MARA', 'RIOT', 'CLSK', 'HUT', 'CIFR', 'BTBT', 'MSTR', 'HIVE', 'BITF', 'WULF', 'IREN',
+      // EV
+      'RIVN', 'LCID', 'CHPT', 'EVGO', 'BLNK', 'NKLA', 'VFS',
+      // ゲーミング/メタバース
+      'U', 'RBLX', 'TTWO', 'EA', 'DKNG', 'PENN', 'BYND', 'SOFI', 'AFRM', 'UPST',
+      // バイオテック
+      'MRNA', 'BNTX', 'NVAX', 'OCGN', 'INO', 'SAVA', 'ARWR', 'BLUE', 'EDIT', 'CRSP', 'NTLA',
+      // MEME株
+      'GME', 'AMC', 'BB', 'KOSS', 'CLOV', 'OPEN', 'WISH',
+      // テック中堅
+      'UBER', 'LYFT', 'ABNB', 'DASH', 'DOCU', 'ZM', 'TWLO', 'NET', 'CFLT', 'GTLB', 'DDOG',
+      // 成長/SaaS
+      'SNOW', 'CRWD', 'ZS', 'OKTA', 'TEAM', 'WDAY', 'NOW', 'PANW', 'FTNT', 'S', 'SPLK', 'MDB', 'DKS',
+      // 中堅IPO
+      'HOOD', 'DAVE',
+      // 追加ETF
+      'ARKK', 'ARKQ', 'ARKG', 'ARKW', 'XBI', 'JETS', 'KWEB', 'TQQQ', 'SQQQ', 'SOXL', 'TMF', 'TLT', 'GLD', 'SLV', 'USO', 'UVXY', 'VIXY', 'AGG', 'BND', 'EEM', 'EWJ', 'EWZ', 'INDA', 'FXI', 'MCHI',
+    ];
+
+    // 全検索対象銘柄を構築（既存リスト + EXTRA）
+    function _buildSearchableSymbols() {
+      const seen = new Set();
+      const out = [];
+      // GROUPS の全銘柄を含める
+      const order = ['NIKKEI225', 'SP500', 'NASDAQ100', 'ETF', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR', 'CRYPTO', 'FOREX', 'G1'];
+      order.forEach(g => {
+        const arr = GROUPS[g] || [];
+        arr.forEach(s => {
+          if (!seen.has(s)) { seen.add(s); out.push({ sym: s, group: g }); }
+        });
+      });
+      // EXTRA
+      EXTRA_KNOWN_SYMBOLS.forEach(s => {
+        if (!seen.has(s)) { seen.add(s); out.push({ sym: s, group: 'EXTRA' }); }
+      });
+      return out;
+    }
+    const _ALL_SEARCHABLE = _buildSearchableSymbols();
+    const _GROUP_LABELS = {
+      NIKKEI225: '日経', SP500: 'S&P500', NASDAQ100: 'NDX', ETF: 'ETF',
+      QUANTUM: '⚛️量子', SPACE: '🚀宇宙', HYDROGEN: '💧水素', SOLAR: '☀️太陽光',
+      CRYPTO: '暗号', FOREX: '為替', G1: '指数', EXTRA: '人気',
+    };
+
+    let _suggestActiveIndex = -1;
+
+    function _updateSearchSuggest(query) {
+      const suggest = document.getElementById('searchSuggest');
+      if (!suggest) return;
+      const q = (query || '').trim().toUpperCase();
+      if (q.length === 0) {
+        suggest.style.display = 'none';
+        suggest.innerHTML = '';
+        _suggestActiveIndex = -1;
+        return;
+      }
+      // 前方一致を優先、その後部分一致
+      const prefixMatches = [];
+      const includeMatches = [];
+      for (const item of _ALL_SEARCHABLE) {
+        const upper = item.sym.toUpperCase();
+        // 'TSE:7203' は '7203' でも検索可能に
+        const stripped = upper.startsWith('TSE:') ? upper.replace('TSE:', '') : upper;
+        if (upper.startsWith(q) || stripped.startsWith(q)) {
+          prefixMatches.push(item);
+        } else if (upper.includes(q) || stripped.includes(q)) {
+          includeMatches.push(item);
+        }
+        if (prefixMatches.length + includeMatches.length >= 30) break;
+      }
+      const matches = [...prefixMatches, ...includeMatches].slice(0, 12);
+
+      if (matches.length === 0) {
+        suggest.innerHTML = '<div class="search-suggest-empty">Enter直接表示(リスト無し)</div>';
+        suggest.style.display = 'block';
+        _suggestActiveIndex = -1;
+        return;
+      }
+
+      suggest.innerHTML = matches.map((it, i) => {
+        const display = it.sym.startsWith('TSE:') ? it.sym.replace('TSE:', '') : it.sym;
+        const cat = _GROUP_LABELS[it.group] || '';
+        const isExtra = it.group === 'EXTRA';
+        const hint = isExtra ? '初回取得' : '';
+        return `<div class="search-suggest-item" data-idx="${i}" data-sym="${escapeHtml(it.sym)}">
+          <span class="search-suggest-ticker">${escapeHtml(display)}</span>
+          <span class="search-suggest-cat">${escapeHtml(cat)}</span>
+          <span class="search-suggest-hint">${hint}</span>
+        </div>`;
+      }).join('');
+      suggest.style.display = 'block';
+      _suggestActiveIndex = -1;
+
+      // イベント
+      Array.from(suggest.querySelectorAll('.search-suggest-item')).forEach(el => {
+        el.addEventListener('click', () => {
+          _selectSuggestion(el.dataset.sym);
+        });
+      });
+    }
+
+    function _selectSuggestion(sym) {
+      const suggest = document.getElementById('searchSuggest');
+      const input = document.getElementById('searchBox');
+      suggest.style.display = 'none';
+      suggest.innerHTML = '';
+      input.value = '';
+      _suggestActiveIndex = -1;
+      // クリア
+      currentQuery = '';
+      renderSymbolList();
+      // チャート表示
+      loadChart(sym);
+    }
+
+    // 検索バーの input イベント
+    document.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById('searchBox');
+      const suggest = document.getElementById('searchSuggest');
+      if (input) {
+        input.addEventListener('input', e => _updateSearchSuggest(e.target.value));
+        input.addEventListener('focus', e => {
+          if (e.target.value) _updateSearchSuggest(e.target.value);
+        });
+        input.addEventListener('keydown', e => {
+          const items = suggest.querySelectorAll('.search-suggest-item');
+          if (items.length === 0) return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _suggestActiveIndex = Math.min(_suggestActiveIndex + 1, items.length - 1);
+            items.forEach((el, i) => el.classList.toggle('is-active', i === _suggestActiveIndex));
+            items[_suggestActiveIndex]?.scrollIntoView({ block: 'nearest' });
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            _suggestActiveIndex = Math.max(_suggestActiveIndex - 1, 0);
+            items.forEach((el, i) => el.classList.toggle('is-active', i === _suggestActiveIndex));
+            items[_suggestActiveIndex]?.scrollIntoView({ block: 'nearest' });
+          } else if (e.key === 'Enter' && _suggestActiveIndex >= 0) {
+            e.preventDefault();
+            const sym = items[_suggestActiveIndex].dataset.sym;
+            _selectSuggestion(sym);
+          } else if (e.key === 'Escape') {
+            suggest.style.display = 'none';
+            _suggestActiveIndex = -1;
+          }
+        });
+      }
+      // 外側クリックで閉じる
+      document.addEventListener('click', e => {
+        if (!e.target.closest('.search-input-wrap')) {
+          if (suggest) {
+            suggest.style.display = 'none';
+            _suggestActiveIndex = -1;
+          }
+        }
+      });
+    });
+
+    async function loadChart(sym, _retryCount) {
+      _retryCount = _retryCount || 0;
+      activeSymbol = sym;
+      updateWatchlistBtn();
+      compareMode = false;
+      lastChartImage = null;
+      lastPeerSymbols = [];
+      renderSymbolList();
+
+      const area = document.getElementById('chartArea');
+      const title = document.getElementById('chartTitle');
+      const body = document.getElementById('chartBody');
+      const commentaryList = document.getElementById('commentaryList');
+      const peerSectorName = document.getElementById('peerSectorName');
+      const peerList = document.getElementById('peerList');
+      const compareBtn = document.getElementById('compareBtn');
+      const restoreBtn = document.getElementById('restoreBtn');
+      const profileCard = document.getElementById('profileCard');
+
+      area.classList.add('active');
+      title.textContent = `📈 ${sym}`;
+      body.innerHTML = '<div class="chart-loading">データ取得中...</div>';
+      commentaryList.innerHTML = '<li class="info-empty">読み込み中...</li>';
+      peerSectorName.textContent = '';
+      peerList.innerHTML = '<li class="info-empty">読み込み中...</li>';
+      compareBtn.style.display = 'none';
+      restoreBtn.style.display = 'none';
+      profileCard.style.display = 'none';
+      const _ip = document.getElementById('infoPanel');
+      if (_ip) _ip.classList.remove('has-profile');
+
+      // フロント側メモリキャッシュ確認（同セッション中の再表示は瞬時）
+      const cachedChartImg = _getMemCached(_chartMemCache, sym);
+      let chartPromise;
+      if (cachedChartImg) {
+        lastChartImage = cachedChartImg;
+        body.innerHTML = `<img src="data:image/png;base64,${cachedChartImg}" alt="${sym}チャート">`;
+        chartPromise = Promise.resolve();
+      } else {
+        const chartController = new AbortController();
+        const chartTimeoutId = setTimeout(() => chartController.abort(), 90000);
+        chartPromise = fetch(`/chart/${encodeURIComponent(sym)}`, { signal: chartController.signal })
+          .then(r => r.json())
+          .then(data => {
+            clearTimeout(chartTimeoutId);
+            if (data.image) {
+              lastChartImage = data.image;
+              _setMemCached(_chartMemCache, sym, data.image, _PERSIST_KEY_CHART, _MAX_CHART_ITEMS);
+              body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="${sym}チャート">`;
+              // チャートの最新スコアでチップ色マーカーを同期
+              if (typeof data.score === 'number' && metaData && metaData.items) {
+                const meta = metaData.items.find(it => it.symbol === sym);
+                if (meta) {
+                  meta.score = data.score;
+                  if (data.color) meta.color = data.color;
+                  if (typeof data.ema20_dev === 'number') meta.ema20_dev = data.ema20_dev;
+                  // 表示中リストを再描画してチップ色を更新
+                  renderSymbolList();
+                }
+              }
+            } else {
+              body.innerHTML = `
+                <div class="chart-error">
+                  <div>⚠️ ${data.error || '取得失敗'}</div>
+                  <button class="chart-retry-btn" onclick="loadChart('${sym.replace(/'/g, "\\'")}')">🔄 もう一度試す</button>
+                </div>`;
+            }
+          })
+          .catch((err) => {
+            clearTimeout(chartTimeoutId);
+            // 自動リトライ：最大3回（待ち時間 3, 6, 10秒）
+            const MAX_AUTO_RETRY = 3;
+            const RETRY_WAITS = [3000, 6000, 10000];
+            if (_retryCount < MAX_AUTO_RETRY) {
+              const waitMs = RETRY_WAITS[_retryCount] || 10000;
+              body.innerHTML = `<div class="chart-loading">再試行中... (${_retryCount + 1}/${MAX_AUTO_RETRY})</div>`;
+              setTimeout(() => {
+                if (activeSymbol === sym) loadChart(sym, _retryCount + 1);
+              }, waitMs);
+              return;
+            }
+            // 最終手段：localStorage の古いキャッシュ（TTL切れも含む）を表示
+            try {
+              const raw = localStorage.getItem(_PERSIST_KEY_CHART);
+              if (raw) {
+                const obj = JSON.parse(raw);
+                if (obj[sym] && obj[sym].value) {
+                  lastChartImage = obj[sym].value;
+                  body.innerHTML = `
+                    <img src="data:image/png;base64,${obj[sym].value}" alt="${sym}チャート">
+                    <div class="chart-stale-notice">⚠️ 前回のチャート表示中
+                      <button class="chart-retry-btn-small" onclick="loadChart(this.dataset.sym)" data-sym="${sym}">🔄 更新</button>
+                    </div>`;
+                  return;
+                }
+              }
+            } catch (e) { /* 続行 */ }
+            // それでもダメな場合は手動ボタン
+            const msg = (err && err.name === 'AbortError') ? 'サーバー応答が遅すぎます（タイムアウト）' : 'サーバーに接続できません';
+            body.innerHTML = `
+              <div class="chart-error">
+                <div>⚠️ ${msg}</div>
+                <div class="chart-error-hint">起動中の可能性があります。10〜30秒待ってから再試行してください。</div>
+                <button class="chart-retry-btn" onclick="loadChart(this.dataset.sym)" data-sym="${sym}">🔄 もう一度試す</button>
+              </div>`;
+          });
+      }
+
+      // info もメモリキャッシュ層を通す（同セッションの再表示は瞬時）
+      let cachedInfo = _getMemCached(_infoMemCache, sym);
+      // bulk preload で peers が null の場合、表示後に peers だけ別途 fetch
+      const needsPeersUpdate = cachedInfo && cachedInfo._bulkPreloaded && cachedInfo.peers === null;
+      if (needsPeersUpdate) {
+        // バックグラウンドで peers を補完
+        fetch(`/info/${encodeURIComponent(sym)}`)
+          .then(r => r.json())
+          .then(fullData => {
+            if (fullData && !fullData.error) {
+              // 完全データに上書き
+              _setMemCached(_infoMemCache, sym, fullData, _PERSIST_KEY_INFO, _MAX_INFO_ITEMS);
+              // 現在表示中の銘柄なら peers 欄を再描画
+              if (activeSymbol === sym) _renderInfoData(fullData);
+            }
+          })
+          .catch(() => {});
+      }
+      const _renderInfoData = (data) => {
+          if (data.profile && data.profile.name) {
+            const p = data.profile;
+            document.getElementById('profileName').textContent = p.name;
+            const metaParts = [];
+            if (p.industry) metaParts.push(`<span><span class="meta-label">業種</span>${escapeHtml(p.industry)}</span>`);
+            if (p.country)  metaParts.push(`<span><span class="meta-label">本社</span>${escapeHtml(p.country)}</span>`);
+            if (p.employees) metaParts.push(`<span><span class="meta-label">従業員</span>${p.employees.toLocaleString()}人</span>`);
+            if (p.market_cap) metaParts.push(`<span><span class="meta-label">時価総額</span>${escapeHtml(p.market_cap)}</span>`);
+            document.getElementById('profileMeta').innerHTML = metaParts.join('');
+            document.getElementById('profileSummary').textContent = p.summary || '';
+            profileCard.style.display = '';
+          } else {
+            profileCard.style.display = 'none';
+          }
+
+          if (Array.isArray(data.commentary) && data.commentary.length > 0) {
+            commentaryList.innerHTML = data.commentary.map(line => `<li>${escapeHtml(line)}</li>`).join('');
+          } else {
+            commentaryList.innerHTML = '<li class="info-empty">解説を生成できませんでした</li>';
+          }
+
+          if (data.peers && Array.isArray(data.peers.peers) && data.peers.peers.length > 0) {
+            peerSectorName.textContent = data.peers.sector;
+            peerList.innerHTML = data.peers.peers.map(p => {
+              const ch = p.change, sc = p.score;
+              let chCls = 'peer-na', chLabel = '—';
+              if (ch !== null && ch !== undefined) {
+                chCls = ch >= 0 ? 'peer-up' : 'peer-down';
+                chLabel = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
+              }
+              let scCls = 'peer-score-na', scLabel = '—';
+              if (sc !== null && sc !== undefined) {
+                // サーバーが判定した色を使う
+                const pColor = p.color || null;
+                if (pColor === 'blue') scCls = 'peer-score-blue';
+                else if (pColor === 'green') scCls = 'peer-score-green';
+                else if (pColor === 'yellow') scCls = 'peer-score-yellow';
+                else scCls = 'peer-score-red';
+                const scInt = Math.trunc(sc);
+                scLabel = (scInt >= 0 ? '+' : '') + scInt;
+              }
+              return `<li>
+                <span class="peer-name" onclick="loadChart('${p.symbol}')">${escapeHtml(p.symbol)}</span>
+                <span class="peer-cell"><span class="peer-cell-label">スコア</span><span class="peer-cell-value ${scCls}">${scLabel}</span></span>
+                <span class="peer-cell"><span class="peer-cell-label">変動</span><span class="peer-cell-value ${chCls}">${chLabel}</span></span>
+              </li>`;
+            }).join('');
+            lastPeerSymbols = [sym, ...data.peers.peers.map(p => p.symbol)];
+            compareBtn.style.display = 'inline-block';
+          } else {
+            peerSectorName.textContent = '';
+            peerList.innerHTML = '<li class="info-empty">同業他社情報なし</li>';
+            lastPeerSymbols = [];
+          }
+        };
+      const infoPromise = (cachedInfo
+        ? Promise.resolve(cachedInfo)
+        : fetch(`/info/${encodeURIComponent(sym)}`)
+            .then(r => r.json())
+            .then(d => { if (d && !d.error) _setMemCached(_infoMemCache, sym, d, _PERSIST_KEY_INFO, _MAX_INFO_ITEMS); return d; })
+      )
+        .then(_renderInfoData)
+        .catch(() => {
+          commentaryList.innerHTML = '<li class="info-empty">情報を取得できません</li>';
+          peerList.innerHTML = '<li class="info-empty">情報を取得できません</li>';
+        });
+
+      await Promise.all([chartPromise, infoPromise]);
+    }
+
+    async function runCompare() {
+      if (!lastPeerSymbols || lastPeerSymbols.length < 2) return;
+      const body = document.getElementById('chartBody');
+      const title = document.getElementById('chartTitle');
+      const peerList = document.getElementById('peerList');
+      const restoreBtn = document.getElementById('restoreBtn');
+      const compareBtn = document.getElementById('compareBtn');
+
+      compareMode = true;
+      title.textContent = `📊 ${activeSymbol} と同業他社の比較`;
+      body.innerHTML = '<div class="chart-loading">比較チャートを作成中...</div>';
+      compareBtn.disabled = true;
+
+      try {
+        const url = '/compare?symbols=' + encodeURIComponent(lastPeerSymbols.join(','));
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.image) {
+          body.innerHTML = `<img src="data:image/png;base64,${data.image}" alt="比較チャート">`;
+          if (Array.isArray(data.legend)) {
+            const colorMap = {};
+            data.legend.forEach(it => { colorMap[it.symbol] = it.color; });
+            peerList.querySelectorAll('li').forEach(li => {
+              const nameEl = li.querySelector('.peer-name');
+              if (!nameEl) return;
+              const symName = nameEl.textContent.trim();
+              if (colorMap[symName] && !li.querySelector('.peer-color-dot')) {
+                const dot = document.createElement('span');
+                dot.className = 'peer-color-dot';
+                dot.style.background = colorMap[symName];
+                nameEl.prepend(dot);
+              }
+            });
+          }
+          restoreBtn.style.display = 'inline-block';
+        } else {
+          body.innerHTML = `<div class="chart-error">⚠️ ${data.error || '比較失敗'}</div>`;
+        }
+      } catch (e) {
+        body.innerHTML = '<div class="chart-error">⚠️ サーバーに接続できません</div>';
+      } finally {
+        compareBtn.disabled = false;
+      }
+    }
+
+    function restoreSingleChart() {
+      if (!lastChartImage || !activeSymbol) return;
+      const body = document.getElementById('chartBody');
+      const title = document.getElementById('chartTitle');
+      const peerList = document.getElementById('peerList');
+      const restoreBtn = document.getElementById('restoreBtn');
+      compareMode = false;
+      title.textContent = `📈 ${activeSymbol}`;
+      body.innerHTML = `<img src="data:image/png;base64,${lastChartImage}" alt="${activeSymbol}チャート">`;
+      peerList.querySelectorAll('.peer-color-dot').forEach(d => d.remove());
+      restoreBtn.style.display = 'none';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+    }
+
+    function closeChart() {
+      document.getElementById('chartArea').classList.remove('active');
+      activeSymbol = null;
+      renderSymbolList();
+      const wbtnC = document.getElementById('watchlistBtnContainer'); if (wbtnC) wbtnC.style.display = 'none';
+    }
+
+    // ===== 一気見モード =====
+    const overviewCache = {};  // { SP500: {...}, NIKKEI225: {...} }
+    let overviewMode = false;
+
+    async function toggleOverview() {
+      const grid = document.getElementById('overviewGrid');
+      const list = document.getElementById('symbolList');
+      const countInfo = document.getElementById('countInfo');
+      const sortSel = document.getElementById('overviewSort');
+      const btn = document.getElementById('overviewBtn');
+
+      if (overviewMode) {
+        overviewMode = false;
+        grid.style.display = 'none';
+        list.style.display = '';
+        countInfo.style.display = '';
+        sortSel.style.display = 'none';
+        btn.textContent = '📊 全銘柄を一気見';
+        return;
+      }
+      overviewMode = true;
+      list.style.display = 'none';
+      countInfo.style.display = 'none';
+      grid.style.display = 'grid';
+      sortSel.style.display = 'inline-block';
+      btn.textContent = '📋 リスト表示に戻す';
+      grid.innerHTML = '<div class="overview-loading">データ取得中...</div>';
+
+      if (!overviewCache[currentGroup]) {
+        try {
+          const endpoint = currentGroup === 'NIKKEI225' ? '/jp225-all'
+                         : currentGroup === 'NASDAQ100' ? '/nasdaq100-all'
+                         : '/sp500-all';
+          const res = await fetch(endpoint);
+          overviewCache[currentGroup] = await res.json();
+        } catch (e) {
+          grid.innerHTML = '<div class="overview-loading">⚠️ サーバーに接続できません</div>';
+          return;
+        }
+      }
+      renderOverview();
+    }
+
+    function renderOverview() {
+      const overviewData = overviewCache[currentGroup];
+      if (!overviewData || !overviewData.items) return;
+      const grid = document.getElementById('overviewGrid');
+      const sort = document.getElementById('overviewSort').value;
+      let items = overviewData.items.slice();
+      if (sort === 'score_desc') items.sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
+      else if (sort === 'score_asc') items.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity));
+      else if (sort === 'symbol_asc') items.sort((a, b) => a.symbol.localeCompare(b.symbol));
+      else if (sort === 'sector') items.sort((a, b) => (a.sector || '').localeCompare(b.sector || '') || a.symbol.localeCompare(b.symbol));
+
+      const html = items.map(it => {
+        const sc = it.score;
+        let scoreCls = 'ts-na', scoreLabel = '—';
+        if (sc !== null && sc !== undefined) {
+          // サーバー側でcolor判定済み（item.color）
+          const tsColor = it.color || null;
+          if (tsColor === 'blue') scoreCls = 'ts-blue';
+          else if (tsColor === 'green') scoreCls = 'ts-green';
+          else if (tsColor === 'yellow') scoreCls = 'ts-yellow';
+          else scoreCls = 'ts-red';
+          scoreLabel = (sc >= 0 ? '+' : '') + sc.toFixed(1);
+        }
+        // 日経銘柄はコード番号だけ表示
+        const displaySym = NIKKEI_SET.has(it.symbol) ? it.symbol.replace('TSE:', '') : it.symbol;
+        const thumbHtml = it.thumb
+          ? `<img src="data:image/png;base64,${it.thumb}" alt="${escapeHtml(displaySym)}">`
+          : `<div class="thumb-placeholder">準備中</div>`;
+        return `
+          <div class="thumb-card" onclick="loadChart('${it.symbol}')">
+            ${thumbHtml}
+            <div class="thumb-info">
+              <span class="thumb-symbol">${escapeHtml(displaySym)}</span>
+              <span class="thumb-score ${scoreCls}">${scoreLabel}</span>
+            </div>
+          </div>`;
+      }).join('');
+
+      grid.innerHTML = html;
+      const cached = overviewData.cached_count || 0;
+      const total = overviewData.total || 0;
+      if (cached < total) {
+        const info = document.createElement('div');
+        info.className = 'overview-loading';
+        info.style.fontSize = '12px';
+        const label = currentGroup === 'NIKKEI225' ? '日経225'
+                     : currentGroup === 'NASDAQ100' ? 'NASDAQ100'
+                     : 'S&P500';
+        info.textContent = `${cached} / ${total} 銘柄のデータ準備済み（${label}：朝の自動更新後にすべて揃います）`;
+        grid.prepend(info);
+      }
+    }
+
+    // タブ切替
+    function updateTabIndicator(activeBtn) {
+      if (!activeBtn) return;
+      const tabs = document.getElementById('tabs');
+      const rect = activeBtn.getBoundingClientRect();
+      const parentRect = tabs.getBoundingClientRect();
+      tabs.style.setProperty('--tab-width', rect.width + 'px');
+      tabs.style.setProperty('--tab-left', (rect.left - parentRect.left + tabs.scrollLeft) + 'px');
+    }
+
+    // note銘柄テーマの順序（左から）と最後に選択したサブタブを記憶
+    const NOTE_SUBGROUPS = ['QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR'];
+    let lastNoteSubgroup = 'QUANTUM';
+
+    function setActiveSubTab(subgroup) {
+      document.querySelectorAll('.sub-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.subgroup === subgroup);
+      });
+    }
 
 
-# =========================================
-# トレンド解説と同業他社情報（/info エンドポイント）
-# =========================================
-info_cache = {}
-profile_cache = {}
+    document.querySelectorAll('.tab').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        updateTabIndicator(btn);
+        trendFilterActive = false;  // タブ切替で上昇中フィルタを解除
+        const group = btn.dataset.group;
 
-
-def generate_commentary(df, is_futures=False):
-    """直近データから簡潔なトレンド解説を3行程度で生成する（スコア・乖離率は整数表示）
-    is_futures=True の場合は先物・指数用の3色判定（緑=上昇 / 黄=レンジ / 赤=下降）。"""
-    try:
-        last = df.iloc[-1]
-        close_col = 'close' if 'close' in df.columns else 'Close'
-        score_col = 'totalScore' if 'totalScore' in df.columns else None
-
-        if score_col is None:
-            return ['データから解説を生成できません']
-
-        score = last[score_col]
-        if pd.isna(score):
-            return ['スコアがまだ計算できていません']
-
-        # 全銘柄：4色判定（青/緑/赤/黄）添付コード準拠
-        if score >= 7:
-            zone = '上昇トレンド'          # 🟦 青
-            zone_emoji = '🟦'
-        elif score > 0:
-            zone = '上昇転換付近'          # 🟢 緑
-            zone_emoji = '🟢'
-        elif score <= -7:
-            zone = '下降トレンド'          # 🟡 黄
-            zone_emoji = '🟡'
-        else:
-            zone = '下降転換付近'          # 🔴 赤
-            zone_emoji = '🔴'
-
-        lines = [f'{zone_emoji} 現在: {zone}(スコア {int(score):+d})']
-
-        if 'discrepancyPercent' in df.columns and not pd.isna(last['discrepancyPercent']):
-            disc = last['discrepancyPercent']
-            if disc > 8:
-                lines.append(f'📈 EMA20から +{int(disc)}% で過熱気味')
-            elif disc > 3:
-                lines.append(f'📈 EMA20から +{int(disc)}% で上方乖離')
-            elif disc < -8:
-                lines.append(f'📉 EMA20から {int(disc)}% で売られすぎ圏')
-            elif disc < -3:
-                lines.append(f'📉 EMA20から {int(disc)}% で下方乖離')
-            else:
-                lines.append(f'➡️ EMA20近辺で推移(乖離 {int(disc):+d}%)')
-
-        return lines[:4]
-    except Exception:
-        return ['解説生成中にエラーが発生しました']
-
-
-def get_peers(symbol_upper):
-    """同じセクターの他銘柄を5つ取得し、1週間の変動率を返す。"""
-    if is_jp_symbol(symbol_upper):
-        sub_industry = NIKKEI225_SECTOR_MAP.get(symbol_upper)
-        if not sub_industry:
-            return None
-        peers = [s for s, sub in NIKKEI225_SECTOR_MAP.items()
-                 if sub == sub_industry and s != symbol_upper]
-        if not peers:
-            return {'sector': sub_industry, 'peers': []}
-        peers = peers[:5]
-
-        peer_yf_map = {p: jp_to_yfinance(p) for p in peers}
-        peer_data = []
-        try:
-            yf_tickers = list(peer_yf_map.values())
-            df_all = yf.download(yf_tickers, period='10d', interval='1d',
-                                 progress=False, auto_adjust=False, group_by='ticker')
-            for p in peers:
-                yf_p = peer_yf_map[p]
-                try:
-                    if len(peers) == 1:
-                        sub = df_all
-                    else:
-                        sub = df_all[yf_p] if yf_p in df_all.columns.get_level_values(0) else None
-                    if sub is None or sub.empty:
-                        peer_data.append({'symbol': p, 'change': None, 'score': None})
-                        continue
-                    closes = sub['Close'].dropna()
-                    if len(closes) < 2:
-                        peer_data.append({'symbol': p, 'change': None, 'score': None})
-                        continue
-                    cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
-                    if ref == 0:
-                        peer_data.append({'symbol': p, 'change': None, 'score': None})
-                        continue
-                    change_pct = (cur - ref) / ref * 100
-                    peer_score = None
-                    if p in thumb_cache:
-                        _, thumb_data = thumb_cache[p]
-                        peer_score = thumb_data.get('score')
-                    peer_data.append({'symbol': p, 'change': _safe_num(change_pct), 'score': _safe_num(peer_score)})
-                except Exception:
-                    peer_data.append({'symbol': p, 'change': None, 'score': None})
-        except Exception:
-            for p in peers:
-                peer_score = None
-                if p in thumb_cache:
-                    _, thumb_data = thumb_cache[p]
-                    peer_score = thumb_data.get('score')
-                peer_data.append({'symbol': p, 'change': None, 'score': _safe_num(peer_score), 'color': score_to_color(_safe_num(peer_score))})
-
-        return {'sector': sub_industry, 'peers': peer_data}
-
-    sub_industry = get_sector(symbol_upper)
-    if not sub_industry:
-        return None
-
-    # 同じ業界の他銘柄を、S&P500 と NASDAQ100 の和集合から抽出
-    candidate_syms = set(SP500_SYMBOLS) | set(NASDAQ100_SYMBOLS)
-    peers = [s for s in candidate_syms
-             if get_sector(s) == sub_industry and s != symbol_upper]
-    if not peers:
-        return {'sector': sub_industry, 'peers': []}
-
-    peers = sorted(peers)[:5]
-
-    peer_data = []
-    try:
-        df_all = yf.download(peers, period='10d', interval='1d',
-                             progress=False, auto_adjust=False, group_by='ticker')
-        for p in peers:
-            try:
-                if len(peers) == 1:
-                    sub = df_all
-                else:
-                    sub = df_all[p] if p in df_all.columns.get_level_values(0) else None
-                if sub is None or sub.empty:
-                    peer_data.append({'symbol': p, 'change': None, 'score': None})
-                    continue
-                closes = sub['Close'].dropna()
-                if len(closes) < 2:
-                    peer_data.append({'symbol': p, 'change': None, 'score': None})
-                    continue
-                cur = float(closes.iloc[-1])
-                ref = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
-                if ref == 0:
-                    peer_data.append({'symbol': p, 'change': None, 'score': None})
-                    continue
-                change_pct = (cur - ref) / ref * 100
-                peer_score = None
-                if p in thumb_cache:
-                    _, thumb_data = thumb_cache[p]
-                    peer_score = thumb_data.get('score')
-                peer_data.append({'symbol': p, 'change': _safe_num(change_pct), 'score': _safe_num(peer_score)})
-            except Exception:
-                peer_data.append({'symbol': p, 'change': None, 'score': None})
-    except Exception:
-        for p in peers:
-            peer_score = None
-            if p in thumb_cache:
-                _, thumb_data = thumb_cache[p]
-                peer_score = thumb_data.get('score')
-            peer_data.append({'symbol': p, 'change': None, 'score': _safe_num(peer_score), 'color': score_to_color(_safe_num(peer_score))})
-
-    return {'sector': sub_industry, 'peers': peer_data}
-
-
-def format_market_cap(mc):
-    """時価総額を読みやすい形式に変換"""
-    if mc is None or not isinstance(mc, (int, float)) or mc <= 0:
-        return None
-    if mc >= 1e12:
-        return f"{mc/1e12:.2f}兆ドル"
-    if mc >= 1e9:
-        return f"{mc/1e9:.2f}十億ドル"
-    if mc >= 1e6:
-        return f"{mc/1e6:.2f}百万ドル"
-    return f"{mc:,.0f}ドル"
-
-
-def get_profile(symbol_upper):
-    """銘柄の概要情報を yfinance から取得する。先物・暗号通貨は対象外。"""
-    if symbol_upper in ('NQ1!', 'ES1!') or symbol_upper in CRYPTO_MAP:
-        return None
-
-    # 日経225指数：固定のプロファイル情報を返す
-    if symbol_upper == 'N225':
-        return {
-            'symbol': 'N225',
-            'name': '日経平均株価（日経225）',
-            'industry': '株価指数',
-            'sector': '指数',
-            'country': 'Japan',
-            'website': 'https://indexes.nikkei.co.jp/nkave',
-            'summary': '日経平均株価は、東京証券取引所プライム市場に上場している銘柄から日本経済新聞社が選定した225銘柄を対象とした株価指数です。日本を代表する株価指標として広く利用されています。',
-            'employees': None,
-            'market_cap': None,
+        // 📝 note銘柄タブ：最後のサブタブ（または初期値QUANTUM）を表示
+        if (group === 'NOTE') {
+          document.getElementById('subTabs').style.display = 'flex';
+          currentGroup = lastNoteSubgroup;
+          setActiveSubTab(currentGroup);
+        } else {
+          document.getElementById('subTabs').style.display = 'none';
+          currentGroup = group;
         }
 
-    # 登録銘柄優先だが、未登録でも yfinance で試す（失敗時は None を返す）
-
-    yf_ticker = jp_to_yfinance(symbol_upper) if is_jp_symbol(symbol_upper) else symbol_upper
-
-    try:
-        ticker = yf.Ticker(yf_ticker)
-        info = ticker.info or {}
-        if not info or 'shortName' not in info and 'longName' not in info:
-            return None
-
-        return {
-            'symbol': symbol_upper,
-            'name': info.get('longName') or info.get('shortName') or symbol_upper,
-            'industry': info.get('industry') or '',
-            'sector': info.get('sector') or '',
-            'country': info.get('country') or '',
-            'employees': info.get('fullTimeEmployees') or None,
-            'market_cap': format_market_cap(info.get('marketCap')),
-            'website': info.get('website') or '',
-            'summary': info.get('longBusinessSummary') or '',
+        updateTrendSummary();
+        if (currentGroup !== 'SP500' && currentGroup !== 'NIKKEI225' && currentGroup !== 'NASDAQ100' && overviewMode) {
+          overviewMode = false;
+          document.getElementById('overviewGrid').style.display = 'none';
+          document.getElementById('symbolList').style.display = '';
+          document.getElementById('countInfo').style.display = '';
+          document.getElementById('overviewSort').style.display = 'none';
+          document.getElementById('overviewBtn').textContent = '📊 全銘柄を一気見';
         }
-    except Exception as e:
-        print(f"get_profile {symbol_upper} error: {e}")
-        return None
+        renderSymbolList();
+      };
+    });
 
+    // サブタブクリックハンドラ
+    document.querySelectorAll('.sub-tab').forEach(btn => {
+      btn.onclick = () => {
+        const sub = btn.dataset.subgroup;
+        if (!NOTE_SUBGROUPS.includes(sub)) return;
+        lastNoteSubgroup = sub;
+        currentGroup = sub;
+        trendFilterActive = false;  // サブタブ切替でフィルタ解除
+        setActiveSubTab(sub);
+        updateTrendSummary();
+        renderSymbolList();
+      };
+    });
 
-@app.route('/info/<symbol>')
-@limiter.limit("40 per minute")
-def info(symbol):
-    if not is_valid_symbol(symbol):
-        return jsonify({'error': 'Invalid symbol'}), 400
-    symbol_upper = symbol.upper()
-    now = time.time()
+    // 初期インジケータ位置設定 + ウィンドウリサイズ追従
+    window.addEventListener('load', () => {
+      const activeBtn = document.querySelector('.tab.active');
+      if (activeBtn) setTimeout(() => updateTabIndicator(activeBtn), 150);
+    });
+    window.addEventListener('resize', () => {
+      const activeBtn = document.querySelector('.tab.active');
+      if (activeBtn) updateTabIndicator(activeBtn);
+    });
 
-    if symbol_upper in info_cache:
-        cached_time, cached_data = info_cache[symbol_upper]
-        if now - cached_time < CACHE_SECONDS:
-            cached_data = dict(cached_data)
-            cached_data['profile'] = apply_translation(cached_data.get('profile'))
-            return _cached_json({**cached_data, 'cached': True}, max_age=1800)
+    // 検索ボックス
+    document.getElementById('searchBox').addEventListener('input', e => {
+      currentQuery = e.target.value;
+      renderSymbolList();
+    });
+    document.getElementById('searchBox').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const q = e.target.value.trim().toUpperCase();
+        if (!q) return;
+        // 入力した銘柄をそのまま loadChart に渡す（未登録銘柄でもバックエンドが取得を試みる）
+        loadChart(q);
+      }
+    });
 
-    try:
-        if symbol_upper == 'NQ1!':
-            df = fetch_nq1()
-        elif symbol_upper == 'ES1!':
-            df = fetch_es1()
-        elif symbol_upper == 'N225':
-            df = fetch_n225()
-        elif symbol_upper in CRYPTO_MAP:
-            df = fetch_crypto(symbol_upper)
-        elif symbol_upper in FOREX_PAIRS:
-            df = fetch_forex(symbol_upper)
-        elif is_jp_symbol(symbol_upper):
-            df = fetch_jp(symbol_upper)
-        elif symbol_upper.isdigit() and len(symbol_upper) == 4:
-            # 4桁数字 → 日本株として扱う
-            symbol_upper = f'TSE:{symbol_upper}'
-            df = fetch_jp(symbol_upper)
-        else:
-            # 登録済み銘柄 or 未登録銘柄でも yfinance で取得を試みる
-            df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
+    // ===== ① 注目銘柄（割安TOP3 / 上昇TOP3） =====
+    async function loadFeaturedSymbols() {
+      // テーマ別カテゴリ → 表示要素ID対応
+      const THEME_TOPS = [
+        { ids: GROUPS.QUANTUM,  target: 'quantumFeatured' },
+        { ids: GROUPS.SPACE,    target: 'spaceFeatured' },
+        { ids: GROUPS.HYDROGEN, target: 'hydrogenFeatured' },
+        { ids: GROUPS.SOLAR,    target: 'solarFeatured' },
+      ];
+      const allTargets = THEME_TOPS.map(t => t.target);
+      try {
+        const res = await fetch('/symbols-meta');
+        const data = await res.json();
+        if (!data.items) return;
 
-        if df is None or df.empty:
-            return jsonify({'error': 'データ取得に失敗しました'}), 500
-
-        is_futures_symbol = symbol_upper in FUTURES_INDEX_SET
-        commentary = generate_commentary(df, is_futures=is_futures_symbol)
-        peers_info = get_peers(symbol_upper)
-
-        profile = None
-        if symbol_upper in profile_cache:
-            p_time, p_data = profile_cache[symbol_upper]
-            if now - p_time < CACHE_SECONDS:
-                profile = p_data
-        if profile is None:
-            profile = get_profile(symbol_upper)
-            if profile is not None:
-                profile_cache[symbol_upper] = (now, profile)
-
-        profile = apply_translation(profile)
-
-        result = {
-            'symbol': symbol_upper,
-            'commentary': commentary,
-            'peers': peers_info,
-            'profile': profile,
+        // スコアが取得済みの銘柄のみ対象（異常値除外はしない、純粋にスコア順）
+        const valid = data.items.filter(it => {
+          return it.score !== null && it.score !== undefined;
+        });
+        if (valid.length === 0) {
+          allTargets.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<div class="featured-loading">朝の自動更新後に表示されます</div>';
+          });
+          return;
         }
-        info_cache[symbol_upper] = (now, result)
-        return _cached_json({**result, 'cached': False}, max_age=1800)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
-
-# =========================================
-# 一括 info 取得エンドポイント
-# SP500 / NASDAQ100 の全銘柄の info（commentary + profile）を一括で返す。
-# フロントエンドが起動時に取得して localStorage にキャッシュし、銘柄を開いた瞬間に
-# トレンド解説と企業概要を瞬時表示できるようにする。peers は省略（重複多いため）。
-# =========================================
-@app.route('/info-bulk/<group>')
-@limiter.limit("10 per minute")
-def info_bulk(group):
-    if group == 'SP500':
-        symbols = SP500_SYMBOLS
-    elif group == 'NASDAQ100':
-        symbols = NASDAQ100_SYMBOLS
-    else:
-        return jsonify({'error': 'Invalid group. Use SP500 or NASDAQ100.'}), 400
-
-    items = []
-    for sym in symbols:
-        # info_cache から取得（プリフェッチで埋まっている）
-        if sym in info_cache:
-            _, data = info_cache[sym]
-            items.append({
-                'symbol': sym,
-                'commentary': data.get('commentary'),
-                'profile': data.get('profile'),
-            })
-    # 1時間ブラウザキャッシュ
-    return _cached_json({'group': group, 'items': items, 'total': len(items)}, max_age=3600)
-
-
-# =========================================
-# 合体エンドポイント：1リクエストでチャート＋トレンド解説＋ピア＋プロフィールを返す
-# /chart と /info を別々に呼ぶより、HTTP 往復・データ取得が半減して大幅高速化
-# =========================================
-@app.route('/api/load/<symbol>')
-@limiter.limit("60 per minute")
-def load_chart_and_info(symbol):
-    if not is_valid_symbol(symbol):
-        return jsonify({'error': 'Invalid symbol'}), 400
-    symbol_upper = symbol.upper()
-    now = time.time()
-
-    # 完全合体キャッシュ（24時間）：両方揃ってる場合は即返す
-    chart_cached = symbol_upper in chart_cache and (now - chart_cache[symbol_upper][0]) < CACHE_SECONDS
-    info_cached  = symbol_upper in info_cache  and (now - info_cache[symbol_upper][0])  < CACHE_SECONDS
-
-    if chart_cached and info_cached:
-        c_img = chart_cache[symbol_upper][1]
-        i_data = dict(info_cache[symbol_upper][1])
-        i_data['profile'] = apply_translation(i_data.get('profile'))
-        return jsonify({
-            'symbol': symbol_upper,
-            'image': c_img,
-            'commentary': i_data.get('commentary'),
-            'peers': i_data.get('peers'),
-            'profile': i_data.get('profile'),
-            'cached': True,
-        })
-
-    try:
-        # データ取得（1回だけ）
-        if symbol_upper == 'NQ1!':
-            df = fetch_nq1()
-        elif symbol_upper == 'ES1!':
-            df = fetch_es1()
-        elif symbol_upper in CRYPTO_MAP:
-            df = fetch_crypto(symbol_upper)
-        elif symbol_upper in FOREX_PAIRS:
-            df = fetch_forex(symbol_upper)
-        elif is_jp_symbol(symbol_upper):
-            df = fetch_jp(symbol_upper)
-        elif symbol_upper.isdigit() and len(symbol_upper) == 4:
-            symbol_upper = f'TSE:{symbol_upper}'
-            df = fetch_jp(symbol_upper)
-        else:
-            df = fetch_and_calculate(symbol_upper, period=CALC_PERIOD)
-
-        if df is None or df.empty:
-            stale = _fallback_to_stale_cache(f'{symbol_upper} 取得失敗')
-            if stale:
-                # 古いキャッシュからチャートだけ返す（info は欠ける）
-                return stale
-            return jsonify({'error': f'{symbol_upper} のデータ取得に失敗しました'}), 500
-
-        # チャート画像生成（既存キャッシュがあればそれを使う）
-        if chart_cached:
-            img_b64 = chart_cache[symbol_upper][1]
-        else:
-            if symbol_upper in ('NQ1!', 'ES1!'):
-                img_b64 = make_chart_image_nq(df, symbol_upper)
-            else:
-                img_b64 = make_chart_image_stock(df, symbol_upper)
-            chart_cache[symbol_upper] = (now, img_b64)
-
-        # トレンド解説 ＋ ピア（info_cache を使う or 新規計算）
-        if info_cached:
-            i_data = dict(info_cache[symbol_upper][1])
-            commentary = i_data.get('commentary')
-            peers_info = i_data.get('peers')
-            profile = i_data.get('profile')
-        else:
-            is_futures_symbol = symbol_upper in FUTURES_INDEX_SET
-            commentary = generate_commentary(df, is_futures=is_futures_symbol)
-            peers_info = get_peers(symbol_upper)
-            profile = None
-            if symbol_upper in profile_cache:
-                p_time, p_data = profile_cache[symbol_upper]
-                if now - p_time < CACHE_SECONDS:
-                    profile = p_data
-            if profile is None:
-                profile = get_profile(symbol_upper)
-                if profile is not None:
-                    profile_cache[symbol_upper] = (now, profile)
-            info_cache[symbol_upper] = (now, {
-                'symbol': symbol_upper,
-                'commentary': commentary,
-                'peers': peers_info,
-                'profile': profile,
-            })
-
-        profile = apply_translation(profile)
-
-        return jsonify({
-            'symbol': symbol_upper,
-            'image': img_b64,
-            'commentary': commentary,
-            'peers': peers_info,
-            'profile': profile,
-            'cached': False,
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# =========================================
-# 銘柄比較（重ね合わせラインチャート）
-# =========================================
-compare_cache = {}
-COMPARE_COLORS = ['#ff4444', '#32cd32', '#00bfff', '#ffd700', '#ff8800', '#aa66ff']
-
-
-def fetch_close_series(symbol, bars=DISPLAY_PERIOD):
-    """指定銘柄の終値シリーズを取得する。"""
-    sym = symbol.upper()
-    try:
-        if sym == 'NQ1!':
-            df = fetch_nq1()
-            if df is None or df.empty:
-                return None
-            return df['Close'].dropna().tail(bars)
-        if sym == 'ES1!':
-            df = fetch_es1()
-            if df is None or df.empty:
-                return None
-            return df['Close'].dropna().tail(bars)
-        if sym in CRYPTO_MAP:
-            df = fetch_crypto(sym)
-            if df is None or df.empty:
-                return None
-            return df['close'].dropna().tail(bars)
-        if is_jp_symbol(sym):
-            df = fetch_jp(sym)
-            if df is None or df.empty:
-                return None
-            return df['close'].dropna().tail(bars)
-        if sym in SYMBOLS or sym in SP500_SYMBOLS or sym in NASDAQ100_SYMBOLS:
-            df = fetch_and_calculate(sym, period=CALC_PERIOD)
-            if df is None or df.empty:
-                return None
-            return df['close'].dropna().tail(bars)
-    except Exception:
-        pass
-    return None
-
-
-def make_compare_chart(symbols):
-    """複数銘柄の終値を正規化（初日=100）して重ね合わせたチャート画像を作る"""
-    series_map = {}
-    for s in symbols:
-        cs = fetch_close_series(s, bars=DISPLAY_PERIOD)
-        if cs is not None and len(cs) >= 2:
-            series_map[s] = cs
-
-    if not series_map:
-        return None, []
-
-    df = pd.concat(series_map, axis=1, join='inner')
-    if df.empty or len(df) < 2:
-        return None, []
-
-    base = df.iloc[0]
-    norm = df.divide(base) * 100
-
-    fig = plt.figure(figsize=(12, 7), facecolor=BG_COLOR)
-    fig.subplots_adjust(top=0.92, bottom=0.15, left=0.06, right=0.92)
-    ax = fig.add_subplot(111, facecolor=BG_COLOR)
-    ax.tick_params(axis='x', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    ax.tick_params(axis='y', colors=TEXT_COLOR, labelcolor=TEXT_COLOR)
-    for spine in ax.spines.values():
-        spine.set_color(GRID_COLOR)
-    ax.grid(True, color=GRID_COLOR, alpha=0.4, linestyle='--', linewidth=0.5)
-    ax.axhline(100, color='#888', linewidth=0.8, linestyle=':', alpha=0.6)
-
-    color_map = {}
-    for i, sym in enumerate(norm.columns):
-        color = COMPARE_COLORS[i % len(COMPARE_COLORS)]
-        color_map[sym] = color
-        ax.plot(norm.index, norm[sym], color=color, linewidth=2.0, label=sym)
-
-    legend = ax.legend(loc='upper left', facecolor=BG_COLOR, edgecolor=GRID_COLOR,
-                       labelcolor=TEXT_COLOR, fontsize=11, framealpha=0.85)
-    if legend:
-        for text in legend.get_texts():
-            text.set_color(TEXT_COLOR)
-
-    ax.set_title(f"比較チャート（初日=100 で正規化）", fontsize=18, color=TEXT_COLOR, pad=14)
-    ax.set_ylabel('正規化価格', color=TEXT_COLOR)
-
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
-    buf.seek(0)
-    img_b64 = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-
-    return img_b64, [{'symbol': s, 'color': color_map[s]} for s in norm.columns]
-
-
-@app.route('/compare')
-@limiter.limit("20 per minute")
-def compare():
-    """クエリパラメータ symbols=NVDA,AMD,INTC で複数銘柄を比較"""
-    symbols_param = request.args.get('symbols', '')
-    symbols = [s.strip().upper() for s in symbols_param.split(',') if s.strip()]
-    if not symbols:
-        return jsonify({'error': '銘柄が指定されていません'}), 400
-    if len(symbols) > 8:
-        symbols = symbols[:8]
-    # 全銘柄のバリデーション
-    for s in symbols:
-        if not is_valid_symbol(s):
-            return jsonify({'error': 'Invalid symbol in list'}), 400
-
-    cache_key = ','.join(symbols)
-    now = time.time()
-    if cache_key in compare_cache:
-        cached_time, cached_data = compare_cache[cache_key]
-        if now - cached_time < CACHE_SECONDS:
-            return _cached_json({**cached_data, 'cached': True}, max_age=1800)
-
-    try:
-        img_b64, legend = make_compare_chart(symbols)
-        if img_b64 is None:
-            return jsonify({'error': '比較チャートを生成できませんでした'}), 500
-        result = {'image': img_b64, 'symbols': symbols, 'legend': legend}
-        compare_cache[cache_key] = (now, result)
-        return _cached_json({**result, 'cached': False}, max_age=1800)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# =========================================
-# プリフェッチ機能（外部cronから1日1回呼ぶ）
-# =========================================
-def calculate_scores_from_ohlcv(df):
-    """OHLCV DataFrameからスコアを計算する"""
-    df = df.copy()
-    df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
-    df['sma_50'] = df['close'].rolling(window=50).mean()
-    df['prev_close'] = df['close'].shift(1)
-    df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
-    df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
-    df['total_uvol_sma'] = get_wma(df['uvol'], 10)
-    df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
-    df['discrepancyScore'] = df['discrepancyPercent'] / 2
-    df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
-    df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
-    df['volDiff_std'] = df['volDiff'].rolling(window=50).std(ddof=0)
-    df['volDiffScore'] = np.where(
-        df['volDiff_std'] != 0,
-        (df['volDiff'] - df['volDiff_avg']) / df['volDiff_std'] * 3,
-        0
-    )
-    df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
-    return df
-
-
-def prefetch_batch(symbols_batch):
-    """50銘柄程度をまとめて取得し、各銘柄のチャート画像と情報をキャッシュに格納する"""
-    results = {'success': [], 'failed': []}
-    try:
-        df_all = yf.download(
-            symbols_batch, period='2y', interval='1d',
-            progress=False, auto_adjust=False, group_by='ticker', threads=True
-        )
-    except Exception as e:
-        return {'success': [], 'failed': symbols_batch, 'error': str(e)}
-
-    now = time.time()
-    for sym in symbols_batch:
-        try:
-            if len(symbols_batch) == 1:
-                sub = df_all
-            else:
-                if sym not in df_all.columns.get_level_values(0):
-                    results['failed'].append(sym)
-                    continue
-                sub = df_all[sym]
-
-            if sub is None or sub.empty:
-                results['failed'].append(sym)
-                continue
-
-            df = sub.copy()
-            df.columns = df.columns.str.lower() if hasattr(df.columns, 'str') else [c.lower() for c in df.columns]
-            df = df.loc[:, ~df.columns.duplicated()].copy()
-            if hasattr(df.index, 'tz') and df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
-            if 'close' not in df.columns or len(df) < 60:
-                results['failed'].append(sym)
-                continue
-            for col in ['open', 'high', 'low', 'close', 'volume']:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            df = df.dropna(subset=['close'])
-
-            df = calculate_scores_from_ohlcv(df)
-
-            img_b64 = make_chart_image_stock(df, sym)
-            if img_b64:
-                chart_cache[sym] = (now, img_b64)
-
-            thumb_b64 = make_thumbnail_image(df, sym)
-            last_score = df['totalScore'].iloc[-1] if 'totalScore' in df.columns else None
-            try:
-                last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
-            except Exception:
-                last_score_val = None
-
-            week_change = None
-            try:
-                closes = df['close'].dropna()
-                if len(closes) >= 6:
-                    cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6])
-                    if ref != 0:
-                        week_change = (cur - ref) / ref * 100
-            except Exception:
-                week_change = None
-
-            # 20EMA乖離率・50SMA乖離率
-            ema20_dev = None
-            sma50_dev = None
-            try:
-                last_close = float(df['close'].iloc[-1])
-                if 'ema_20' in df.columns:
-                    last_ema20 = df['ema_20'].iloc[-1]
-                    if not pd.isna(last_ema20) and float(last_ema20) != 0:
-                        ema20_dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
-                if 'sma_50' in df.columns:
-                    last_sma50 = df['sma_50'].iloc[-1]
-                    if not pd.isna(last_sma50) and float(last_sma50) != 0:
-                        sma50_dev = (last_close - float(last_sma50)) / float(last_sma50) * 100
-            except Exception:
-                pass
-
-            if thumb_b64:
-                thumb_cache[sym] = (now, {
-                    'thumb': thumb_b64,
-                    'score': last_score_val,
-                    'week_change': week_change,
-                    'ema20_dev': ema20_dev,
-                    'sma50_dev': sma50_dev,
-                })
-
-            commentary = generate_commentary(df)
-            peers_info = get_peers(sym)
-
-            profile = get_profile(sym)
-            if profile is not None:
-                profile_cache[sym] = (now, profile)
-
-            info_cache[sym] = (now, {
-                'symbol': sym, 'commentary': commentary, 'peers': peers_info,
-                'profile': profile,
-            })
-
-            results['success'].append(sym)
-        except Exception as e:
-            print(f"prefetch {sym} error: {e}")
-            results['failed'].append(sym)
-    return results
-
-
-def prefetch_jp_batch(symbols_batch):
-    """日経225銘柄を tvDatafeed 経由で取得し、キャッシュに保存。
-    tvDatafeed は逐次取得なので並列化せず、各銘柄を順に処理する。"""
-    results = {'success': [], 'failed': []}
-    now = time.time()
-
-    for sym in symbols_batch:
-        try:
-            df = fetch_jp(sym, n_bars=600)
-            if df is None or df.empty or len(df) < 60:
-                results['failed'].append(sym)
-                continue
-
-            df = calculate_scores_from_ohlcv(df)
-
-            img_b64 = make_chart_image_stock(df, sym)
-            if img_b64:
-                chart_cache[sym] = (now, img_b64)
-
-            thumb_b64 = make_thumbnail_image(df, sym)
-            last_score = df['totalScore'].iloc[-1] if 'totalScore' in df.columns else None
-            try:
-                last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
-            except Exception:
-                last_score_val = None
-
-            week_change = None
-            try:
-                closes = df['close'].dropna()
-                if len(closes) >= 6:
-                    cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6])
-                    if ref != 0:
-                        week_change = (cur - ref) / ref * 100
-            except Exception:
-                week_change = None
-
-            ema20_dev = None
-            sma50_dev = None
-            try:
-                last_close = float(df['close'].iloc[-1])
-                if 'ema_20' in df.columns:
-                    last_ema20 = df['ema_20'].iloc[-1]
-                    if not pd.isna(last_ema20) and float(last_ema20) != 0:
-                        ema20_dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
-                if 'sma_50' in df.columns:
-                    last_sma50 = df['sma_50'].iloc[-1]
-                    if not pd.isna(last_sma50) and float(last_sma50) != 0:
-                        sma50_dev = (last_close - float(last_sma50)) / float(last_sma50) * 100
-            except Exception:
-                pass
-
-            if thumb_b64:
-                thumb_cache[sym] = (now, {
-                    'thumb': thumb_b64,
-                    'score': last_score_val,
-                    'week_change': week_change,
-                    'ema20_dev': ema20_dev,
-                    'sma50_dev': sma50_dev,
-                })
-
-            commentary = generate_commentary(df)
-            peers_info = None  # 日経225 のピアは別管理（簡略化）
-
-            info_cache[sym] = (now, {
-                'symbol': sym, 'commentary': commentary, 'peers': peers_info,
-                'profile': None,  # 日経225 の profile は別ロジック
-            })
-
-            results['success'].append(sym)
-        except Exception as e:
-            print(f"prefetch_jp {sym} error: {e}")
-            results['failed'].append(sym)
-    return results
-
-
-prefetch_state = {
-    'running': False,
-    'started_at': None,
-    'finished_at': None,
-    'success_count': 0,
-    'failed_count': 0,
-    'failed_symbols': [],
-    'elapsed_seconds': None,
-}
-prefetch_lock = threading.Lock()
-
-
-def run_prefetch_in_background():
-    """別スレッドで実行されるプリフェッチ処理本体。
-    S&P500 を全件処理した後、NASDAQ100 のうち S&P500 にない差分のみ追加で処理する。"""
-    global prefetch_state
-
-    start_time = time.time()
-    all_success = []
-    all_failed = []
-
-    BATCH_SIZE = 3    # workers=2 体制でメモリ余裕を確保
-    BATCH_WAIT = 18   # ワーカー間でメモリピーク重複を避ける
-
-    # NASDAQ100のうち S&P500 に含まれない銘柄（追加で取得が必要な銘柄）
-    nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
-    targets = list(SP500_SYMBOLS) + nasdaq_only
-
-    try:
-        for i in range(0, len(targets), BATCH_SIZE):
-            batch = targets[i:i+BATCH_SIZE]
-            print(f"Prefetch batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
-            res = prefetch_batch(batch)
-            all_success.extend(res.get('success', []))
-            all_failed.extend(res.get('failed', []))
-            if i + BATCH_SIZE < len(targets):
-                time.sleep(BATCH_WAIT)
-    except Exception as e:
-        print(f"Prefetch background error: {e}")
-
-    elapsed = time.time() - start_time
-    with prefetch_lock:
-        prefetch_state['running'] = False
-        prefetch_state['finished_at'] = time.time()
-        prefetch_state['success_count'] = len(all_success)
-        prefetch_state['failed_count'] = len(all_failed)
-        prefetch_state['failed_symbols'] = all_failed
-        prefetch_state['elapsed_seconds'] = round(elapsed, 1)
-    print(f"Prefetch done: success={len(all_success)} failed={len(all_failed)} elapsed={elapsed:.1f}s")
-
-
-def run_startup_prefetch():
-    """起動時に自動で走るプリフェッチ（Render Starter プラン最適化版）。
-    フェーズ1: ETF + テーマ別（水素・太陽光）+ FX + 先物 + 暗号通貨（軽量・最優先）
-    フェーズ2: S&P500 + NASDAQ100差分
-    フェーズ3: 日経225（プリフェッチ済みでなければ）
-    tvDatafeedの初回ログイン待ちのため30秒待機してから開始。"""
-    global prefetch_state
-
-    # tvDatafeedの初回ログイン完了 + ユーザー操作優先のため60秒待機
-    time.sleep(60)
-
-    with prefetch_lock:
-        if prefetch_state['running']:
-            print("Startup prefetch: skipped (already running)")
-            return
-        prefetch_state['running'] = True
-        prefetch_state['started_at'] = time.time()
-        prefetch_state['finished_at'] = None
-
-    print("=" * 60)
-    print("STARTUP PREFETCH (Starter optimized): starting")
-    print("=" * 60)
-
-    start_time = time.time()
-    all_success = []
-    all_failed = []
-
-    BATCH_SIZE = 3    # workers=2 体制、各ワーカーのメモリ余裕確保
-    BATCH_WAIT = 18   # ピーク重複回避
-
-    # ---------- フェーズ1: ETF + テーマ別（量子・宇宙・水素・太陽光）----------
-    # ※FX / 先物 / 暗号通貨 / HYZN は yfinance では取得できないためプリフェッチ対象外。
-    #   これらはユーザーが開いた時に専用関数（fetch_fx, fetch_nq1等）で取得される。
-    etf_symbols = list(ETF_SECTOR_MAP.keys())
-    # HYZN は yfinance で取得不可なので除外
-    hydrogen_us = ['PLUG', 'BE', 'BLDP', 'FCEL', 'LIN', 'APD', 'CMI']
-    solar_us = ['FSLR', 'ENPH', 'SEDG', 'RUN', 'NXT', 'ARRY', 'JKS', 'CSIQ', 'DQ']
-
-    extras = list(set(hydrogen_us + solar_us) - set(etf_symbols))
-    phase1_targets = etf_symbols + extras
-    print(f"[Phase 1/3] ETF + Theme prefetch: {len(phase1_targets)} symbols")
-    try:
-        res = prefetch_batch(phase1_targets)
-        all_success.extend(res.get('success', []))
-        all_failed.extend(res.get('failed', []))
-        print(f"[Phase 1/3] done: success={len(res.get('success', []))}, failed={len(res.get('failed', []))}")
-    except Exception as e:
-        print(f"[Phase 1/3] error: {e}")
-
-    # Phase間の休憩（ユーザー操作優先）
-    print("[Inter-Phase 1-2] cooldown 30s")
-    time.sleep(30)
-
-    # ---------- フェーズ2: S&P500 + NASDAQ100差分 ----------
-    nasdaq_only = [s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)]
-    phase2_targets = list(SP500_SYMBOLS) + nasdaq_only
-    print(f"[Phase 2/3] S&P500+NASDAQ100diff prefetch: {len(phase2_targets)} symbols")
-
-    try:
-        for i in range(0, len(phase2_targets), BATCH_SIZE):
-            batch = phase2_targets[i:i+BATCH_SIZE]
-            print(f"[Phase 2/3] batch {i // BATCH_SIZE + 1}: {len(batch)} symbols")
-            res = prefetch_batch(batch)
-            all_success.extend(res.get('success', []))
-            all_failed.extend(res.get('failed', []))
-            if i + BATCH_SIZE < len(phase2_targets):
-                time.sleep(BATCH_WAIT)
-    except Exception as e:
-        print(f"[Phase 2/3] error: {e}")
-
-    # Phase2-3 間の休憩
-    print("[Inter-Phase 2-3] cooldown 30s")
-    time.sleep(30)
-
-    # ---------- フェーズ3: 日経225（tvDatafeed専用関数で取得）----------
-    jp_targets = list(NIKKEI225_SYMBOLS)
-    JP_BATCH = 3      # tvDatafeed、ユーザー操作優先のため小さく
-    JP_WAIT  = 10     # API レート制限 + ユーザー操作優先
-    print(f"[Phase 3/3] Nikkei225 prefetch (tvDatafeed): {len(jp_targets)} symbols")
-    try:
-        for i in range(0, len(jp_targets), JP_BATCH):
-            batch = jp_targets[i:i+JP_BATCH]
-            print(f"[Phase 3/3] batch {i // JP_BATCH + 1}: {len(batch)} symbols")
-            res = prefetch_jp_batch(batch)
-            all_success.extend(res.get('success', []))
-            all_failed.extend(res.get('failed', []))
-            if i + JP_BATCH < len(jp_targets):
-                time.sleep(JP_WAIT)
-    except Exception as e:
-        print(f"[Phase 3/3] error: {e}")
-
-    elapsed = time.time() - start_time
-    with prefetch_lock:
-        prefetch_state['running'] = False
-        prefetch_state['finished_at'] = time.time()
-        prefetch_state['success_count'] = len(all_success)
-        prefetch_state['failed_count'] = len(all_failed)
-        prefetch_state['failed_symbols'] = all_failed
-        prefetch_state['elapsed_seconds'] = round(elapsed, 1)
-    print("=" * 60)
-    print(f"STARTUP PREFETCH DONE: success={len(all_success)} failed={len(all_failed)} elapsed={elapsed:.1f}s")
-    print("=" * 60)
-
-
-@app.route('/prefetch')
-def prefetch():
-    """S&P500 + NASDAQ100差分 を一括プリフェッチ。バックグラウンドで実行し、即座にレスポンスを返す。"""
-    token = request.args.get('token', '')
-    if not PREFETCH_TOKEN or token != PREFETCH_TOKEN:
-        return jsonify({'error': 'unauthorized'}), 401
-
-    with prefetch_lock:
-        if prefetch_state['running']:
-            return jsonify({
-                'status': 'already_running',
-                'started_at': prefetch_state['started_at'],
-            }), 200
-        prefetch_state['running'] = True
-        prefetch_state['started_at'] = time.time()
-        prefetch_state['finished_at'] = None
-
-    thread = threading.Thread(target=run_prefetch_in_background, daemon=True)
-    thread.start()
-
-    nasdaq_only_count = len([s for s in NASDAQ100_SYMBOLS if s not in set(SP500_SYMBOLS)])
-    total = len(SP500_SYMBOLS) + nasdaq_only_count
-    return jsonify({
-        'status': 'started',
-        'message': f'{total} 銘柄（S&P500 + NASDAQ100差分）のプリフェッチを開始しました。完了まで10〜20分ほどかかります。',
-        'check_status_at': '/prefetch/status',
-    }), 202
-
-
-@app.route('/prefetch/status')
-def prefetch_status():
-    """プリフェッチの進捗確認用エンドポイント"""
-    with prefetch_lock:
-        return jsonify(dict(prefetch_state))
-
-
-# =========================================
-# 永続キャッシュ（GitHubに保存して再起動後も復元）
-# =========================================
-import json as _json
-
-translations = {}
-PERSISTENT_TRANSLATIONS_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/translations.json'
-
-
-# 個別チャートファイルのGitHub URL（1銘柄1ファイル方式）
-PERSISTENT_CHARTS_BASE_URL = 'https://raw.githubusercontent.com/toreken/trekken/main/cache/charts'
-
-def load_persistent_cache():
-    """起動時にGitHubから永続キャッシュを読み込む。失敗しても起動は継続。
-    対応データ：profiles, thumbs, infos（トレンド解説+peers）。
-    chartsは個別ファイル方式（リクエスト時に遅延ロード）。"""
-    try:
-        print(f"Loading persistent cache from {PERSISTENT_CACHE_URL} ...")
-        resp = http_requests.get(PERSISTENT_CACHE_URL, timeout=30,
-                                 headers={'User-Agent': 'Trekken site'})
-        if resp.status_code != 200:
-            print(f"Persistent cache: status {resp.status_code}, skipped")
-            return
-        data = resp.json()
-        now = time.time()
-        loaded_profiles = 0
-        loaded_thumbs = 0
-        loaded_infos = 0
-        for sym, profile in (data.get('profiles') or {}).items():
-            profile_cache[sym] = (now, profile)
-            loaded_profiles += 1
-        for sym, thumb_data in (data.get('thumbs') or {}).items():
-            thumb_cache[sym] = (now, thumb_data)
-            loaded_thumbs += 1
-        for sym, info_data in (data.get('infos') or {}).items():
-            if info_data:
-                info_cache[sym] = (now, info_data)
-                loaded_infos += 1
-        chart_count = data.get('chart_count', 0)
-        print(f"Persistent cache loaded: {loaded_profiles} profiles, {loaded_thumbs} thumbs, "
-              f"{loaded_infos} infos ({chart_count} charts available on-demand)")
-    except Exception as e:
-        print(f"Persistent cache load failed: {e}")
-
-
-def fetch_chart_from_github(symbol):
-    """GitHubから個別チャートファイルを取得（リスト内銘柄のオンデマンドロード）。
-    成功時はBase64文字列、失敗時はNoneを返す。"""
-    try:
-        # ファイル名安全化（コロンをアンダースコアに）
-        safe_name = symbol.replace(":", "_").replace("/", "_")
-        url = f"{PERSISTENT_CHARTS_BASE_URL}/{safe_name}.txt"
-        resp = http_requests.get(url, timeout=8,
-                                 headers={'User-Agent': 'Trekken site'})
-        if resp.status_code != 200:
-            return None
-        img_b64 = resp.text.strip()
-        if not img_b64 or len(img_b64) < 100:
-            return None
-        return img_b64
-    except Exception as e:
-        print(f"  fetch_chart_from_github {symbol} failed: {e}")
-        return None
-
-
-def load_translations():
-    """起動時にGitHubから日本語訳辞書を読み込む。"""
-    global translations
-    try:
-        print(f"Loading translations from {PERSISTENT_TRANSLATIONS_URL} ...")
-        resp = http_requests.get(PERSISTENT_TRANSLATIONS_URL, timeout=10,
-                                 headers={'User-Agent': 'Trekken site'})
-        if resp.status_code != 200:
-            print(f"Translations: status {resp.status_code}, skipped")
-            return
-        data = resp.json()
-        if isinstance(data, dict):
-            translations = data
-            print(f"Translations loaded: {len(translations)} entries")
-    except Exception as e:
-        print(f"Translations load failed: {e}")
-
-
-def apply_translation(profile):
-    """profileのsummaryに日本語訳があれば差し替える。"""
-    if not profile:
-        return profile
-    sym = profile.get('symbol', '')
-    if sym in translations and translations[sym]:
-        profile = dict(profile)
-        profile['summary'] = translations[sym]
-        profile['summary_translated'] = True
-    return profile
-
-
-load_persistent_cache()
-load_translations()
-
-
-# ===== 起動時自動プリフェッチ =====
-# Renderコールドスタート対策：起動時にバックグラウンドでチャートをプリフェッチする
-# 環境変数 STARTUP_PREFETCH=0 で無効化可能
-# workers=2 以上の場合、ファイルロックで「最初のワーカー」だけが実行する
-ENABLE_STARTUP_PREFETCH = os.environ.get('STARTUP_PREFETCH', '1') == '1'
-
-def _try_acquire_prefetch_lock():
-    """ワーカー間で1つだけがプリフェッチを実行するためのファイルロック。
-    ロック取得成功 → このワーカーがプリフェッチ実行担当。
-    ロック取得失敗 → 別のワーカーが実行中なのでスキップ。"""
-    try:
-        import fcntl
-        # /tmp は Render の ephemeral storage で、全ワーカーから見える
-        lock_fd = open('/tmp/trekken_prefetch.lock', 'w')
-        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        # ロック取得成功 - ファイルディスクリプタをグローバルに保持（GC回避）
-        globals()['_prefetch_lock_fd'] = lock_fd
-        return True
-    except (IOError, OSError, ImportError):
-        return False
-
-if ENABLE_STARTUP_PREFETCH:
-    if _try_acquire_prefetch_lock():
-        startup_prefetch_thread = threading.Thread(target=run_startup_prefetch, daemon=True)
-        startup_prefetch_thread.start()
-        print(f"Startup prefetch scheduled (worker pid={os.getpid()} is leader)")
-    else:
-        print(f"Startup prefetch skipped (worker pid={os.getpid()} is follower)")
-else:
-    print("Startup prefetch disabled by STARTUP_PREFETCH=0")
-
-
-@app.route('/cache-export')
-def cache_export():
-    """現在の永続キャッシュ対象データをJSONで返す。トークン保護。"""
-    token = request.args.get('token', '')
-    if not PREFETCH_TOKEN or token != PREFETCH_TOKEN:
-        return jsonify({'error': 'unauthorized'}), 401
-
-    profiles = {sym: data for sym, (_, data) in profile_cache.items()}
-    thumbs = {sym: data for sym, (_, data) in thumb_cache.items()}
-
-    return jsonify({
-        'profiles': profiles,
-        'thumbs': thumbs,
-        'exported_at': time.time(),
-        'profile_count': len(profiles),
-        'thumb_count': len(thumbs),
-    })
-
-
-@app.route('/sp500-all')
-@limiter.limit("10 per minute")
-def sp500_all():
-    """S&P500の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。"""
-    items = []
-    for sym in SP500_SYMBOLS:
-        if sym in thumb_cache:
-            _, data = thumb_cache[sym]
-            items.append({
-                'symbol': sym,
-                'sector': SP500_SECTOR_MAP.get(sym, ''),
-                'thumb': data.get('thumb'),
-                'score': data.get('score'),
-                'color': score_to_color(data.get('score')),
-                'week_change': data.get('week_change'),
-            })
-        else:
-            items.append({
-                'symbol': sym,
-                'sector': SP500_SECTOR_MAP.get(sym, ''),
-                'thumb': None,
-                'score': None,
-                'week_change': None,
-            })
-
-    cached_count = sum(1 for it in items if it['thumb'] is not None)
-    return jsonify({
-        'total': len(items),
-        'cached_count': cached_count,
-        'items': items,
-    })
-
-
-# 先物・指数タブの全銘柄（フロント側と同じ）
-FUTURES_INDEX_TAB_SYMBOLS = ['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']
-
-@app.route('/symbols-meta')
-def symbols_meta():
-    """検索フィルタ用に、全グループの銘柄メタ情報を返す。サムネイル画像は含まないので軽量。"""
-    all_syms = []
-    seen = set()
-    # 通常銘柄
-    for s in SYMBOLS + SP500_SYMBOLS + NASDAQ100_SYMBOLS + NIKKEI225_SYMBOLS:
-        if s not in seen:
-            seen.add(s)
-            all_syms.append(s)
-    # 先物・指数タブの追加銘柄（NQ1!, ES1!, SPY, RSP, DIA, QQQ, QQQE, IWM, VTI, VT）
-    for s in FUTURES_INDEX_TAB_SYMBOLS:
-        if s not in seen:
-            seen.add(s)
-            all_syms.append(s)
-    # 暗号通貨
-    for s in CRYPTO_MAP.keys():
-        if s not in seen:
-            seen.add(s)
-            all_syms.append(s)
-    # 為替
-    for s in FOREX_PAIRS:
-        if s not in seen:
-            seen.add(s)
-            all_syms.append(s)
-
-    items = []
-    for sym in all_syms:
-        score = None
-        week_change = None
-        ema20_dev = None
-        sma50_dev = None
-        if sym in thumb_cache:
-            _, data = thumb_cache[sym]
-            score = data.get('score')
-            week_change = data.get('week_change')
-            ema20_dev = data.get('ema20_dev')
-            sma50_dev = data.get('sma50_dev')
-        # NaN/Inf を None に正規化（JSON シリアライズで NaN を含むとフロントでパース失敗）
-        score = _safe_num(score)
-        week_change = _safe_num(week_change)
-        ema20_dev = _safe_num(ema20_dev)
-        sma50_dev = _safe_num(sma50_dev)
-        items.append({
-            'symbol': sym,
-            'sector': get_sector(sym),
-            'score': score,
-            'color': score_to_color(score),
-            'week_change': week_change,
-            'ema20_dev': ema20_dev,
-            'sma50_dev': sma50_dev,
-        })
-
-    cached_count = sum(1 for it in items if it['score'] is not None)
-    return jsonify({
-        'total': len(items),
-        'cached_count': cached_count,
-        'items': items,
-    })
-
-
-@app.route('/nasdaq100-all')
-@limiter.limit("10 per minute")
-def nasdaq100_all():
-    """NASDAQ100 の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。
-    S&P500と重複する銘柄も、同じ thumb_cache から共有して表示する。"""
-    items = []
-    for sym in NASDAQ100_SYMBOLS:
-        if sym in thumb_cache:
-            _, data = thumb_cache[sym]
-            items.append({
-                'symbol': sym,
-                'sector': get_sector(sym),
-                'thumb': data.get('thumb'),
-                'score': data.get('score'),
-                'color': score_to_color(data.get('score')),
-                'week_change': data.get('week_change'),
-            })
-        else:
-            items.append({
-                'symbol': sym,
-                'sector': get_sector(sym),
-                'thumb': None,
-                'score': None,
-                'week_change': None,
-            })
-
-    cached_count = sum(1 for it in items if it['thumb'] is not None)
-    return jsonify({
-        'total': len(items),
-        'cached_count': cached_count,
-        'items': items,
-    })
-
-
-@app.route('/jp225-all')
-@limiter.limit("10 per minute")
-def jp225_all():
-    """日経225 の全銘柄のサムネイル+スコア+変動率を返す。キャッシュにある分のみ。"""
-    items = []
-    for sym in NIKKEI225_SYMBOLS:
-        if sym in thumb_cache:
-            _, data = thumb_cache[sym]
-            items.append({
-                'symbol': sym,
-                'sector': NIKKEI225_SECTOR_MAP.get(sym, ''),
-                'thumb': data.get('thumb'),
-                'score': data.get('score'),
-                'color': score_to_color(data.get('score')),
-                'week_change': data.get('week_change'),
-            })
-        else:
-            items.append({
-                'symbol': sym,
-                'sector': NIKKEI225_SECTOR_MAP.get(sym, ''),
-                'thumb': None,
-                'score': None,
-                'week_change': None,
-            })
-
-    cached_count = sum(1 for it in items if it['thumb'] is not None)
-    return jsonify({
-        'total': len(items),
-        'cached_count': cached_count,
-        'items': items,
-    })
-
-
-# =========================================
-# Note 記事取得（RSSフィード経由）
-# =========================================
-note_cache = {'time': 0, 'items': []}
-NOTE_CACHE_SECONDS = 1800
-NOTE_USERNAME = 'natukb'
-
-
-def parse_note_rss(xml_text):
-    """NoteのRSS(XML)から記事情報を抽出する"""
-    try:
-        root = ET.fromstring(xml_text)
-        channel = root.find('channel')
-        if channel is None:
-            return []
-        # Media RSS の名前空間
-        ns = {
-            'media': 'http://search.yahoo.com/mrss/',
-            'content': 'http://purl.org/rss/1.0/modules/content/',
+        // スコア検索高速化のためマップ化
+        const scoreMap = new Map();
+        valid.forEach(it => scoreMap.set(it.symbol, it));
+
+        // 各テーマの上位5（スコア降順）
+        THEME_TOPS.forEach(theme => {
+          const themeItems = (theme.ids || [])
+            .map(sym => scoreMap.get(sym))
+            .filter(it => it !== undefined);
+          // スコア降順ソート
+          themeItems.sort((a, b) => b.score - a.score);
+          const top5 = themeItems.slice(0, 5);
+          renderFeaturedList(theme.target, top5);
+        });
+      } catch (e) {
+        allTargets.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.innerHTML = '<div class="featured-loading">⚠️ 取得失敗</div>';
+        });
+      }
+    }
+
+    function renderFeaturedList(targetId, items) {
+      const container = document.getElementById(targetId);
+      if (!items || items.length === 0) {
+        container.innerHTML = '<div class="featured-loading">該当銘柄なし</div>';
+        return;
+      }
+      container.innerHTML = items.map((it, idx) => {
+        const sc = it.score;
+        // サーバー側で判定済みの color を使う
+        const fcColor = it.color || null;
+        let scCls = 'fc-red';
+        if (fcColor === 'blue') scCls = 'fc-blue';
+        else if (fcColor === 'green') scCls = 'fc-green';
+        else if (fcColor === 'yellow') scCls = 'fc-yellow';
+        const scInt = Math.trunc(sc);
+        const scLabel = (scInt >= 0 ? '+' : '') + scInt;
+
+        const ch = it.week_change;
+        let chCls = 'fc-red', chLabel = '—';
+        if (ch !== null && ch !== undefined) {
+          chCls = ch >= 0 ? 'fc-green' : 'fc-red';
+          chLabel = (ch >= 0 ? '+' : '') + ch.toFixed(1) + '%';
         }
-        items = []
-        for item in channel.findall('item')[:12]:
-            title_el = item.find('title')
-            link_el = item.find('link')
-            pubdate_el = item.find('pubDate')
-            desc_el = item.find('description')
 
-            title = title_el.text if title_el is not None else ''
-            link = link_el.text if link_el is not None else ''
-            pubdate = pubdate_el.text if pubdate_el is not None else ''
-            desc = desc_el.text if desc_el is not None else ''
+        const displaySym = (typeof NIKKEI_SET !== 'undefined' && NIKKEI_SET.has(it.symbol))
+          ? it.symbol.replace('TSE:', '')
+          : it.symbol;
+        const sectorLabel = it.sector || '';
 
-            # ===== サムネイル取得（優先順位順に4箇所試す） =====
-            thumb = ''
-            # 1. <media:thumbnail url="..."/>（Media RSS、最優先）
-            try:
-                mt = item.find('media:thumbnail', ns)
-                if mt is not None and mt.get('url'):
-                    thumb = mt.get('url')
-            except Exception:
-                pass
-            # 2. <media:content url="..." medium="image"/>
-            if not thumb:
-                try:
-                    mc = item.find('media:content', ns)
-                    if mc is not None and mc.get('url'):
-                        thumb = mc.get('url')
-                except Exception:
-                    pass
-            # 3. <enclosure url="..." type="image/..."/>
-            if not thumb:
-                enc = item.find('enclosure')
-                if enc is not None and enc.get('url'):
-                    enc_type = (enc.get('type') or '').lower()
-                    if enc_type.startswith('image') or not enc_type:
-                        thumb = enc.get('url')
-            # 4. content:encoded 内のimg
-            if not thumb:
-                try:
-                    ce = item.find('content:encoded', ns)
-                    if ce is not None and ce.text:
-                        m = re.search(r'<img[^>]+src="([^"]+)"', ce.text)
-                        if m:
-                            thumb = m.group(1)
-                except Exception:
-                    pass
-            # 5. description内のimg（フォールバック）
-            if not thumb and desc:
-                m = re.search(r'<img[^>]+src="([^"]+)"', desc)
-                if m:
-                    thumb = m.group(1)
+        return `
+          <div class="featured-card featured-card-compact" onclick="loadChart('${it.symbol}')">
+            <div class="featured-card-rank">${idx + 1}</div>
+            <div class="featured-card-symbol">${escapeHtml(displaySym)}</div>
+            <div class="featured-card-score ${scCls}">${scLabel}</div>
+            <div class="featured-card-change ${chCls}">${chLabel}</div>
+          </div>`;
+      }).join('');
+    }
 
-            # 本文プレビュー
-            if desc:
-                desc_text = re.sub(r'<[^>]+>', '', desc).strip()[:80]
-            else:
-                desc_text = ''
+    // ===== Note記事の取得 =====
+    async function loadNoteArticles() {
+      const grid = document.getElementById('noteGrid');
+      try {
+        const res = await fetch('/note-articles');
+        const data = await res.json();
+        if (!Array.isArray(data.items) || data.items.length === 0) {
+          grid.innerHTML = `
+            <div class="note-loading">
+              記事を取得できませんでした。
+              <br><br>
+              <a href="https://note.com/natukb" target="_blank" rel="noopener"
+                 style="color: var(--gold-600); font-weight: 700;">
+                Noteで直接見る →
+              </a>
+            </div>`;
+          return;
+        }
+        grid.innerHTML = data.items.map((it, idx) => {
+          const num = '(' + String(idx + 1).padStart(2, '0') + ')';
+          const thumbHtml = it.thumb
+            ? `<img src="${escapeHtml(it.thumb)}" alt="${escapeHtml(it.title)}">`
+            : `<div style="font-size:48px;">📝</div>`;
+          return `
+            <a class="note-card" href="${escapeHtml(it.link)}" target="_blank" rel="noopener">
+              <div class="note-card-thumb">${thumbHtml}</div>
+              <div class="note-card-body">
+                <div class="note-card-num">${num}</div>
+                <div class="note-card-title">${escapeHtml(it.title)}</div>
+                <div class="note-card-preview">${escapeHtml(it.preview || '')}</div>
+                <span class="note-card-action">
+                  記事を読む
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                    <polyline points="12 5 19 12 12 19"/>
+                  </svg>
+                </span>
+              </div>
+            </a>`;
+        }).join('');
+        const cards = grid.querySelectorAll('.note-card');
+        cards.forEach((card, idx) => {
+          setTimeout(() => card.classList.add('visible'), idx * 150);
+        });
+      } catch (e) {
+        grid.innerHTML = '<div class="note-loading">⚠️ 記事を取得できません</div>';
+      }
+    }
 
-            items.append({
-                'title': title,
-                'link': link,
-                'pubdate': pubdate,
-                'thumb': thumb,
-                'preview': desc_text,
-            })
-        return items
-    except Exception as e:
-        print(f"Note RSS parse error: {e}")
-        return []
+    // ===== スクロールリビール =====
+    const reveals = document.querySelectorAll('.reveal');
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); }
+      });
+    }, { threshold: 0.1 });
+    reveals.forEach(r => obs.observe(r));
+
+    // 初期化
+    attachFilterListeners();
+    renderSymbolList();
+    // === 検索欄クリアボタンの表示制御 ===
+    (function initSearchClearBtn() {
+      const input = document.getElementById('searchBox');
+      const btn = document.getElementById('searchClearBtn');
+      if (!input || !btn) return;
+      const update = () => {
+        if (input.value.length > 0) btn.classList.add('visible');
+        else btn.classList.remove('visible');
+      };
+      input.addEventListener('input', update);
+      input.addEventListener('change', update);
+      update();
+    })();
+    window.clearSearchBox = function() {
+      const input = document.getElementById('searchBox');
+      const btn = document.getElementById('searchClearBtn');
+      if (!input) return;
+      input.value = '';
+      input.focus();
+      if (btn) btn.classList.remove('visible');
+      // 検索フィルタもクリアしてリストを再描画
+      currentQuery = '';
+      renderSymbolList();
+    };
 
 
-@app.route('/note-articles')
-def note_articles():
-    """Noteの最新記事3件を返す。30分キャッシュ。"""
-    now = time.time()
-    if now - note_cache['time'] < NOTE_CACHE_SECONDS and note_cache['items']:
-        return jsonify({'items': note_cache['items'], 'cached': True})
+    loadFeaturedSymbols();
 
-    try:
-        url = f'https://note.com/{NOTE_USERNAME}/rss'
-        resp = http_requests.get(url, timeout=10,
-                                 headers={'User-Agent': 'Mozilla/5.0 (Trekken site)'})
-        if resp.status_code != 200:
-            return jsonify({'items': [], 'error': f'status {resp.status_code}'}), 200
-        items = parse_note_rss(resp.text)
-        note_cache['time'] = now
-        note_cache['items'] = items
-        return jsonify({'items': items, 'cached': False})
-    except Exception as e:
-        return jsonify({'items': [], 'error': str(e)}), 200
+    // ページロード時に metaData を取得してチップ色マーカーを表示
+    fetchMetaData().then(() => {
+      // 取得完了後、銘柄リストを再描画して色マーカーを反映
+      if (typeof renderSymbolList === 'function') {
+        renderSymbolList();
+      }
+    });
 
+    // ===== 次回更新までのカウントダウン =====
+    function updateNextUpdateInfo() {
+      try {
+        const el = document.getElementById('updateScheduleLine1');
+        if (!el) return;
+        const now = new Date();
+        // JSTで計算（環境のタイムゾーンに依存しない）
+        const jstNow = new Date(now.getTime() + (now.getTimezoneOffset() + 9 * 60) * 60000);
 
-@app.route('/')
-def index():
-    with open('index.html', 'r', encoding='utf-8') as f:
-        return f.read()
+        // 次の日本株更新（JST 16:00）
+        const nextJp = new Date(jstNow);
+        nextJp.setHours(16, 0, 0, 0);
+        if (jstNow >= nextJp) nextJp.setDate(nextJp.getDate() + 1);
 
+        // 次の米国株更新（JST 7:00）
+        const nextUs = new Date(jstNow);
+        nextUs.setHours(7, 0, 0, 0);
+        if (jstNow >= nextUs) nextUs.setDate(nextUs.getDate() + 1);
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(debug=False, host='0.0.0.0', port=port)
+        // 近い方
+        const next = nextJp < nextUs ? nextJp : nextUs;
+        const market = nextJp < nextUs ? '日本株' : '米国株';
+        const diffMs = next - jstNow;
+        const hours = Math.floor(diffMs / 3600000);
+        const minutes = Math.floor((diffMs % 3600000) / 60000);
+
+        let text;
+        if (hours > 0) {
+          text = `📡 次回 ${market} 自動更新まで ${hours}時間${minutes}分`;
+        } else if (minutes > 0) {
+          text = `📡 次回 ${market} 自動更新まで ${minutes}分`;
+        } else {
+          text = `📡 ${market} を更新中…（少々お待ちください）`;
+        }
+        el.textContent = text;
+      } catch (e) {
+        console.error('updateNextUpdateInfo error:', e);
+      }
+    }
+    // 1分ごとに更新
+    setInterval(updateNextUpdateInfo, 60000);
+    // 初回実行
+    updateNextUpdateInfo();
+
+    // === S&P500 / NASDAQ100 の info を事前ロード（バックグラウンドで非同期）===
+    // 起動時に1回だけ取得 → localStorage に保存。次回以降は瞬時表示。
+    async function preloadBulkInfo() {
+      const _PRELOAD_FLAG_KEY = 'trekken_info_preload_ts_v1';
+      try {
+        const lastTs = parseInt(localStorage.getItem(_PRELOAD_FLAG_KEY) || '0', 10);
+        // 12時間以内に preload 済みならスキップ
+        if (lastTs && (Date.now() - lastTs) < 12 * 60 * 60 * 1000) {
+          console.log('[preload] skipped (recent)');
+          return;
+        }
+        console.log('[preload] starting bulk info fetch...');
+        for (const group of ['SP500', 'NASDAQ100']) {
+          try {
+            const res = await fetch(`/info-bulk/${group}`);
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data.items && Array.isArray(data.items)) {
+              data.items.forEach(item => {
+                if (!item.symbol) return;
+                // 既に peers 付きのデータがある場合は上書きしない（本物のpeers情報を保持）
+                const existing = _getMemCached(_infoMemCache, item.symbol);
+                if (existing && existing.peers && Array.isArray(existing.peers.peers) && existing.peers.peers.length > 0) {
+                  return;
+                }
+                // peers は省略しているので、別の info キャッシュ形式で保存
+                _setMemCached(_infoMemCache, item.symbol, {
+                  commentary: item.commentary,
+                  profile: item.profile,
+                  peers: null,  // 個別 /info で取得
+                  _bulkPreloaded: true,
+                }, _PERSIST_KEY_INFO, _MAX_INFO_ITEMS);
+              });
+              console.log(`[preload] ${group}: ${data.items.length} items cached`);
+            }
+          } catch (e) {
+            console.warn(`[preload] ${group} failed:`, e);
+          }
+        }
+        localStorage.setItem(_PRELOAD_FLAG_KEY, String(Date.now()));
+        console.log('[preload] done');
+      } catch (e) {
+        console.warn('[preload] error:', e);
+      }
+    }
+    // 起動30秒後にバックグラウンドで実行（プリフェッチ Phase1 後の安定時間帯で）
+    setTimeout(preloadBulkInfo, 30000);
+    loadNoteArticles();
+    // トレンド要約バー用にメタデータを事前取得
+    fetchMetaData();
+  </script>
+</body>
+</html>
