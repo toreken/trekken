@@ -1659,7 +1659,7 @@ def get_peers(symbol_upper):
                         peer_data.append({'symbol': p, 'change': None, 'score': None})
                         continue
                     cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
+                    ref = float(closes.iloc[-2]) if len(closes) >= 2 else float(closes.iloc[0])
                     if ref == 0:
                         peer_data.append({'symbol': p, 'change': None, 'score': None})
                         continue
@@ -1712,7 +1712,7 @@ def get_peers(symbol_upper):
                     peer_data.append({'symbol': p, 'change': None, 'score': None})
                     continue
                 cur = float(closes.iloc[-1])
-                ref = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
+                ref = float(closes.iloc[-2]) if len(closes) >= 2 else float(closes.iloc[0])
                 if ref == 0:
                     peer_data.append({'symbol': p, 'change': None, 'score': None})
                     continue
@@ -2214,12 +2214,13 @@ def prefetch_batch(symbols_batch):
             except Exception:
                 last_score_val = None
 
+            # 前日比（1営業日前との比較）
             week_change = None
             try:
                 closes = df['close'].dropna()
-                if len(closes) >= 6:
+                if len(closes) >= 2:
                     cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6])
+                    ref = float(closes.iloc[-2])
                     if ref != 0:
                         week_change = (cur - ref) / ref * 100
             except Exception:
@@ -2295,12 +2296,13 @@ def prefetch_jp_batch(symbols_batch):
             except Exception:
                 last_score_val = None
 
+            # 前日比（1営業日前との比較）
             week_change = None
             try:
                 closes = df['close'].dropna()
-                if len(closes) >= 6:
+                if len(closes) >= 2:
                     cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6])
+                    ref = float(closes.iloc[-2])
                     if ref != 0:
                         week_change = (cur - ref) / ref * 100
             except Exception:
