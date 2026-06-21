@@ -4037,7 +4037,7 @@
       const matches = [...prefixMatches, ...includeMatches].slice(0, 12);
 
       if (matches.length === 0) {
-        suggest.innerHTML = '<div class="search-suggest-empty">候補なし（Enter で直接検索）</div>';
+        suggest.innerHTML = '<div class="search-suggest-empty">Enter直接表示(リスト無し)</div>';
         suggest.style.display = 'block';
         _suggestActiveIndex = -1;
         return;
