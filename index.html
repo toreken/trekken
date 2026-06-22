@@ -3560,14 +3560,14 @@
       let extraClass = trendFilterActive ? ' filter-active' : '';
       summary.className = 'trend-summary ' + moodClass + extraClass;
       const hint = trendFilterActive
-        ? `<div class="trend-summary-hint">📋 上昇中銘柄をスコア順で表示中（タップで解除）</div>`
-        : (upCount > 0 ? `<div class="trend-summary-hint">👆 タップで上昇中銘柄のみ表示</div>` : '');
+        ? `<div class="trend-summary-hint">📋 上昇傾向銘柄をスコア順で表示中（タップで解除）</div>`
+        : (upCount > 0 ? `<div class="trend-summary-hint">👆 タップで上昇傾向銘柄のみ表示</div>` : '');
       summary.innerHTML = `
         <div class="trend-mood-icon">${moodIcon}</div>
         <div class="trend-mood-body">
           <div class="trend-mood-title">${moodTitle}</div>
           <div class="trend-mood-detail">
-            <strong>${upCount}</strong> / ${total} 銘柄が上昇中 (${percent}%)
+            <strong>${upCount}</strong> / ${total} 銘柄が上昇傾向 (${percent}%)
           </div>
           <div class="trend-summary-progress">
             <div class="trend-summary-progress-fill" style="width: ${percent}%"></div>
@@ -3624,7 +3624,7 @@
         if (sortedSymbols.length === 0) {
           const empty = document.createElement('div');
           empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--brown-500); font-size: 13px;';
-          empty.innerHTML = 'このタブには上昇中の銘柄がありません';
+          empty.innerHTML = 'このタブには上昇傾向の銘柄がありません';
           list.appendChild(empty);
         } else {
           sortedSymbols.forEach((sym, idx) => {
@@ -3650,7 +3650,7 @@
             list.appendChild(chip);
           });
         }
-        countInfo.textContent = `${totalCount} 銘柄 (上昇中)`;
+        countInfo.textContent = `${totalCount} 銘柄 (上昇傾向)`;
         return;
       }
 
