@@ -857,6 +857,31 @@
     .filter-color-chip:has(input:not(:checked)) { opacity: 0.5; }
     .filter-color-check { display: none; }
     .filter-color-label { white-space: nowrap; }
+    .filter-actions-row {
+      margin-top: 10px;
+      display: flex;
+      justify-content: center;
+    }
+    .filter-clear-all-btn {
+      padding: 10px 22px;
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(196, 154, 74, 0.3);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .filter-clear-all-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(196, 154, 74, 0.45);
+    }
+    .filter-clear-all-btn:active {
+      transform: translateY(0);
+    }
+
     .filter-status { font-size: 11px; color: var(--muted); padding-top: 6px; border-top: 1px dashed var(--brown-200); }
     .filter-status.warn { color: #c4302b; }
 
@@ -2685,6 +2710,9 @@
           <div class="filter-hint">中期トレンドからの乖離。例: -10%以下 → 最大に「-10」</div>
         </div>
         <div class="filter-status" id="filterStatus"></div>
+        <div class="filter-actions-row">
+          <button type="button" class="filter-clear-all-btn" onclick="clearFilters()">🔄 全フィルタを解除</button>
+        </div>
       </div>
 
       <div class="tabs" id="tabs">
@@ -3269,13 +3297,16 @@
       document.querySelectorAll('.filter-group-check').forEach(cb => {
         if (cb.checked) filterState.groups.add(cb.value);
       });
+      // 全色数・全グループ数を動的計算（チェックボックス数）
+      const totalColors = document.querySelectorAll('.filter-color-check').length || 4;
+      const totalGroups = document.querySelectorAll('.filter-group-check').length || 11;
       filterActive = (
         filterState.scoreMin !== null || filterState.scoreMax !== null ||
         filterState.changeMin !== null || filterState.changeMax !== null ||
         filterState.ema20Min !== null || filterState.ema20Max !== null ||
         filterState.sma50Min !== null || filterState.sma50Max !== null ||
-        filterState.colors.size < 4 ||
-        filterState.groups.size < 9
+        filterState.colors.size < totalColors ||
+        filterState.groups.size < totalGroups
       );
       document.getElementById('filterToggle').classList.toggle('active', filterActive);
       document.getElementById('filterClear').style.display = filterActive ? 'inline-block' : 'none';
