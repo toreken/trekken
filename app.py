@@ -849,7 +849,7 @@ ETF_SECTOR_MAP = {
 def fetch_forex(symbol_key, period=CALC_PERIOD):
     """yfinanceで為替ペアを取得しスコア計算する。
     symbol_key は 'EURUSD' 'USDJPY' 形式、内部で 'EURUSD=X' に変換する。
-    為替には出来高がないため volDiffScore は実質ゼロ、20EMA乖離（discrepancyScore）が中心。
+    為替には出来高がないため、N225と同様にvolume=1で埋めてその他銘柄と同じ4色判定を行う。
     """
     if symbol_key not in FOREX_PAIRS:
         return None
@@ -861,10 +861,14 @@ def fetch_forex(symbol_key, period=CALC_PERIOD):
             return None
         df = df_raw.rename(columns={'Open': 'open', 'High': 'high',
                                     'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-        # 為替のvolumeは0またはNaNなので0に統一
+        # 為替には実質出来高がないため、N225と同様にダミー値1で埋める
+        # → uvol/dvol/volDiffScore が機能し、他銘柄と同じ4色判定が出るようになる
         if 'volume' not in df.columns:
-            df['volume'] = 0
-        df['volume'] = df['volume'].fillna(0)
+            df['volume'] = 1
+        else:
+            df['volume'] = df['volume'].fillna(0)
+            if df['volume'].sum() == 0:
+                df['volume'] = 1
         df = df[['open', 'high', 'low', 'close', 'volume']].copy()
         for col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
