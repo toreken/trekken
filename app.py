@@ -849,7 +849,8 @@ ETF_SECTOR_MAP = {
 def fetch_forex(symbol_key, period=CALC_PERIOD):
     """yfinanceで為替ペアを取得しスコア計算する。
     symbol_key は 'EURUSD' 'USDJPY' 形式、内部で 'EURUSD=X' に変換する。
-    為替には出来高がないため、N225と同様にvolume=1で埋めてその他銘柄と同じ4色判定を行う。
+    添付コードと同じロジック：出来高がない場合は volDiffScore=0、
+    totalScore = discrepancyScore のみで他銘柄と共通の4色判定を行う。
     """
     if symbol_key not in FOREX_PAIRS:
         return None
@@ -861,20 +862,18 @@ def fetch_forex(symbol_key, period=CALC_PERIOD):
             return None
         df = df_raw.rename(columns={'Open': 'open', 'High': 'high',
                                     'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-        # 為替には実質出来高がないため、N225と同様にダミー値1で埋める
-        # → uvol/dvol/volDiffScore が機能し、他銘柄と同じ4色判定が出るようになる
+        # 為替は出来高がないため 0 で統一（添付コードと同じロジック）
+        # → uvol/dvol/volDiff も0 → volDiffScore=0 → totalScore = discrepancyScore のみ
         if 'volume' not in df.columns:
-            df['volume'] = 1
-        else:
-            df['volume'] = df['volume'].fillna(0)
-            if df['volume'].sum() == 0:
-                df['volume'] = 1
+            df['volume'] = 0
+        df['volume'] = df['volume'].fillna(0)
         df = df[['open', 'high', 'low', 'close', 'volume']].copy()
         for col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         df.index = pd.to_datetime(df.index).tz_localize(None) if df.index.tz else pd.to_datetime(df.index)
         df.index = df.index.normalize()
 
+        # 添付コード準拠の計算（fetch_and_calculate と完全に同じ式）
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
         df['prev_close'] = df['close'].shift(1)
