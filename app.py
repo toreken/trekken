@@ -161,9 +161,11 @@ Disallow: /
 
 
 @app.route('/ping')
+@limiter.exempt
 def ping():
-    """軽量ヘルスチェック。Renderスリープ防止用にGitHub Actions等から定期的に叩く。
-    DBアクセスや外部API呼び出しを一切行わず、即座に200を返す。"""
+    """軽量ヘルスチェック。Renderスリープ防止＆死活監視用。
+    DBアクセスや外部API呼び出しを一切行わず、即座に200を返す。
+    レート制限から除外することで Render のヘルスチェック失敗（429）を防ぐ。"""
     return jsonify({'status': 'ok', 'time': int(time.time())}), 200
 
 
@@ -2971,14 +2973,6 @@ def note_articles():
 def index():
     with open('index.html', 'r', encoding='utf-8') as f:
         return f.read()
-
-
-# Render のヘルスチェック専用エンドポイント（レート制限から除外）
-# Render は数十秒間隔でこのパスを叩くため、default レート制限に引っかかる問題を回避
-@app.route('/health')
-@limiter.exempt
-def health_check():
-    return 'OK', 200
 
 
 # / もレート制限から除外（Render のデフォルトヘルスチェックパス対応）
