@@ -1,12 +1,13 @@
 name: Prefetch US Data
 
-# 毎日 22:00 UTC（日本時間 翌朝 7:00）に実行
+# 毎日 21:00 UTC（日本時間 翌朝 6:00）に実行
+# GitHub Actions の cron は遅延仕様（5分〜2時間）があるため、
+# 目標 JST 7:00 公開のため1時間早く設定
 on:
   schedule:
-    - cron: '0 22 * * *'
+    - cron: '0 21 * * *'
   workflow_dispatch:
 
-# 同時実行を1つに制限（複数走るとpush競合の原因に）
 concurrency:
   group: prefetch
   cancel-in-progress: false
@@ -55,22 +56,16 @@ jobs:
 
           git commit -m "chore: update US cache [skip render]"
 
-          # 最大10回リトライ
           for i in 1 2 3 4 5 6 7 8 9 10; do
             echo "Push attempt $i/10..."
-
             if git pull --rebase --autostash origin main; then
               if git push origin main; then
-                echo "✅ US cache committed and pushed (attempt $i)"
+                echo "✅ US cache pushed (attempt $i)"
                 exit 0
-              else
-                echo "Push failed on attempt $i, will retry..."
               fi
             else
-              echo "Rebase failed on attempt $i, aborting and retrying..."
               git rebase --abort 2>/dev/null || true
             fi
-
             sleep $((15 + i * 5))
           done
 
