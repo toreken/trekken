@@ -78,7 +78,7 @@ except Exception:
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["300 per hour", "60 per minute"],
+    default_limits=["1000 per hour", "200 per minute"],
     storage_uri="memory://",
     strategy="fixed-window",
 )
@@ -2971,6 +2971,19 @@ def note_articles():
 def index():
     with open('index.html', 'r', encoding='utf-8') as f:
         return f.read()
+
+
+# Render のヘルスチェック専用エンドポイント（レート制限から除外）
+# Render は数十秒間隔でこのパスを叩くため、default レート制限に引っかかる問題を回避
+@app.route('/health')
+@limiter.exempt
+def health_check():
+    return 'OK', 200
+
+
+# / もレート制限から除外（Render のデフォルトヘルスチェックパス対応）
+# ※ index() に直接 @limiter.exempt はつけられないので、別の方法で除外
+limiter.exempt(index)
 
 
 if __name__ == '__main__':
