@@ -702,6 +702,7 @@ BG_COLOR = '#131722'
 TEXT_COLOR = 'white'
 GRID_COLOR = '#444444'
 CACHE_SECONDS = 86400  # 24時間（プリフェッチ前提のため長め）
+CHART_CACHE_SECONDS = 3600  # 1時間（チャート画像は1時間ごとに GitHub の最新を再取得）
 
 # プリフェッチ用トークン（外部cronからの呼び出しを保護）
 PREFETCH_TOKEN = os.environ.get('PREFETCH_TOKEN', '')
@@ -1439,7 +1440,7 @@ def chart(symbol):
 
     if symbol_upper in chart_cache:
         cached_time, cached_img = chart_cache[symbol_upper]
-        if now - cached_time < CACHE_SECONDS:
+        if now - cached_time < CHART_CACHE_SECONDS:
             meta = chart_meta_cache.get(symbol_upper) or {}
             return _cached_json({
                 'image': cached_img, 'symbol': symbol_upper, 'cached': True,
@@ -1449,7 +1450,7 @@ def chart(symbol):
             }, max_age=1800)
 
     # NEW: メモリキャッシュに無い場合、GitHubから個別ファイル取得を試みる（リスト内銘柄）
-    if symbol_upper not in chart_cache:
+    if symbol_upper not in chart_cache or (now - chart_cache[symbol_upper][0]) >= CHART_CACHE_SECONDS:
         github_img = fetch_chart_from_github(symbol_upper)
         if github_img:
             chart_cache[symbol_upper] = (now, github_img)
