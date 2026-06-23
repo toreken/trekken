@@ -1187,6 +1187,7 @@ def fetch_n225():
         df = yf.download('^N225', period='max', interval='1d',
                          auto_adjust=False, progress=False, threads=False)
         if df is None or df.empty:
+            print("N225: yf.download returned empty")
             return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -1207,7 +1208,14 @@ def fetch_n225():
             if 'adj close' in df.columns:
                 df['close'] = df['adj close']
             else:
+                print(f"N225: no close column, available: {df.columns.tolist()}")
                 return None
+
+        # mpfinance は大文字の列名を期待するので、別途用意（小文字は scores 用）
+        for src, dst in [('open', 'Open'), ('high', 'High'), ('low', 'Low'),
+                         ('close', 'Close'), ('volume', 'Volume')]:
+            if src in df.columns:
+                df[dst] = df[src]
 
         # スコア計算（fetch_and_calculate と同じロジック）
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -1223,9 +1231,12 @@ def fetch_n225():
         df['volDiffScore'] = 0
         df['totalScore'] = df['discrepancyScore']
 
+        print(f"N225: success, shape={df.shape}, last_close={float(df['close'].iloc[-1])}")
         return df
     except Exception as e:
+        import traceback
         print(f"N225 error: {e}")
+        traceback.print_exc()
         return None
 
 
@@ -1265,7 +1276,13 @@ def make_chart_image_stock(df, symbol):
         else:
             mpf.plot(plot_df, type='candle', style=my_style, ax=ax_main,
                      warn_too_much_data=10000, returnfig=False, datetime_format='%Y-%m')
-    except Exception:
+    except Exception as e:
+        import traceback
+        print(f"make_chart_image_stock mpf.plot error for {symbol}: {e}")
+        print(f"  columns: {plot_df.columns.tolist()}")
+        print(f"  shape: {plot_df.shape}")
+        print(f"  index type: {type(plot_df.index)}")
+        traceback.print_exc()
         plt.close(fig)
         return None
 
