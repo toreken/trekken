@@ -1,11 +1,11 @@
 name: Prefetch US Data
 
-# 毎日 21:00 UTC（日本時間 翌朝 6:00）に実行
-# GitHub Actions の cron は遅延仕様（5分〜2時間）があるため、
-# 目標 JST 7:00 公開のため1時間早く設定
+# 毎日 21:13 UTC（日本時間 翌朝 6:13）に実行
+# GitHub Actions の cron はキリの良い時間（:00, :30）で遅延・スキップが多いため、
+# 意図的にキリの悪い時刻に設定
 on:
   schedule:
-    - cron: '0 21 * * *'
+    - cron: '13 21 * * *'
   workflow_dispatch:
 
 concurrency:
