@@ -2774,7 +2774,7 @@ def sp500_all():
 
 
 # 先物・指数タブの全銘柄（フロント側と同じ）
-FUTURES_INDEX_TAB_SYMBOLS = ['NQ1!', 'ES1!', 'N225', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']
+FUTURES_INDEX_TAB_SYMBOLS = ['ES1!', 'NQ1!', 'N225', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']
 
 @app.route('/symbols-meta')
 def symbols_meta():
