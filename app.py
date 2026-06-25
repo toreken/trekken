@@ -2618,6 +2618,7 @@ def load_persistent_cache():
     対応データ：profiles, thumbs, infos（トレンド解説+peers）。
     chartsは個別ファイル方式（リクエスト時に遅延ロード）。"""
     global _last_persistent_cache_load, _persistent_data_version
+    global _us_updated_at, _jp_updated_at
     try:
         # GitHub Raw のキャッシュバスター（毎回最新を取得するため）
         url = f"{PERSISTENT_CACHE_URL}?t={int(time.time())}"
@@ -2646,10 +2647,13 @@ def load_persistent_cache():
         # データバージョン（prefetch完了時のタイムスタンプ）を更新
         # クライアント側でこの値が変わると localStorage を自動クリアする
         _persistent_data_version = int(data.get('exported_at', now))
+        _us_updated_at = int(data.get('us_updated_at', 0))
+        _jp_updated_at = int(data.get('jp_updated_at', 0))
         _last_persistent_cache_load = now
         print(f"Persistent cache loaded: {loaded_profiles} profiles, {loaded_thumbs} thumbs, "
               f"{loaded_infos} infos ({chart_count} charts available on-demand), "
-              f"data_version={_persistent_data_version}")
+              f"data_version={_persistent_data_version}, "
+              f"us_updated_at={_us_updated_at}, jp_updated_at={_jp_updated_at}")
     except Exception as e:
         print(f"Persistent cache load failed: {e}")
 
@@ -2657,6 +2661,8 @@ def load_persistent_cache():
 # 永続キャッシュの再読込タイミング管理
 _last_persistent_cache_load = 0
 _persistent_data_version = 0  # cache.json の exported_at（クライアントが版数比較に使う）
+_us_updated_at = 0             # 米国株 prefetch の最終完了時刻（unixtime）
+_jp_updated_at = 0             # 日本株 prefetch の最終完了時刻（unixtime）
 PERSISTENT_RELOAD_INTERVAL = 3600  # 1時間ごとに cache.json を再取得して thumb スコアを更新
 
 def reload_persistent_cache_if_needed():
@@ -2877,6 +2883,9 @@ def symbols_meta():
         # データバージョン（prefetch完了時刻のunixtime）
         # クライアントはこの値の変化を検知して localStorage を自動クリアする
         'data_version': _persistent_data_version,
+        # 米国株/日本株それぞれの最終 prefetch 完了時刻（unixtime秒）
+        'us_updated_at': _us_updated_at,
+        'jp_updated_at': _jp_updated_at,
     })
 
 
