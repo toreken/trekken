@@ -63,11 +63,13 @@ def get_tv_interval():
     except Exception:
         return None
 
-# 為替シンボル判定用セット
-FOREX_SET_FOR_TV = frozenset([
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
-    'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
-])
+# 為替は廃止（バックエンドのコードは残し、空セットにして prefetch されないようにする）
+FOREX_SET_FOR_TV = frozenset([])
+# 復活させる場合：
+# FOREX_SET_FOR_TV = frozenset([
+#     'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
+#     'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
+# ])
 
 
 # ===========================
