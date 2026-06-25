@@ -26,6 +26,51 @@ import matplotlib.pyplot as plt
 
 
 # ===========================
+# tvDatafeed 遅延初期化（為替のみで使用）
+# 為替のみ tvDatafeed (TradingView, OANDA) で取得し、TradingView と一致するチャートを実現
+# その他の銘柄（株式・ETF・先物・暗号通貨）は yfinance で取得（変更なし）
+# ===========================
+_tv = None
+_TV_INIT_TRIED = False
+
+def get_tv():
+    global _tv, _TV_INIT_TRIED
+    if _tv is not None:
+        return _tv
+    if _TV_INIT_TRIED:
+        return None
+    _TV_INIT_TRIED = True
+    try:
+        from tvDatafeed import TvDatafeed
+        tv_user = os.environ.get('TV_USERNAME')
+        tv_pass = os.environ.get('TV_PASSWORD')
+        if tv_user and tv_pass:
+            _tv = TvDatafeed(tv_user, tv_pass)
+            print("✅ tvDatafeed OK (ログイン)")
+        else:
+            _tv = TvDatafeed()
+            print("⚠️ tvDatafeed OK (ログインなし)")
+        return _tv
+    except Exception as e:
+        print(f"⚠️ tvDatafeed NG: {e}")
+        _tv = None
+        return None
+
+def get_tv_interval():
+    try:
+        from tvDatafeed import Interval
+        return Interval
+    except Exception:
+        return None
+
+# 為替シンボル判定用セット
+FOREX_SET_FOR_TV = frozenset([
+    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
+    'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
+])
+
+
+# ===========================
 # S&P 500 銘柄リストと業界マップ
 # ===========================
 # 先物・指数タブの全銘柄（3色判定：緑/黄/赤）
@@ -1083,16 +1128,48 @@ def process_light_targets(thumbs):
 
     for original_sym, yf_sym in LIGHT_TARGETS_MAP.items():
         try:
-            df = yf.download(yf_sym, period='1y', interval='1d',
-                             auto_adjust=False, progress=False, threads=False)
-            if df is None or df.empty or len(df) < 60:
-                failed.append(original_sym)
-                continue
+            # 為替のみ tvDatafeed (TradingView) で取得（OANDA → FX_IDC → FXCM の順で fallback）
+            if original_sym in FOREX_SET_FOR_TV:
+                tv = get_tv()
+                Interval = get_tv_interval()
+                if tv is None or Interval is None:
+                    print(f"  ✗ {original_sym}: tvDatafeed not available, skipping")
+                    failed.append(original_sym)
+                    continue
+                df = None
+                used_exchange = None
+                last_error = None
+                for exchange in ['OANDA', 'FX_IDC', 'FXCM']:
+                    try:
+                        df_try = tv.get_hist(symbol=original_sym, exchange=exchange,
+                                             interval=Interval.in_daily, n_bars=400)
+                        if df_try is not None and not df_try.empty:
+                            df = df_try
+                            used_exchange = exchange
+                            break
+                    except Exception as tv_e:
+                        last_error = tv_e
+                        continue
+                if df is None or df.empty or len(df) < 60:
+                    print(f"  ✗ {original_sym}: all exchanges failed. last_error={last_error}")
+                    failed.append(original_sym)
+                    continue
+                # tvDatafeed の戻り値: 列は symbol, open, high, low, close, volume（小文字）
+                if 'symbol' in df.columns:
+                    df = df.drop(columns=['symbol'])
+                df.columns = [str(c).lower() for c in df.columns]
+            else:
+                # その他（先物・暗号通貨）は yfinance で取得（変更なし）
+                df = yf.download(yf_sym, period='1y', interval='1d',
+                                 auto_adjust=False, progress=False, threads=False)
+                if df is None or df.empty or len(df) < 60:
+                    failed.append(original_sym)
+                    continue
 
-            # MultiIndex 列のフラット化
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df.columns = [c.lower() for c in df.columns]
+                # MultiIndex 列のフラット化
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                df.columns = [c.lower() for c in df.columns]
 
             # 必須カラム
             need_cols = {'open', 'high', 'low', 'close', 'volume'}
