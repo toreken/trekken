@@ -1,8 +1,6 @@
 name: Prefetch US Data
 
 # 毎日 21:13 UTC（日本時間 翌朝 6:13）に実行
-# GitHub Actions の cron はキリの良い時間（:00, :30）で遅延・スキップが多いため、
-# 意図的にキリの悪い時刻に設定
 on:
   schedule:
     - cron: '13 21 * * *'
@@ -47,6 +45,19 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -d cache ]; then
+            tar czf /tmp/cache_backup.tar.gz cache/
+            echo "Cache backed up to /tmp/cache_backup.tar.gz"
+          fi
+
+          git fetch origin main
+          git reset --hard origin/main
+
+          rm -rf cache
+          tar xzf /tmp/cache_backup.tar.gz
+          echo "Cache restored from backup"
+
           git add cache/
 
           if git diff --staged --quiet; then
@@ -58,15 +69,27 @@ jobs:
 
           for i in 1 2 3 4 5 6 7 8 9 10; do
             echo "Push attempt $i/10..."
-            if git pull --rebase --autostash origin main; then
-              if git push origin main; then
-                echo "✅ US cache pushed (attempt $i)"
-                exit 0
-              fi
-            else
-              git rebase --abort 2>/dev/null || true
+
+            if git push origin main; then
+              echo "✅ US cache pushed (attempt $i)"
+              exit 0
             fi
-            sleep $((15 + i * 5))
+
+            echo "Push failed, re-syncing..."
+            tar czf /tmp/cache_backup_retry.tar.gz cache/ 2>/dev/null || true
+            git fetch origin main
+            git reset --hard origin/main
+            rm -rf cache
+            tar xzf /tmp/cache_backup_retry.tar.gz 2>/dev/null || tar xzf /tmp/cache_backup.tar.gz
+            git add cache/
+
+            if git diff --staged --quiet; then
+              echo "No changes after re-sync, exiting"
+              exit 0
+            fi
+
+            git commit -m "chore: update US cache [skip render]"
+            sleep $((10 + i * 3))
           done
 
           echo "::error::Failed to push after 10 attempts"
