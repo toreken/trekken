@@ -864,6 +864,27 @@
       margin-top: 10px;
       display: flex;
       justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .filter-search-btn {
+      padding: 11px 22px;
+      background: linear-gradient(135deg, #2eb872, #228d53);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(46, 184, 114, 0.35);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .filter-search-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(46, 184, 114, 0.5);
+    }
+    .filter-search-btn:active {
+      transform: translateY(0);
     }
     /* アクティブ条件サマリー */
     .filter-active-summary {
@@ -2784,6 +2805,7 @@
         </div>
         <div class="filter-status" id="filterStatus"></div>
         <div class="filter-actions-row">
+          <button type="button" class="filter-search-btn" onclick="applyFilterSearch()">🔍 この条件で検索する</button>
           <button type="button" class="filter-clear-all-btn" onclick="clearFilters()">🔄 全フィルタを解除</button>
         </div>
         </div><!-- /.filter-panel-body -->
@@ -3565,15 +3587,12 @@
     }
 
     function attachFilterListeners() {
-      ['scoreMin', 'scoreMax', 'changeMin', 'changeMax', 'ema20Min', 'ema20Max', 'sma50Min', 'sma50Max'].forEach(id => {
-        document.getElementById(id).addEventListener('input', () => { readFilterInputs(); renderSymbolList(); });
-      });
-      document.querySelectorAll('.filter-color-check').forEach(cb => {
-        cb.addEventListener('change', () => { readFilterInputs(); renderSymbolList(); });
-      });
-      document.querySelectorAll('.filter-group-check').forEach(cb => {
-        cb.addEventListener('change', () => { readFilterInputs(); renderSymbolList(); });
-      });
+      // 即時反映は廃止。「🔍 この条件で検索する」ボタンを押した時のみ反映される
+    }
+
+    function applyFilterSearch() {
+      readFilterInputs();
+      renderSymbolList();
     }
 
     let currentGroup = 'G1';
