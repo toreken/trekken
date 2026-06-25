@@ -865,6 +865,57 @@
       display: flex;
       justify-content: center;
     }
+    /* アクティブ条件サマリー */
+    .filter-active-summary {
+      background: linear-gradient(135deg, rgba(196, 154, 74, 0.10), rgba(196, 154, 74, 0.04));
+      border: 2px solid var(--gold-500);
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+    .filter-summary-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--brown-800);
+      margin-bottom: 12px;
+    }
+    .filter-summary-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .filter-summary-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #fff;
+      border: 1px solid var(--gold-500);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--brown-800);
+    }
+    .filter-summary-chip-icon {
+      font-size: 11px;
+    }
+    .filter-summary-clear-btn {
+      width: 100%;
+      padding: 11px 22px;
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(196, 154, 74, 0.3);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .filter-summary-clear-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(196, 154, 74, 0.45);
+    }
     .filter-clear-all-btn {
       padding: 10px 22px;
       background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
@@ -1198,6 +1249,10 @@
       max-height: 280px;
       overflow-y: auto;
       padding: 4px;
+    }
+    .symbol-list.expanded {
+      max-height: none !important;
+      overflow-y: visible !important;
     }
     .symbol-chip {
       padding: 9px 6px;
@@ -2599,6 +2654,15 @@
       </div>
 
       <div class="filter-panel" id="filterPanel" style="display:none;">
+        <!-- アクティブ条件サマリー（フィルタ適用時に表示） -->
+        <div class="filter-active-summary" id="filterActiveSummary" style="display:none;">
+          <div class="filter-summary-title">📋 現在の検索条件</div>
+          <div class="filter-summary-items" id="filterSummaryItems"></div>
+          <button type="button" class="filter-summary-clear-btn" onclick="clearFilters()">🔄 条件を解除して再選択</button>
+        </div>
+
+        <!-- フィルタ本体（条件未適用時に表示） -->
+        <div class="filter-panel-body" id="filterPanelBody">
         <div class="filter-group">
           <div class="filter-group-title">スコアの範囲</div>
           <div class="filter-range-row">
@@ -2722,6 +2786,7 @@
         <div class="filter-actions-row">
           <button type="button" class="filter-clear-all-btn" onclick="clearFilters()">🔄 全フィルタを解除</button>
         </div>
+        </div><!-- /.filter-panel-body -->
       </div>
 
       <div class="tabs" id="tabs">
@@ -2749,6 +2814,7 @@
 
       <div class="sp500-toolbar" id="sp500Toolbar" style="display:none;">
         <button class="overview-btn" id="overviewBtn" onclick="toggleOverview()">📊 全銘柄を一気見</button>
+        <button class="overview-btn" id="expandAllBtn" onclick="toggleExpandList()">⬇ 全銘柄を展開</button>
         <select class="overview-sort" id="overviewSort" onchange="renderOverview()" style="display:none;">
           <option value="score_desc">スコア降順</option>
           <option value="score_asc">スコア昇順</option>
@@ -3320,6 +3386,78 @@
       );
       document.getElementById('filterToggle').classList.toggle('active', filterActive);
       document.getElementById('filterClear').style.display = filterActive ? 'inline-block' : 'none';
+
+      // フィルタアクティブ時：サマリー表示、本体を隠す
+      // 非アクティブ時：サマリー隠す、本体表示
+      const summary = document.getElementById('filterActiveSummary');
+      const body = document.getElementById('filterPanelBody');
+      if (summary && body) {
+        if (filterActive) {
+          summary.style.display = '';
+          body.style.display = 'none';
+          renderFilterSummary();
+        } else {
+          summary.style.display = 'none';
+          body.style.display = '';
+        }
+      }
+    }
+
+    function renderFilterSummary() {
+      const container = document.getElementById('filterSummaryItems');
+      if (!container) return;
+      const chips = [];
+
+      // スコア範囲
+      if (filterState.scoreMin !== null || filterState.scoreMax !== null) {
+        const min = filterState.scoreMin !== null ? filterState.scoreMin : '–∞';
+        const max = filterState.scoreMax !== null ? filterState.scoreMax : '+∞';
+        chips.push(`<span class="filter-summary-chip">📊 スコア: ${min} 〜 ${max}</span>`);
+      }
+
+      // トレンド色
+      const totalColors = document.querySelectorAll('.filter-color-check').length || 4;
+      if (filterState.colors.size < totalColors) {
+        const colorLabels = { blue: '🔵 強い上昇', green: '🟢 上昇傾向', yellow: '🟡 弱い下降', red: '🔴 強い下降' };
+        const selected = Array.from(filterState.colors).map(c => colorLabels[c] || c).join(' / ');
+        chips.push(`<span class="filter-summary-chip">色: ${selected}</span>`);
+      }
+
+      // 対象グループ
+      const totalGroups = document.querySelectorAll('.filter-group-check').length || 11;
+      if (filterState.groups.size < totalGroups) {
+        const groupLabels = {
+          G1: '先物・指数', G3: '暗号通貨', FOREX: '為替', ETF: 'ETF',
+          SP500: 'S&P500', NASDAQ100: 'NASDAQ100',
+          QUANTUM: '量子', SPACE: '宇宙', HYDROGEN: '水素', SOLAR: '太陽光',
+          NIKKEI225: '日経225'
+        };
+        const selected = Array.from(filterState.groups).map(g => groupLabels[g] || g).join(' / ');
+        chips.push(`<span class="filter-summary-chip">📂 ${selected}</span>`);
+      }
+
+      // 前日比
+      if (filterState.changeMin !== null || filterState.changeMax !== null) {
+        const min = filterState.changeMin !== null ? `${filterState.changeMin}%` : '–∞';
+        const max = filterState.changeMax !== null ? `${filterState.changeMax}%` : '+∞';
+        chips.push(`<span class="filter-summary-chip">📈 前日比: ${min} 〜 ${max}</span>`);
+      }
+
+      // 20EMA乖離率
+      if (filterState.ema20Min !== null || filterState.ema20Max !== null) {
+        const min = filterState.ema20Min !== null ? `${filterState.ema20Min}%` : '–∞';
+        const max = filterState.ema20Max !== null ? `${filterState.ema20Max}%` : '+∞';
+        chips.push(`<span class="filter-summary-chip">📐 20EMA乖離: ${min} 〜 ${max}</span>`);
+      }
+
+      // 50SMA乖離率
+      if (filterState.sma50Min !== null || filterState.sma50Max !== null) {
+        const min = filterState.sma50Min !== null ? `${filterState.sma50Min}%` : '–∞';
+        const max = filterState.sma50Max !== null ? `${filterState.sma50Max}%` : '+∞';
+        chips.push(`<span class="filter-summary-chip">📐 50SMA乖離: ${min} 〜 ${max}</span>`);
+      }
+
+      container.innerHTML = chips.length > 0 ? chips.join('') : '<span class="filter-summary-chip">（条件なし）</span>';
     }
 
     function clearFilters() {
@@ -4441,6 +4579,21 @@
     // ===== 一気見モード =====
     const overviewCache = {};  // { SP500: {...}, NIKKEI225: {...} }
     let overviewMode = false;
+    let expandMode = false;
+
+    function toggleExpandList() {
+      const list = document.getElementById('symbolList');
+      const btn = document.getElementById('expandAllBtn');
+      if (!list || !btn) return;
+      expandMode = !expandMode;
+      if (expandMode) {
+        list.classList.add('expanded');
+        btn.textContent = '⬆ 元に戻す';
+      } else {
+        list.classList.remove('expanded');
+        btn.textContent = '⬇ 全銘柄を展開';
+      }
+    }
 
     async function toggleOverview() {
       const grid = document.getElementById('overviewGrid');
