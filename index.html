@@ -2697,7 +2697,7 @@
 
     <!-- 自動更新スケジュール告知バナー -->
     <div class="update-schedule-banner">
-      <div class="update-schedule-row" id="updateScheduleUs">📡 米国株：朝 7:00 頃 自動更新</div>
+      <div class="update-schedule-row" id="updateScheduleUs">📡 米国株：7:00 頃 自動更新</div>
       <div class="update-schedule-row" id="updateScheduleJp">📡 日本株：16:00 頃 自動更新</div>
     </div>
 
@@ -3204,7 +3204,7 @@
         // 日本指数（最後に配置・別色装飾）
         'N225',  // 日経平均株価指数
       ],
-      G3: ['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','ATOMC'],
+      G3: ['BTC','ETH','USDT','BNB','SOL','USDC','XRP','ADA','DOGE','TRX','AVAX','LINK','MATIC','ATOMC'],
       // FOREX グループは廃止（バックエンドコードは保持、いつでも再有効化可能）
       FOREX: [],
       ETF: [
@@ -5128,7 +5128,7 @@
           return `${m}/${day} ${h}:${min}`;
         }
 
-        elUs.textContent = `📡 米国株：朝 7:00 頃 自動更新（前回 ${fmtJst(usTs)}）`;
+        elUs.textContent = `📡 米国株：7:00 頃 自動更新（前回 ${fmtJst(usTs)}）`;
         elJp.textContent = `📡 日本株：16:00 頃 自動更新（前回 ${fmtJst(jpTs)}）`;
       } catch (e) {
         console.error('updateNextUpdateInfo error:', e);
