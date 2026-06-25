@@ -2817,10 +2817,6 @@
               <span class="filter-color-label">暗号通貨</span>
             </label>
             <label class="filter-color-chip">
-              <input type="checkbox" class="filter-group-check" value="FOREX" checked>
-              <span class="filter-color-label">💱 為替</span>
-            </label>
-            <label class="filter-color-chip">
               <input type="checkbox" class="filter-group-check" value="ETF" checked>
               <span class="filter-color-label">📦 ETF</span>
             </label>
@@ -2893,7 +2889,6 @@
       <div class="tabs" id="tabs">
         <button class="tab active" data-group="G1">先物・指数</button>
         <button class="tab" data-group="G3">暗号通貨</button>
-        <button class="tab" data-group="FOREX">💱 為替</button>
         <button class="tab" data-group="SP500">S&amp;P 500</button>
         <button class="tab" data-group="NASDAQ100">NASDAQ 100</button>
         <button class="tab" data-group="NIKKEI225">日経 225</button>
@@ -3210,14 +3205,8 @@
         'N225',  // 日経平均株価指数
       ],
       G3: ['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','ATOMC'],
-      FOREX: [
-        // メジャー通貨（USDペア）
-        'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
-        // クロス円
-        'EURJPY', 'GBPJPY', 'AUDJPY',
-        // その他人気ペア
-        'EURGBP',
-      ],
+      // FOREX グループは廃止（バックエンドコードは保持、いつでも再有効化可能）
+      FOREX: [],
       ETF: [
         // セクター別ETF（11セクター × 3ファミリー: SPDR / Vanguard / iShares）
         'XLK', 'VGT', 'IYW',      // テクノロジー
