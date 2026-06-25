@@ -3435,13 +3435,40 @@
       if (!open && !metaData) fetchMetaData();
     }
 
+    // データバージョン管理キー（prefetch完了時刻 unixtime）
+    const _DATA_VERSION_KEY = 'trekken_data_version';
+
     async function fetchMetaData() {
       try {
         const res = await fetch('/symbols-meta');
         metaData = await res.json();
         const total = metaData.total || 0;
         const cached = metaData.cached_count || 0;
-        console.log(`[fetchMetaData] loaded: ${cached}/${total} symbols with scores`);
+        const serverVersion = parseInt(metaData.data_version || 0, 10);
+        console.log(`[fetchMetaData] loaded: ${cached}/${total} symbols with scores (data_version=${serverVersion})`);
+
+        // データバージョン比較：サーバーが新しいデータを返してきたら localStorage を自動クリア
+        // → ユーザーがハードリロード不要で次回の銘柄クリック時に新チャートを取得
+        try {
+          const localVersion = parseInt(localStorage.getItem(_DATA_VERSION_KEY) || '0', 10);
+          if (serverVersion > 0 && serverVersion > localVersion) {
+            console.log(`[fetchMetaData] new prefetch detected: ${localVersion} → ${serverVersion}, clearing cached charts/info`);
+            // チャートと info のキャッシュを全クリア（localStorage と インメモリ両方）
+            localStorage.removeItem('trekken_chart_cache_v1');
+            localStorage.removeItem('trekken_info_cache_v1');
+            localStorage.removeItem('trekken_info_preload_ts_v1');
+            if (typeof _chartMemCache !== 'undefined' && _chartMemCache.clear) _chartMemCache.clear();
+            if (typeof _infoMemCache !== 'undefined' && _infoMemCache.clear) _infoMemCache.clear();
+            // 新しいバージョンを記録
+            localStorage.setItem(_DATA_VERSION_KEY, String(serverVersion));
+          } else if (serverVersion > 0 && localVersion === 0) {
+            // 初回訪問：バージョンだけ記録
+            localStorage.setItem(_DATA_VERSION_KEY, String(serverVersion));
+          }
+        } catch (verErr) {
+          console.warn('[fetchMetaData] version check failed:', verErr);
+        }
+
         try { updateFilterStatus(); } catch (e) { console.error('updateFilterStatus error:', e); }
         try { updateTrendSummary(); } catch (e) { console.error('updateTrendSummary error:', e); }
       } catch (e) {
