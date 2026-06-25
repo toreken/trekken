@@ -1374,8 +1374,12 @@ def process_n225_index(profiles, thumbs, charts, infos):
 
 def _load_existing_cache():
     """既存の cache.json と cache/charts/ を読み込み、既存データを保持する。
-    部分更新時に他のターゲットのデータを失わないため。"""
+    部分更新時に他のターゲットのデータを失わないため。
+    戻り値: (profiles, thumbs, infos, charts, us_updated_at, jp_updated_at)
+    """
     profiles, thumbs, infos, charts = {}, {}, {}, {}
+    us_updated_at = 0
+    jp_updated_at = 0
     cache_dir = 'cache'
     try:
         cache_path = os.path.join(cache_dir, 'cache.json')
@@ -1385,7 +1389,10 @@ def _load_existing_cache():
             profiles = data.get('profiles', {})
             thumbs = data.get('thumbs', {})
             infos = data.get('infos', {})
-            print(f"Loaded existing cache: profiles={len(profiles)}, thumbs={len(thumbs)}, infos={len(infos)}")
+            us_updated_at = data.get('us_updated_at', 0)
+            jp_updated_at = data.get('jp_updated_at', 0)
+            print(f"Loaded existing cache: profiles={len(profiles)}, thumbs={len(thumbs)}, infos={len(infos)}, "
+                  f"us_updated_at={us_updated_at}, jp_updated_at={jp_updated_at}")
         else:
             print(f"cache.json not found at {cache_path}")
     except Exception as e:
@@ -1416,7 +1423,7 @@ def _load_existing_cache():
         print(f"Failed to load existing charts: {e}")
         import traceback
         traceback.print_exc()
-    return profiles, thumbs, charts, infos
+    return profiles, thumbs, charts, infos, us_updated_at, jp_updated_at
 
 
 def main():
@@ -1449,8 +1456,10 @@ def main():
     # 既存キャッシュをロードして、他ターゲットのデータを保持する（部分更新）
     if args.target == 'all':
         profiles, thumbs, charts, infos = {}, {}, {}, {}
+        us_updated_at_prev = 0
+        jp_updated_at_prev = 0
     else:
-        profiles, thumbs, charts, infos = _load_existing_cache()
+        profiles, thumbs, charts, infos, us_updated_at_prev, jp_updated_at_prev = _load_existing_cache()
     failed = []
 
     # ステップ1: 通常バッチ処理
@@ -1493,11 +1502,25 @@ def main():
 
     # 3-A: 軽量 cache.json（profiles + thumbs + infos）
     # charts は除外（個別ファイルに保存）
+    # ターゲット別の更新時刻を管理（他ターゲットの時刻は維持）
+    now_ts = time.time()
+    new_us_updated_at = us_updated_at_prev
+    new_jp_updated_at = jp_updated_at_prev
+    if args.target == 'us':
+        new_us_updated_at = now_ts
+    elif args.target == 'jp':
+        new_jp_updated_at = now_ts
+    elif args.target == 'all':
+        new_us_updated_at = now_ts
+        new_jp_updated_at = now_ts
+
     data = {
         "profiles": profiles,
         "thumbs": thumbs,
         "infos": infos,
-        "exported_at": time.time(),
+        "exported_at": now_ts,
+        "us_updated_at": new_us_updated_at,
+        "jp_updated_at": new_jp_updated_at,
         "profile_count": len(profiles),
         "thumb_count": len(thumbs),
         "chart_count": len(charts),
