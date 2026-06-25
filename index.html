@@ -738,6 +738,60 @@
     .quick-filter-btn.qf-uptrend:hover    { border-color: #2e8b3a; background: #f0faf2; }
     .quick-filter-btn.qf-overvalue:hover  { border-color: #00bfff; background: #ecf8ff; }
     .quick-filter-btn.qf-downtrend:hover  { border-color: #c4302b; background: #fdf1f0; }
+
+    /* 国旗アイコン（CSS only、絵文字非対応環境でも確実に表示） */
+    .flag-icon {
+      display: inline-block;
+      width: 20px;
+      height: 14px;
+      vertical-align: middle;
+      margin-right: 4px;
+      border-radius: 2px;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .flag-us {
+      background:
+        linear-gradient(to bottom,
+          #b22234 0%, #b22234 7.7%,
+          #fff 7.7%, #fff 15.4%,
+          #b22234 15.4%, #b22234 23.1%,
+          #fff 23.1%, #fff 30.8%,
+          #b22234 30.8%, #b22234 38.5%,
+          #fff 38.5%, #fff 46.2%,
+          #b22234 46.2%, #b22234 53.8%,
+          #fff 53.8%, #fff 61.5%,
+          #b22234 61.5%, #b22234 69.2%,
+          #fff 69.2%, #fff 76.9%,
+          #b22234 76.9%, #b22234 84.6%,
+          #fff 84.6%, #fff 92.3%,
+          #b22234 92.3%, #b22234 100%);
+    }
+    .flag-us::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 45%;
+      height: 53.8%;
+      background: #3c3b6e;
+    }
+    .flag-jp {
+      background: #fff;
+    }
+    .flag-jp::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 60%;
+      height: 60%;
+      background: #bc002d;
+      border-radius: 50%;
+    }
     /* 日本版（赤系） */
     .quick-filter-btn.qf-undervalue-jp:hover { border-color: #c9534f; background: #fff5f5; }
     .quick-filter-btn.qf-uptrend-jp:hover    { border-color: #c9534f; background: #fff5f5; }
@@ -2662,28 +2716,28 @@
           <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued_us')" title="米国押し目買い候補：EMA20付近かつ50SMAから0〜5%上方乖離">
             <span class="qf-icon">💎</span>
             <span class="qf-text">
-              <strong>🇺🇸 割安銘柄</strong>
+              <strong><span class="flag-icon flag-us"></span> 割安銘柄</strong>
               <small>米国・押し目買い候補</small>
             </span>
           </button>
           <button class="quick-filter-btn qf-undervalue-jp" onclick="applyQuickFilter('undervalued_jp')" title="日本株押し目買い候補：EMA20付近かつ50SMAから0〜5%上方乖離">
             <span class="qf-icon">💎</span>
             <span class="qf-text">
-              <strong>🇯🇵 割安銘柄</strong>
+              <strong><span class="flag-icon flag-jp"></span> 割安銘柄</strong>
               <small>日本株・押し目買い候補</small>
             </span>
           </button>
           <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend_us')" title="米国トレンド継続中：50SMAから10%以上の上方乖離">
             <span class="qf-icon">🌟</span>
             <span class="qf-text">
-              <strong>🇺🇸 上昇銘柄</strong>
+              <strong><span class="flag-icon flag-us"></span> 上昇銘柄</strong>
               <small>米国・勢いがある銘柄</small>
             </span>
           </button>
           <button class="quick-filter-btn qf-uptrend-jp" onclick="applyQuickFilter('uptrend_jp')" title="日本株トレンド継続中：50SMAから10%以上の上方乖離">
             <span class="qf-icon">🌟</span>
             <span class="qf-text">
-              <strong>🇯🇵 上昇銘柄</strong>
+              <strong><span class="flag-icon flag-jp"></span> 上昇銘柄</strong>
               <small>日本株・勢いがある銘柄</small>
             </span>
           </button>
