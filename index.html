@@ -738,6 +738,19 @@
     .quick-filter-btn.qf-uptrend:hover    { border-color: #2e8b3a; background: #f0faf2; }
     .quick-filter-btn.qf-overvalue:hover  { border-color: #00bfff; background: #ecf8ff; }
     .quick-filter-btn.qf-downtrend:hover  { border-color: #c4302b; background: #fdf1f0; }
+    /* 日本版（赤系） */
+    .quick-filter-btn.qf-undervalue-jp:hover { border-color: #c9534f; background: #fff5f5; }
+    .quick-filter-btn.qf-uptrend-jp:hover    { border-color: #c9534f; background: #fff5f5; }
+    .quick-filter-btn.qf-undervalue-jp.active {
+      border-color: #c9534f;
+      background: linear-gradient(135deg, #fff0f0 0%, #ffe0e0 100%);
+      box-shadow: 0 2px 8px rgba(201, 83, 79, 0.25);
+    }
+    .quick-filter-btn.qf-uptrend-jp.active {
+      border-color: #c9534f;
+      background: linear-gradient(135deg, #fff0f0 0%, #ffe0e0 100%);
+      box-shadow: 0 2px 8px rgba(201, 83, 79, 0.25);
+    }
     /* 無効化されたボタン（後日追加予定） */
     .quick-filter-btn.disabled {
       opacity: 0.45;
@@ -2646,18 +2659,32 @@
       <div class="quick-filter-row">
         <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）</div>
         <div class="quick-filter-buttons">
-          <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued')" title="押し目買い候補：EMA20付近かつ50SMAから0〜5%上方乖離">
+          <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued_us')" title="米国押し目買い候補：EMA20付近かつ50SMAから0〜5%上方乖離">
             <span class="qf-icon">💎</span>
             <span class="qf-text">
-              <strong>割安銘柄</strong>
-              <small>押し目買い候補</small>
+              <strong>🇺🇸 割安銘柄</strong>
+              <small>米国・押し目買い候補</small>
             </span>
           </button>
-          <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend')" title="トレンド継続中：50SMAから10%以上の上方乖離">
+          <button class="quick-filter-btn qf-undervalue-jp" onclick="applyQuickFilter('undervalued_jp')" title="日本株押し目買い候補：EMA20付近かつ50SMAから0〜5%上方乖離">
+            <span class="qf-icon">💎</span>
+            <span class="qf-text">
+              <strong>🇯🇵 割安銘柄</strong>
+              <small>日本株・押し目買い候補</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend_us')" title="米国トレンド継続中：50SMAから10%以上の上方乖離">
             <span class="qf-icon">🌟</span>
             <span class="qf-text">
-              <strong>上昇トレンド</strong>
-              <small>勢いがある銘柄</small>
+              <strong>🇺🇸 上昇銘柄</strong>
+              <small>米国・勢いがある銘柄</small>
+            </span>
+          </button>
+          <button class="quick-filter-btn qf-uptrend-jp" onclick="applyQuickFilter('uptrend_jp')" title="日本株トレンド継続中：50SMAから10%以上の上方乖離">
+            <span class="qf-icon">🌟</span>
+            <span class="qf-text">
+              <strong>🇯🇵 上昇銘柄</strong>
+              <small>日本株・勢いがある銘柄</small>
             </span>
           </button>
           <button class="quick-filter-btn qf-overvalue disabled" disabled title="後日追加予定">
@@ -3511,8 +3538,8 @@
     }
 
     function applyQuickFilter(type) {
-      // 「後日追加予定」のボタンは何もしない
-      if (type !== 'undervalued' && type !== 'uptrend') return;
+      const validTypes = ['undervalued_us', 'undervalued_jp', 'uptrend_us', 'uptrend_jp'];
+      if (!validTypes.includes(type)) return;
 
       // まず全リセット
       document.getElementById('scoreMin').value = '';
@@ -3527,14 +3554,20 @@
       document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
       document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
 
-      // 対象グループ（両ボタン共通）：S&P500, NASDAQ100, 量子, 宇宙, 水素, 太陽光
-      const targetGroups = new Set(['SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR']);
+      // 対象グループ：米国版 or 日本版
+      const isUs = type.endsWith('_us');
+      const targetGroups = isUs
+        ? new Set(['SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR'])
+        : new Set(['NIKKEI225']);
       document.querySelectorAll('.filter-group-check').forEach(cb => {
         cb.checked = targetGroups.has(cb.value);
       });
 
-      if (type === 'undervalued') {
-        // === 割安銘柄 ===
+      const isUndervalued = type.startsWith('undervalued');
+      const isUptrend = type.startsWith('uptrend');
+
+      if (isUndervalued) {
+        // === 割安銘柄（米国 or 日本） ===
         // 色: 強い上昇(blue), 上昇(green)
         document.querySelectorAll('.filter-color-check').forEach(cb => {
           cb.checked = ['blue', 'green'].includes(cb.value);
@@ -3545,22 +3578,27 @@
         // 50SMA乖離: 0 〜 5
         document.getElementById('sma50Min').value = '0';
         document.getElementById('sma50Max').value = '5';
-        const btn = document.querySelector('.qf-undervalue');
-        if (btn) btn.classList.add('active');
-      } else if (type === 'uptrend') {
-        // === 上昇トレンド ===
-        // 色: 全色（変更なし、すでに全てチェック済み）
+      } else if (isUptrend) {
+        // === 上昇銘柄（米国 or 日本） ===
+        // 色: 全色（変更なし）
         // 20EMA乖離: -5 〜 5
         document.getElementById('ema20Min').value = '-5';
         document.getElementById('ema20Max').value = '5';
         // 50SMA乖離: 10 〜 (最大なし)
         document.getElementById('sma50Min').value = '10';
-        // sma50Max は空欄のまま
-        const btn = document.querySelector('.qf-uptrend');
-        if (btn) btn.classList.add('active');
       }
 
-      // フィルタパネルを開く（条件確認＋検索ボタン押下のため）
+      // アクティブボタンのハイライト
+      const typeToClass = {
+        'undervalued_us': 'qf-undervalue',
+        'undervalued_jp': 'qf-undervalue-jp',
+        'uptrend_us': 'qf-uptrend',
+        'uptrend_jp': 'qf-uptrend-jp',
+      };
+      const activeBtn = document.querySelector('.quick-filter-btn.' + typeToClass[type]);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      // フィルタパネルを開く
       const panel = document.getElementById('filterPanel');
       const toggle = document.getElementById('filterToggle');
       panel.style.display = 'flex';
@@ -3568,7 +3606,7 @@
 
       if (!metaData) fetchMetaData();
 
-      // 検索ボタン相当の動作：filterState を更新してリスト描画
+      // 検索ボタン相当の動作
       readFilterInputs();
       renderSymbolList();
     }
