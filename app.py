@@ -800,10 +800,13 @@ CRYPTO_MAP = {
 
 
 # ===== 為替（FX）ペア =====
-FOREX_PAIRS = [
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
-    'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
-]
+# 為替は廃止（バックエンドのコードは残し、リストを空にして全エンドポイントをブロック）
+# 復活させる場合は下記コメントアウト解除＆フロントの GROUPS.FOREX を再定義
+FOREX_PAIRS = []
+# FOREX_PAIRS = [
+#     'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'NZDUSD', 'USDCAD',
+#     'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
+# ]
 
 FOREX_NAMES = {
     'EURUSD': 'ユーロ/米ドル',
