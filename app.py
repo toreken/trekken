@@ -2577,10 +2577,13 @@ def load_persistent_cache():
     """起動時にGitHubから永続キャッシュを読み込む。失敗しても起動は継続。
     対応データ：profiles, thumbs, infos（トレンド解説+peers）。
     chartsは個別ファイル方式（リクエスト時に遅延ロード）。"""
+    global _last_persistent_cache_load
     try:
-        print(f"Loading persistent cache from {PERSISTENT_CACHE_URL} ...")
-        resp = http_requests.get(PERSISTENT_CACHE_URL, timeout=30,
-                                 headers={'User-Agent': 'Trekken site'})
+        # GitHub Raw のキャッシュバスター（毎回最新を取得するため）
+        url = f"{PERSISTENT_CACHE_URL}?t={int(time.time())}"
+        print(f"Loading persistent cache from {url} ...")
+        resp = http_requests.get(url, timeout=30,
+                                 headers={'User-Agent': 'Trekken site', 'Cache-Control': 'no-cache'})
         if resp.status_code != 200:
             print(f"Persistent cache: status {resp.status_code}, skipped")
             return
@@ -2600,10 +2603,25 @@ def load_persistent_cache():
                 info_cache[sym] = (now, info_data)
                 loaded_infos += 1
         chart_count = data.get('chart_count', 0)
+        _last_persistent_cache_load = now
         print(f"Persistent cache loaded: {loaded_profiles} profiles, {loaded_thumbs} thumbs, "
               f"{loaded_infos} infos ({chart_count} charts available on-demand)")
     except Exception as e:
         print(f"Persistent cache load failed: {e}")
+
+
+# 永続キャッシュの再読込タイミング管理
+_last_persistent_cache_load = 0
+PERSISTENT_RELOAD_INTERVAL = 3600  # 1時間ごとに cache.json を再取得して thumb スコアを更新
+
+def reload_persistent_cache_if_needed():
+    """前回のロードから一定時間経過していれば、cache.json を再取得して
+    thumb_cache 等を更新する（リクエスト駆動の軽量バックグラウンド更新）。"""
+    global _last_persistent_cache_load
+    now = time.time()
+    if now - _last_persistent_cache_load >= PERSISTENT_RELOAD_INTERVAL:
+        print(f"Persistent cache reload: triggered (last load was {int(now - _last_persistent_cache_load)}s ago)")
+        load_persistent_cache()
 
 
 def fetch_chart_from_github(symbol):
@@ -2750,6 +2768,8 @@ FUTURES_INDEX_TAB_SYMBOLS = ['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE',
 @app.route('/symbols-meta')
 def symbols_meta():
     """検索フィルタ用に、全グループの銘柄メタ情報を返す。サムネイル画像は含まないので軽量。"""
+    # 永続キャッシュを定期再読込（thumb_cache を最新化し、色マーカーとチャート画像のズレを防ぐ）
+    reload_persistent_cache_if_needed()
     all_syms = []
     seen = set()
     # 通常銘柄
@@ -2779,22 +2799,26 @@ def symbols_meta():
         week_change = None
         ema20_dev = None
         sma50_dev = None
+        thumb_color = None  # サーバー側で計算済みの色（NQ1!/ES1! のような特別判定銘柄用）
         if sym in thumb_cache:
             _, data = thumb_cache[sym]
             score = data.get('score')
             week_change = data.get('week_change')
             ema20_dev = data.get('ema20_dev')
             sma50_dev = data.get('sma50_dev')
+            thumb_color = data.get('color')  # NQ1!/ES1! は事前計算済み色を持つ
         # NaN/Inf を None に正規化（JSON シリアライズで NaN を含むとフロントでパース失敗）
         score = _safe_num(score)
         week_change = _safe_num(week_change)
         ema20_dev = _safe_num(ema20_dev)
         sma50_dev = _safe_num(sma50_dev)
+        # 事前計算済み色があれば優先（NQ1!/ES1! の3色判定など）、なければ通常の4色判定
+        final_color = thumb_color if thumb_color in ('blue', 'green', 'yellow', 'red') else score_to_color(score)
         items.append({
             'symbol': sym,
             'sector': get_sector(sym),
             'score': score,
-            'color': score_to_color(score),
+            'color': final_color,
             'week_change': week_change,
             'ema20_dev': ema20_dev,
             'sma50_dev': sma50_dev,
