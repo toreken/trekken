@@ -87,15 +87,19 @@ LIGHT_TARGETS_MAP = {
     # 暗号通貨
     'BTC':   'BTC-USD',
     'ETH':   'ETH-USD',
+    'USDT':  'USDT-USD',
+    'BNB':   'BNB-USD',
     'SOL':   'SOL-USD',
+    'USDC':  'USDC-USD',
     'XRP':   'XRP-USD',
     'ADA':   'ADA-USD',
     'DOGE':  'DOGE-USD',
+    'TRX':   'TRX-USD',
     'AVAX':  'AVAX-USD',
     'LINK':  'LINK-USD',
     'MATIC': 'POL-USD',
     'ATOMC': 'ATOM-USD',
-    # 為替
+    # 為替（廃止：FOREX_SET_FOR_TV が空のため取得しないが、 マップは互換性のため残す）
     'EURUSD': 'EURUSD=X',
     'GBPUSD': 'GBPUSD=X',
     'USDJPY': 'JPY=X',
