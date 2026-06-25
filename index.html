@@ -444,13 +444,19 @@
     /* ===== 自動更新スケジュール告知バナー ===== */
     .update-schedule-banner {
       display: flex;
-      align-items: center;
-      gap: 12px;
+      flex-direction: column;
+      gap: 4px;
       background: linear-gradient(135deg, rgba(196, 154, 74, 0.08), rgba(196, 154, 74, 0.04));
       border: 1px solid rgba(196, 154, 74, 0.25);
       border-radius: 12px;
       padding: 12px 18px;
       margin-bottom: 14px;
+    }
+    .update-schedule-row {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--brown-800);
+      line-height: 1.4;
     }
     .update-schedule-icon {
       font-size: 24px;
@@ -479,11 +485,8 @@
     @media (max-width: 700px) {
       .update-schedule-banner {
         padding: 10px 14px;
-        gap: 10px;
       }
-      .update-schedule-icon { font-size: 20px; }
-      .update-schedule-line1 { font-size: 12px; }
-      .update-schedule-line2 { font-size: 10px; }
+      .update-schedule-row { font-size: 12px; }
     }
 
     /* ===== 検索＆タブカード ===== */
@@ -2537,6 +2540,12 @@
     </div>
     <div class="section-divider"></div>
 
+    <!-- 自動更新スケジュール告知バナー -->
+    <div class="update-schedule-banner">
+      <div class="update-schedule-row" id="updateScheduleUs">📡 米国株：朝 7:00 頃 自動更新</div>
+      <div class="update-schedule-row" id="updateScheduleJp">📡 日本株：16:00 頃 自動更新</div>
+    </div>
+
     <div class="search-card">
       <div class="search-hint">✨ リスト以外の銘柄もEnterで検索可能！</div>
       <div class="search-input-wrap">
@@ -3021,6 +3030,8 @@
       G1: [
         // 先物
         'NQ1!', 'ES1!',
+        // 日本指数
+        'N225',  // 日経平均株価指数
         // 主要指数連動ETF
         'RSP',   // S&P500 イコールウェイト
         'SPY',   // S&P500
@@ -3100,7 +3111,6 @@
         'TSE:3856', 'TSE:1407',
       ],
       NIKKEI225: [
-        'N225',  // 日経平均株価指数（先頭に表示）
         'TSE:4151','TSE:4502','TSE:4503','TSE:4506','TSE:4507','TSE:4519','TSE:4523','TSE:4568','TSE:4578',
         'TSE:285A','TSE:4062','TSE:6479','TSE:6501','TSE:6502','TSE:6503','TSE:6504','TSE:6506','TSE:6526','TSE:6594',
         'TSE:6645','TSE:6674','TSE:6701','TSE:6702','TSE:6723','TSE:6724','TSE:6752','TSE:6753','TSE:6758',
@@ -4799,41 +4809,42 @@
       }
     });
 
-    // ===== 次回更新までのカウントダウン =====
+    // ===== 米国株・日本株それぞれの次回公開時刻表示 =====
     function updateNextUpdateInfo() {
       try {
-        const el = document.getElementById('updateScheduleLine1');
-        if (!el) return;
+        const elUs = document.getElementById('updateScheduleUs');
+        const elJp = document.getElementById('updateScheduleJp');
+        if (!elUs || !elJp) return;
         const now = new Date();
-        // JSTで計算（環境のタイムゾーンに依存しない）
+        // JST で計算（環境のタイムゾーンに依存しない）
         const jstNow = new Date(now.getTime() + (now.getTimezoneOffset() + 9 * 60) * 60000);
 
-        // 次の日本株更新（JST 16:00）
-        const nextJp = new Date(jstNow);
-        nextJp.setHours(16, 0, 0, 0);
-        if (jstNow >= nextJp) nextJp.setDate(nextJp.getDate() + 1);
+        function fmt(target, label, fixedTimeText) {
+          const diffMs = target - jstNow;
+          if (diffMs <= 0) {
+            return `📡 ${label}：${fixedTimeText} 自動更新（更新中…）`;
+          }
+          const hours = Math.floor(diffMs / 3600000);
+          const minutes = Math.floor((diffMs % 3600000) / 60000);
+          let suffix;
+          if (hours > 0) suffix = `（あと ${hours}時間${minutes}分）`;
+          else if (minutes > 0) suffix = `（あと ${minutes}分）`;
+          else suffix = `（まもなく）`;
+          return `📡 ${label}：${fixedTimeText} 頃 自動更新 ${suffix}`;
+        }
 
-        // 次の米国株更新（JST 7:00）
+        // 米国株：JST 7:00 頃公開
         const nextUs = new Date(jstNow);
         nextUs.setHours(7, 0, 0, 0);
         if (jstNow >= nextUs) nextUs.setDate(nextUs.getDate() + 1);
 
-        // 近い方
-        const next = nextJp < nextUs ? nextJp : nextUs;
-        const market = nextJp < nextUs ? '日本株' : '米国株';
-        const diffMs = next - jstNow;
-        const hours = Math.floor(diffMs / 3600000);
-        const minutes = Math.floor((diffMs % 3600000) / 60000);
+        // 日本株：JST 16:00 頃公開
+        const nextJp = new Date(jstNow);
+        nextJp.setHours(16, 0, 0, 0);
+        if (jstNow >= nextJp) nextJp.setDate(nextJp.getDate() + 1);
 
-        let text;
-        if (hours > 0) {
-          text = `📡 次回 ${market} 自動更新まで ${hours}時間${minutes}分`;
-        } else if (minutes > 0) {
-          text = `📡 次回 ${market} 自動更新まで ${minutes}分`;
-        } else {
-          text = `📡 ${market} を更新中…（少々お待ちください）`;
-        }
-        el.textContent = text;
+        elUs.textContent = fmt(nextUs, '米国株', '朝 7:00');
+        elJp.textContent = fmt(nextJp, '日本株', '16:00');
       } catch (e) {
         console.error('updateNextUpdateInfo error:', e);
       }
