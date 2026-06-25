@@ -788,10 +788,14 @@ def fetch_and_calculate(symbol, period='max', max_retries=3):
 CRYPTO_MAP = {
     'BTC':   ('BTCUSDT',  'BINANCE'),
     'ETH':   ('ETHUSDT',  'BINANCE'),
+    'USDT':  ('USDTUSD',  'BINANCE'),     # テザー（米ドル対）
+    'BNB':   ('BNBUSDT',  'BINANCE'),     # バイナンスコイン
     'SOL':   ('SOLUSDT',  'BINANCE'),
+    'USDC':  ('USDCUSDT', 'BINANCE'),     # USDコイン
     'XRP':   ('XRPUSDT',  'BINANCE'),
     'ADA':   ('ADAUSDT',  'BINANCE'),
     'DOGE':  ('DOGEUSDT', 'BINANCE'),
+    'TRX':   ('TRXUSDT',  'BINANCE'),     # トロン
     'AVAX':  ('AVAXUSDT', 'BINANCE'),
     'LINK':  ('LINKUSDT', 'BINANCE'),
     'MATIC': ('POLUSDT',  'BINANCE'),
