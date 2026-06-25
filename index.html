@@ -2741,20 +2741,6 @@
               <small>日本株・勢いがある銘柄</small>
             </span>
           </button>
-          <button class="quick-filter-btn qf-overvalue disabled" disabled title="後日追加予定">
-            <span class="qf-icon">⚠️</span>
-            <span class="qf-text">
-              <strong>割高（過熱）</strong>
-              <small>後日追加予定</small>
-            </span>
-          </button>
-          <button class="quick-filter-btn qf-downtrend disabled" disabled title="後日追加予定">
-            <span class="qf-icon">📉</span>
-            <span class="qf-text">
-              <strong>下降トレンド</strong>
-              <small>後日追加予定</small>
-            </span>
-          </button>
         </div>
       </div>
 
@@ -3471,6 +3457,7 @@
 
         try { updateFilterStatus(); } catch (e) { console.error('updateFilterStatus error:', e); }
         try { updateTrendSummary(); } catch (e) { console.error('updateTrendSummary error:', e); }
+        try { updateNextUpdateInfo(); } catch (e) { console.error('updateNextUpdateInfo error:', e); }
       } catch (e) {
         console.error('[fetchMetaData] failed:', e);
         const st = document.getElementById('filterStatus');
@@ -5128,49 +5115,39 @@
       }
     });
 
-    // ===== 米国株・日本株それぞれの次回公開時刻表示 =====
+    // ===== 米国株・日本株それぞれの「前回更新時刻」表示 =====
     function updateNextUpdateInfo() {
       try {
         const elUs = document.getElementById('updateScheduleUs');
         const elJp = document.getElementById('updateScheduleJp');
         if (!elUs || !elJp) return;
-        const now = new Date();
-        // JST で計算（環境のタイムゾーンに依存しない）
-        const jstNow = new Date(now.getTime() + (now.getTimezoneOffset() + 9 * 60) * 60000);
 
-        function fmt(target, label, fixedTimeText) {
-          const diffMs = target - jstNow;
-          if (diffMs <= 0) {
-            return `📡 ${label}：${fixedTimeText} 自動更新（更新中…）`;
-          }
-          const hours = Math.floor(diffMs / 3600000);
-          const minutes = Math.floor((diffMs % 3600000) / 60000);
-          let suffix;
-          if (hours > 0) suffix = `（あと ${hours}時間${minutes}分）`;
-          else if (minutes > 0) suffix = `（あと ${minutes}分）`;
-          else suffix = `（まもなく）`;
-          return `📡 ${label}：${fixedTimeText} 頃 自動更新 ${suffix}`;
+        // metaData から最終更新時刻（unixtime秒）を取り出す
+        const usTs = (metaData && metaData.us_updated_at) ? parseInt(metaData.us_updated_at, 10) : 0;
+        const jpTs = (metaData && metaData.jp_updated_at) ? parseInt(metaData.jp_updated_at, 10) : 0;
+
+        function fmtJst(unixSec) {
+          if (!unixSec || unixSec <= 0) return '未取得';
+          // unixtime秒 → JST 表示「M/D HH:MM」
+          const d = new Date(unixSec * 1000);
+          // JST に変換（環境のタイムゾーンに関わらず固定）
+          const jst = new Date(d.getTime() + (d.getTimezoneOffset() + 9 * 60) * 60000);
+          const m = jst.getMonth() + 1;
+          const day = jst.getDate();
+          const h = String(jst.getHours()).padStart(2, '0');
+          const min = String(jst.getMinutes()).padStart(2, '0');
+          return `${m}/${day} ${h}:${min}`;
         }
 
-        // 米国株：JST 7:00 頃公開
-        const nextUs = new Date(jstNow);
-        nextUs.setHours(7, 0, 0, 0);
-        if (jstNow >= nextUs) nextUs.setDate(nextUs.getDate() + 1);
-
-        // 日本株：JST 16:00 頃公開
-        const nextJp = new Date(jstNow);
-        nextJp.setHours(16, 0, 0, 0);
-        if (jstNow >= nextJp) nextJp.setDate(nextJp.getDate() + 1);
-
-        elUs.textContent = fmt(nextUs, '米国株', '朝 7:00');
-        elJp.textContent = fmt(nextJp, '日本株', '16:00');
+        elUs.textContent = `📡 米国株：朝 7:00 頃 自動更新（前回 ${fmtJst(usTs)}）`;
+        elJp.textContent = `📡 日本株：16:00 頃 自動更新（前回 ${fmtJst(jpTs)}）`;
       } catch (e) {
         console.error('updateNextUpdateInfo error:', e);
       }
     }
-    // 1分ごとに更新
+    // metaData 取得後にも呼ぶため、 fetchMetaData の最後で updateNextUpdateInfo を呼ぶ
+    // setInterval は維持（時刻表示の自動再描画のため、 ただし表記は変わらない）
     setInterval(updateNextUpdateInfo, 60000);
-    // 初回実行
     updateNextUpdateInfo();
 
     // === S&P500 / NASDAQ100 の info を事前ロード（バックグラウンドで非同期）===
