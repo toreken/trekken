@@ -1134,6 +1134,28 @@ def process_light_targets(thumbs):
             except Exception:
                 pass
 
+            # NQ1!/ES1! は3色判定（make_chart_image_nq と同じロジック、ema_20 で代用）
+            # 上昇トレンド=緑 / レンジ=黄 / 下降トレンド=赤
+            thumb_color = None
+            if original_sym in ('NQ1!', 'ES1!'):
+                try:
+                    last_close = float(df['close'].iloc[-1])
+                    last_ema = df['ema_20'].iloc[-1] if 'ema_20' in df.columns else None
+                    if last_ema is not None and not pd.isna(last_ema):
+                        above = last_close > float(last_ema)
+                        below = last_close < float(last_ema)
+                        sc = last_score_val if last_score_val is not None else 0
+                        if sc > 40 and above:
+                            thumb_color = 'green'
+                        elif sc <= 40 and below:
+                            thumb_color = 'red'
+                        else:
+                            thumb_color = 'yellow'
+                    else:
+                        thumb_color = 'yellow'
+                except Exception:
+                    thumb_color = None
+
             # 画像なしで thumbs に保存（フロントは score のみ使う）
             thumbs[original_sym] = {
                 "thumb": None,
@@ -1141,6 +1163,7 @@ def process_light_targets(thumbs):
                 "week_change": week_change,
                 "ema20_dev": ema20_dev,
                 "sma50_dev": sma50_dev,
+                "color": thumb_color,  # NQ1!/ES1! のみ 3色判定の結果、その他はNoneで通常4色判定にフォールバック
             }
             success += 1
             print(f"  ✓ {original_sym} (score={last_score_val}, week_change={week_change})")
