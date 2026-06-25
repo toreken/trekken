@@ -406,7 +406,7 @@ SP500_SECTOR_MAP = {
 INDEX_SYMBOLS = ['NQ1!', 'ES1!', 'NI225']
 
 # 先物・指数タブに表示する銘柄（3色判定：緑=上昇 / 黄=レンジ / 赤=下降）
-FUTURES_INDEX_SET = frozenset(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT'])
+FUTURES_INDEX_SET = frozenset(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT', 'N225'])
 
 # NASDAQ100構成銘柄（2026年6月時点、slickcharts.com 公開リストより。
 # 2026年1月20日のリバランスでAZNがWMTに置換済み。GOOGとGOOGLの両方を含むため101銘柄。)
@@ -457,7 +457,6 @@ def get_sector(sym):
 
 # 日経225構成銘柄（2026年6月4日時点・公式の日経平均プロフィルより）
 NIKKEI225_SYMBOLS = [
-    'N225',  # 日経平均株価指数（^N225）
     # 医薬品 (9)
     "TSE:4151", "TSE:4502", "TSE:4503", "TSE:4506", "TSE:4507",
     "TSE:4519", "TSE:4523", "TSE:4568", "TSE:4578",
@@ -764,12 +763,14 @@ def fetch_and_calculate(symbol, period='max', max_retries=3):
 
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
+    # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA。描画用 ema_20 は維持
+    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
     df['prev_close'] = df['close'].shift(1)
     df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
     df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
     df['total_uvol_sma'] = get_wma(df['uvol'], 10)
     df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+    df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
     df['discrepancyScore'] = df['discrepancyPercent'] / 2
     df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
     df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -879,12 +880,14 @@ def fetch_forex(symbol_key, period=CALC_PERIOD):
         # 添付コード準拠の計算（fetch_and_calculate と完全に同じ式）
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
+        # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA。描画用 ema_20 は維持
+        df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['prev_close'] = df['close'].shift(1)
         df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
         df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
         df['total_uvol_sma'] = get_wma(df['uvol'], 10)
         df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+        df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
         df['discrepancyScore'] = df['discrepancyPercent'] / 2
         df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
         df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -943,12 +946,14 @@ def fetch_crypto(symbol_key, n_bars=1000):
 
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
+        # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA。描画用 ema_20 は維持
+        df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['prev_close'] = df['close'].shift(1)
         df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
         df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
         df['total_uvol_sma'] = get_wma(df['uvol'], 10)
         df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+        df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
         df['discrepancyScore'] = df['discrepancyPercent'] / 2
         df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
         df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -1012,12 +1017,14 @@ def fetch_jp(symbol_key, n_bars=1000):
 
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
+        # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA。描画用 ema_20 は維持
+        df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['prev_close'] = df['close'].shift(1)
         df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
         df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
         df['total_uvol_sma'] = get_wma(df['uvol'], 10)
         df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+        df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
         df['discrepancyScore'] = df['discrepancyPercent'] / 2
         df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
         df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -1220,12 +1227,14 @@ def fetch_n225():
         # スコア計算（fetch_and_calculate と同じロジック）
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
+        # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA。描画用 ema_20 は維持
+        df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['prev_close'] = df['close'].shift(1)
         df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
         df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
         df['total_uvol_sma'] = get_wma(df['uvol'], 10)
         df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-        df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+        df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
         df['discrepancyScore'] = df['discrepancyPercent'] / 2
         # 出来高がフェイクなので volDiffScore は 0 扱い
         df['volDiffScore'] = 0
@@ -2166,12 +2175,14 @@ def calculate_scores_from_ohlcv(df):
     df = df.copy()
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['sma_50'] = df['close'].rolling(window=50).mean()
+    # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA。描画用 ema_20 は維持
+    df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
     df['prev_close'] = df['close'].shift(1)
     df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
     df['dvol'] = np.where(df['close'] < df['prev_close'], df['volume'], 0)
     df['total_uvol_sma'] = get_wma(df['uvol'], 10)
     df['total_dvol_sma'] = get_wma(df['dvol'], 10)
-    df['discrepancyPercent'] = (df['close'] - df['ema_20']) / df['ema_20'] * 100
+    df['discrepancyPercent'] = (df['close'] - df['ema_21']) / df['ema_21'] * 100
     df['discrepancyScore'] = df['discrepancyPercent'] / 2
     df['volDiff'] = df['total_uvol_sma'] - df['total_dvol_sma']
     df['volDiff_avg'] = df['volDiff'].rolling(window=50).mean()
@@ -2763,7 +2774,7 @@ def sp500_all():
 
 
 # 先物・指数タブの全銘柄（フロント側と同じ）
-FUTURES_INDEX_TAB_SYMBOLS = ['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']
+FUTURES_INDEX_TAB_SYMBOLS = ['NQ1!', 'ES1!', 'N225', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']
 
 @app.route('/symbols-meta')
 def symbols_meta():
