@@ -851,36 +851,61 @@ ETF_SECTOR_MAP = {
 
 
 def fetch_forex(symbol_key, period=CALC_PERIOD):
-    """yfinanceで為替ペアを取得しスコア計算する。
-    symbol_key は 'EURUSD' 'USDJPY' 形式、内部で 'EURUSD=X' に変換する。
-    添付コードと同じロジック：出来高がない場合は volDiffScore=0、
-    totalScore = discrepancyScore のみで他銘柄と共通の4色判定を行う。
+    """為替ペアを tvDatafeed (TradingView) で取得しスコア計算する。
+    yfinance は使わず、TradingViewと完全一致するチャートを表示するため。
+    OANDA → FX_IDC → FXCM の順で fallback を試みる。
     """
     if symbol_key not in FOREX_PAIRS:
         return None
-    yf_sym = symbol_key + '=X'
+    tv = get_tv()
+    if tv is None:
+        print(f"{symbol_key} (forex): tvDatafeed not available")
+        return None
+    Interval = get_interval()
+    if Interval is None:
+        print(f"{symbol_key} (forex): tvDatafeed Interval not available")
+        return None
+
+    # 複数のデータソースを順に試す（OANDA優先、失敗時に他のプロバイダへフォールバック）
+    df = None
+    used_exchange = None
+    last_error = None
+    for exchange in ['OANDA', 'FX_IDC', 'FXCM']:
+        try:
+            df_try = tv.get_hist(symbol=symbol_key, exchange=exchange,
+                                 interval=Interval.in_daily, n_bars=5000)
+            if df_try is not None and not df_try.empty:
+                df = df_try
+                used_exchange = exchange
+                break
+        except Exception as e:
+            last_error = e
+            continue
+
+    if df is None or df.empty:
+        print(f"{symbol_key} (forex): all exchanges (OANDA/FX_IDC/FXCM) failed. last_error={last_error}")
+        return None
+
     try:
-        ticker = yf.Ticker(yf_sym)
-        df_raw = ticker.history(period=period)
-        if df_raw is None or df_raw.empty:
-            return None
-        df = df_raw.rename(columns={'Open': 'open', 'High': 'high',
-                                    'Low': 'low', 'Close': 'close', 'Volume': 'volume'})
-        # 為替は出来高がないため 0 で統一（添付コードと同じロジック）
-        # → uvol/dvol/volDiff も0 → volDiffScore=0 → totalScore = discrepancyScore のみ
+        # tvDatafeed の戻り値の列: symbol, open, high, low, close, volume（小文字）
+        if 'symbol' in df.columns:
+            df = df.drop(columns=['symbol'])
+        keep_cols = [c for c in ['open', 'high', 'low', 'close', 'volume'] if c in df.columns]
+        df = df[keep_cols].copy()
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
         if 'volume' not in df.columns:
             df['volume'] = 0
         df['volume'] = df['volume'].fillna(0)
-        df = df[['open', 'high', 'low', 'close', 'volume']].copy()
-        for col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        df.index = pd.to_datetime(df.index).tz_localize(None) if df.index.tz else pd.to_datetime(df.index)
+        df.index = pd.to_datetime(df.index)
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
         df.index = df.index.normalize()
 
-        # 添付コード準拠の計算（fetch_and_calculate と完全に同じ式）
+        # スコア計算（他銘柄と同じロジック、 EMA21 ベース）
         df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['sma_50'] = df['close'].rolling(window=50).mean()
-        # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA。描画用 ema_20 は維持
+        # 乖離率（スコア）計算用：Pine Script 準拠の 21EMA
         df['ema_21'] = df['close'].ewm(span=21, adjust=False).mean()
         df['prev_close'] = df['close'].shift(1)
         df['uvol'] = np.where(df['close'] > df['prev_close'], df['volume'], 0)
@@ -898,9 +923,13 @@ def fetch_forex(symbol_key, period=CALC_PERIOD):
             0
         )
         df['totalScore'] = df['discrepancyScore'] + df['volDiffScore']
+        print(f"{symbol_key} (forex tv): success from {used_exchange}, shape={df.shape}, "
+              f"vol_sum={float(df['volume'].sum()):.0f}")
         return df
     except Exception as e:
-        print(f"{symbol_key} (forex) error: {e}")
+        import traceback
+        print(f"{symbol_key} (forex tvDatafeed) post-process error: {e}")
+        traceback.print_exc()
         return None
 
 
