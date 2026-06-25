@@ -3030,8 +3030,6 @@
       G1: [
         // 先物
         'ES1!', 'NQ1!',
-        // 日本指数
-        'N225',  // 日経平均株価指数
         // 主要指数連動ETF
         'RSP',   // S&P500 イコールウェイト
         'SPY',   // S&P500
@@ -3041,6 +3039,8 @@
         'IWM',   // ラッセル2000（米国小型株）
         'VTI',   // 米国株式全市場
         'VT',    // 全世界株式
+        // 日本指数（最後に配置・別色装飾）
+        'N225',  // 日経平均株価指数
       ],
       G3: ['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','ATOMC'],
       FOREX: [
@@ -3182,7 +3182,7 @@
       ]
     };
 
-    const FUTURES_SET = new Set(['NQ1!', 'ES1!', 'N225']);
+    const FUTURES_SET = new Set(['NQ1!', 'ES1!']);
 
     // 先物・指数タブの全銘柄（色判定で3色になる）
     const FUTURES_INDEX_SET_FRONT = new Set(['NQ1!', 'ES1!', 'SPY', 'RSP', 'DIA', 'QQQ', 'QQQE', 'IWM', 'VTI', 'VT']);
@@ -3208,7 +3208,7 @@
         chip.setAttribute('data-score-color', '');
       }
     }
-    const NIKKEI_SET = new Set(GROUPS.NIKKEI225);
+    const NIKKEI_SET = new Set([...GROUPS.NIKKEI225, 'N225']);
     const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
     const QUANTUM_SET = new Set(GROUPS.QUANTUM);
     const SPACE_SET = new Set(GROUPS.SPACE);
