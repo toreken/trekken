@@ -738,6 +738,18 @@
     .quick-filter-btn.qf-uptrend:hover    { border-color: #2e8b3a; background: #f0faf2; }
     .quick-filter-btn.qf-overvalue:hover  { border-color: #00bfff; background: #ecf8ff; }
     .quick-filter-btn.qf-downtrend:hover  { border-color: #c4302b; background: #fdf1f0; }
+    /* 無効化されたボタン（後日追加予定） */
+    .quick-filter-btn.disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+      background: #f5f5f5 !important;
+      border-color: var(--brown-100) !important;
+    }
+    .quick-filter-btn.disabled .qf-text small {
+      color: var(--muted);
+      font-style: italic;
+    }
     .quick-filter-btn.active {
       box-shadow: 0 0 0 3px rgba(196, 154, 74, 0.25);
       border-color: var(--gold-500);
@@ -2632,34 +2644,34 @@
       </div>
 
       <div class="quick-filter-row">
-        <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）<span class="quick-filter-note">現在調整中</span></div>
+        <div class="quick-filter-label">💡 こんな銘柄を探す（チャートの色で自動判定）</div>
         <div class="quick-filter-buttons">
-          <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued')" title="EMA20から大きく下方乖離、反発の可能性">
+          <button class="quick-filter-btn qf-undervalue" onclick="applyQuickFilter('undervalued')" title="押し目買い候補：EMA20付近かつ50SMAから0〜5%上方乖離">
             <span class="qf-icon">💎</span>
             <span class="qf-text">
               <strong>割安銘柄</strong>
-              <small>強い下降・反発候補（黄・赤）</small>
+              <small>押し目買い候補</small>
             </span>
           </button>
-          <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend')" title="EMA20より上、上昇基調">
+          <button class="quick-filter-btn qf-uptrend" onclick="applyQuickFilter('uptrend')" title="トレンド継続中：50SMAから10%以上の上方乖離">
             <span class="qf-icon">🌟</span>
             <span class="qf-text">
               <strong>上昇トレンド</strong>
-              <small>勢いがある銘柄（緑+青）</small>
+              <small>勢いがある銘柄</small>
             </span>
           </button>
-          <button class="quick-filter-btn qf-overvalue" onclick="applyQuickFilter('overvalued')" title="EMA20から大きく上方乖離、過熱気味">
+          <button class="quick-filter-btn qf-overvalue disabled" disabled title="後日追加予定">
             <span class="qf-icon">⚠️</span>
             <span class="qf-text">
               <strong>割高（過熱）</strong>
-              <small>強い上昇・買われすぎ（青）</small>
+              <small>後日追加予定</small>
             </span>
           </button>
-          <button class="quick-filter-btn qf-downtrend" onclick="applyQuickFilter('downtrend')" title="EMA20より下、下降基調">
+          <button class="quick-filter-btn qf-downtrend disabled" disabled title="後日追加予定">
             <span class="qf-icon">📉</span>
             <span class="qf-text">
               <strong>下降トレンド</strong>
-              <small>逆風が吹く銘柄（赤+黄）</small>
+              <small>後日追加予定</small>
             </span>
           </button>
         </div>
@@ -3499,48 +3511,64 @@
     }
 
     function applyQuickFilter(type) {
-      // 色チェックボックスのマッピング
-      const colorMap = {
-        'undervalued': ['yellow', 'red'],   // 強い下降・反発候補
-        'uptrend':     ['green', 'blue'],   // 上昇トレンド全般
-        'overvalued':  ['blue'],            // 強い上昇・過熱
-        'downtrend':   ['red', 'yellow'],   // 下降トレンド全般
-      };
-      const targetColors = colorMap[type];
-      if (!targetColors) return;
+      // 「後日追加予定」のボタンは何もしない
+      if (type !== 'undervalued' && type !== 'uptrend') return;
 
-      // 既存の数値・グループ設定をリセット（色とボタン状態は新規セット）
+      // まず全リセット
       document.getElementById('scoreMin').value = '';
       document.getElementById('scoreMax').value = '';
       document.getElementById('changeMin').value = '';
       document.getElementById('changeMax').value = '';
+      document.getElementById('ema20Min').value = '';
+      document.getElementById('ema20Max').value = '';
+      document.getElementById('sma50Min').value = '';
+      document.getElementById('sma50Max').value = '';
+      document.querySelectorAll('.filter-color-check').forEach(cb => cb.checked = true);
       document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
+      document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
 
-      // 色チェックボックスをセット
-      document.querySelectorAll('.filter-color-check').forEach(cb => {
-        cb.checked = targetColors.includes(cb.value);
+      // 対象グループ（両ボタン共通）：S&P500, NASDAQ100, 量子, 宇宙, 水素, 太陽光
+      const targetGroups = new Set(['SP500', 'NASDAQ100', 'QUANTUM', 'SPACE', 'HYDROGEN', 'SOLAR']);
+      document.querySelectorAll('.filter-group-check').forEach(cb => {
+        cb.checked = targetGroups.has(cb.value);
       });
 
-      // ボタンのactive表示を更新
-      const typeToClass = {
-        'undervalued': 'qf-undervalue',
-        'uptrend': 'qf-uptrend',
-        'overvalued': 'qf-overvalue',
-        'downtrend': 'qf-downtrend',
-      };
-      document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
-      const activeBtn = document.querySelector('.quick-filter-btn.' + typeToClass[type]);
-      if (activeBtn) activeBtn.classList.add('active');
+      if (type === 'undervalued') {
+        // === 割安銘柄 ===
+        // 色: 強い上昇(blue), 上昇(green)
+        document.querySelectorAll('.filter-color-check').forEach(cb => {
+          cb.checked = ['blue', 'green'].includes(cb.value);
+        });
+        // 20EMA乖離: 0 〜 5
+        document.getElementById('ema20Min').value = '0';
+        document.getElementById('ema20Max').value = '5';
+        // 50SMA乖離: 0 〜 5
+        document.getElementById('sma50Min').value = '0';
+        document.getElementById('sma50Max').value = '5';
+        const btn = document.querySelector('.qf-undervalue');
+        if (btn) btn.classList.add('active');
+      } else if (type === 'uptrend') {
+        // === 上昇トレンド ===
+        // 色: 全色（変更なし、すでに全てチェック済み）
+        // 20EMA乖離: -5 〜 5
+        document.getElementById('ema20Min').value = '-5';
+        document.getElementById('ema20Max').value = '5';
+        // 50SMA乖離: 10 〜 (最大なし)
+        document.getElementById('sma50Min').value = '10';
+        // sma50Max は空欄のまま
+        const btn = document.querySelector('.qf-uptrend');
+        if (btn) btn.classList.add('active');
+      }
 
-      // フィルタパネルを開いて状態が見えるようにする
+      // フィルタパネルを開く（条件確認＋検索ボタン押下のため）
       const panel = document.getElementById('filterPanel');
       const toggle = document.getElementById('filterToggle');
       panel.style.display = 'flex';
       toggle.classList.add('open');
 
-      // メタデータ未取得なら取得
       if (!metaData) fetchMetaData();
 
+      // 検索ボタン相当の動作：filterState を更新してリスト描画
       readFilterInputs();
       renderSymbolList();
     }
