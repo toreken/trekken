@@ -4723,8 +4723,8 @@
             const ch = parseFloat(item.week_change);
             if (!isNaN(ch)) {
               const sign = ch >= 0 ? '+' : '';
-              // 上昇：水色寄りの青、 下落：ピンク寄りの赤
-              const color = ch >= 0 ? '#3498db' : '#ec5f6a';
+              // 上昇：明るい水色、 下落：ピンク寄りの赤
+              const color = ch >= 0 ? '#00bfff' : '#ec5f6a';
               changeHtml = ` <span style="color:${color}; font-weight:700; margin-left:10px;">${sign}${ch.toFixed(2)}%</span>`;
             }
           }
