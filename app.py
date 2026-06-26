@@ -2680,6 +2680,67 @@ def reload_persistent_cache_if_needed():
     if now - _last_persistent_cache_load >= PERSISTENT_RELOAD_INTERVAL:
         print(f"Persistent cache reload: triggered (last load was {int(now - _last_persistent_cache_load)}s ago)")
         load_persistent_cache()
+    # ES1!/NQ1! の thumb 色をチャート画像と一致させるため、定期的に再計算
+    refresh_es1_nq1_thumb_colors_if_needed()
+
+
+_last_es1_nq1_color_refresh = 0
+ES1_NQ1_COLOR_REFRESH_INTERVAL = 3600  # 1時間ごとに ES1!/NQ1! の色をチャート画像と同期
+
+# fetch_nq1/fetch_es1 が返す candle_color のヘックスコードと色名のマッピング
+_CHART_COLOR_HEX_TO_NAME = {
+    '#32cd32': 'green',   # 上昇トレンド
+    '#ff4444': 'red',     # 下降トレンド
+    '#ffd700': 'yellow',  # レンジ
+}
+
+
+def refresh_es1_nq1_thumb_colors_if_needed():
+    """ES1!/NQ1! の thumb_cache の color フィールドを、 fetch_nq1/fetch_es1 と
+    完全に同じロジック（チャート画像生成と同じ）で更新する。
+    最新ローソク足の candle_color を抽出し、 'green' / 'yellow' / 'red' に変換して保存。
+    """
+    global _last_es1_nq1_color_refresh
+    now = time.time()
+    if now - _last_es1_nq1_color_refresh < ES1_NQ1_COLOR_REFRESH_INTERVAL:
+        return
+    _last_es1_nq1_color_refresh = now
+    print(f"refresh_es1_nq1_thumb_colors: starting (last refresh was {int(now)}s ago)")
+    for sym, fetcher_name in [('NQ1!', 'fetch_nq1'), ('ES1!', 'fetch_es1')]:
+        try:
+            fetcher = globals().get(fetcher_name)
+            if fetcher is None:
+                continue
+            df = fetcher(n_bars=300)
+            if df is None or df.empty:
+                print(f"  {sym}: fetcher returned empty, skip")
+                continue
+            if 'candle_color' not in df.columns:
+                print(f"  {sym}: no candle_color column, skip")
+                continue
+            # 最新行（NaN は除外）の candle_color を取得
+            valid = df.dropna(subset=['candle_color'])
+            if valid.empty:
+                continue
+            last_hex = str(valid['candle_color'].iloc[-1]).strip()
+            color_name = _CHART_COLOR_HEX_TO_NAME.get(last_hex)
+            if color_name is None:
+                print(f"  {sym}: unknown candle_color hex={last_hex}, skip")
+                continue
+            # thumb_cache を更新（既存のスコア等は維持して color のみ書き換え）
+            existing = thumb_cache.get(sym)
+            if existing:
+                _, data = existing
+                new_data = dict(data)
+                new_data['color'] = color_name
+                thumb_cache[sym] = (now, new_data)
+            else:
+                thumb_cache[sym] = (now, {'thumb': None, 'score': None,
+                                          'week_change': None, 'ema20_dev': None,
+                                          'sma50_dev': None, 'color': color_name})
+            print(f"  {sym}: color={color_name} (from candle_color={last_hex})")
+        except Exception as e:
+            print(f"  {sym}: refresh failed: {e}")
 
 
 def fetch_chart_from_github(symbol):
@@ -2734,6 +2795,18 @@ def apply_translation(profile):
 
 load_persistent_cache()
 load_translations()
+
+# ES1!/NQ1! の色をチャート画像と完全一致させるため、起動時にバックグラウンドで計算
+# メインスレッドをブロックしない（サイト起動は早く）
+def _startup_refresh_es1_nq1():
+    try:
+        time.sleep(3)  # 起動直後のリソース解放を待つ
+        refresh_es1_nq1_thumb_colors_if_needed()
+    except Exception as e:
+        print(f"startup ES1!/NQ1! refresh failed: {e}")
+
+import threading
+threading.Thread(target=_startup_refresh_es1_nq1, daemon=True).start()
 
 
 # ===== 起動時自動プリフェッチ =====
