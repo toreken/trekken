@@ -4471,7 +4471,7 @@
       const profileCard = document.getElementById('profileCard');
 
       area.classList.add('active');
-      title.textContent = `📈 ${sym}`;
+      title.innerHTML = buildChartTitleHtml(sym);
       body.innerHTML = '<div class="chart-loading">データ取得中...</div>';
       commentaryList.innerHTML = '<li class="info-empty">読み込み中...</li>';
       peerSectorName.textContent = '';
@@ -4700,7 +4700,7 @@
       const peerList = document.getElementById('peerList');
       const restoreBtn = document.getElementById('restoreBtn');
       compareMode = false;
-      title.textContent = `📈 ${activeSymbol}`;
+      title.innerHTML = buildChartTitleHtml(activeSymbol);
       body.innerHTML = `<img src="data:image/png;base64,${lastChartImage}" alt="${activeSymbol}チャート">`;
       peerList.querySelectorAll('.peer-color-dot').forEach(d => d.remove());
       restoreBtn.style.display = 'none';
@@ -4709,6 +4709,26 @@
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c =>
         ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+    }
+
+    // チャートタイトル（📈 SYM ±X.XX%）を生成。metaData から前日比を取得して並列表示
+    function buildChartTitleHtml(sym) {
+      const symEsc = escapeHtml(sym);
+      let changeHtml = '';
+      try {
+        if (metaData && Array.isArray(metaData.items)) {
+          const item = metaData.items.find(it => it.symbol === sym);
+          if (item && item.week_change !== null && item.week_change !== undefined) {
+            const ch = parseFloat(item.week_change);
+            if (!isNaN(ch)) {
+              const sign = ch >= 0 ? '+' : '';
+              const color = ch >= 0 ? '#2eb872' : '#c4302b';
+              changeHtml = ` <span style="color:${color}; font-weight:700; margin-left:8px; font-size:0.85em;">${sign}${ch.toFixed(2)}%</span>`;
+            }
+          }
+        }
+      } catch (e) { /* ignore */ }
+      return `📈 ${symEsc}${changeHtml}`;
     }
 
     function closeChart() {
