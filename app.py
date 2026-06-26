@@ -2870,8 +2870,23 @@ def symbols_meta():
         week_change = _safe_num(week_change)
         ema20_dev = _safe_num(ema20_dev)
         sma50_dev = _safe_num(sma50_dev)
-        # 事前計算済み色があれば優先（NQ1!/ES1! の3色判定など）、なければ通常の4色判定
-        final_color = thumb_color if thumb_color in ('blue', 'green', 'yellow', 'red') else score_to_color(score)
+        # 事前計算済み色があれば優先（NQ1!/ES1! の3色判定など）
+        # ES1!/NQ1! は「青」は出さない仕様：thumb_color がなくても score_to_color にフォールバックせず
+        # 自前の3色判定（score + ema20_dev）を使う
+        if sym in ('NQ1!', 'ES1!'):
+            if thumb_color in ('green', 'yellow', 'red'):
+                final_color = thumb_color
+            else:
+                sc = score if score is not None else 0
+                ed = ema20_dev if ema20_dev is not None else 0
+                if sc > 40 and ed > 0:
+                    final_color = 'green'
+                elif sc <= 40 and ed < 0:
+                    final_color = 'red'
+                else:
+                    final_color = 'yellow'
+        else:
+            final_color = thumb_color if thumb_color in ('blue', 'green', 'yellow', 'red') else score_to_color(score)
         items.append({
             'symbol': sym,
             'sector': get_sector(sym),
