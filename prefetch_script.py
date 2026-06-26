@@ -63,6 +63,94 @@ def get_tv_interval():
     except Exception:
         return None
 
+
+def compute_nq1_es1_color(symbol):
+    """ES1!/NQ1! の色判定を app.py の fetch_nq1/fetch_es1 と完全に同じロジックで実行。
+    返り値: 'green' / 'yellow' / 'red' / None。
+    ティッカー横の色マーカーとチャート画像の色を一致させるためのものなので、
+    fetch_nq1/fetch_es1 のロジックを変更したらこの関数も同期させること。
+    """
+    tv = get_tv()
+    Interval = get_tv_interval()
+    if tv is None or Interval is None:
+        return None
+    try:
+        n_bars = 300
+        if symbol == 'NQ1!':
+            base_sym, base_exch = 'QQQ', 'NASDAQ'
+        elif symbol == 'ES1!':
+            base_sym, base_exch = 'SPY', 'AMEX'
+        else:
+            return None
+
+        # 基礎データ取得
+        df_base = tv.get_hist(symbol=base_sym, exchange=base_exch, interval=Interval.in_daily, n_bars=n_bars)
+        if (df_base is None or df_base.empty) and symbol == 'ES1!':
+            df_base = tv.get_hist(symbol='SPY', exchange='ARCA', interval=Interval.in_daily, n_bars=n_bars)
+
+        df_ndtw = tv.get_hist(symbol='NDTW', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        if df_ndtw is None or df_ndtw.empty:
+            df_ndtw = tv.get_hist(symbol='NDTW', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
+        df_ndfi = tv.get_hist(symbol='NDFI', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        if df_ndfi is None or df_ndfi.empty:
+            df_ndfi = tv.get_hist(symbol='NDFI', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
+        df_ndth = tv.get_hist(symbol='NDTH', exchange='INDEX', interval=Interval.in_daily, n_bars=n_bars)
+        if df_ndth is None or df_ndth.empty:
+            df_ndth = tv.get_hist(symbol='NDTH', exchange='NASDAQ', interval=Interval.in_daily, n_bars=n_bars)
+        df_uvol = tv.get_hist(symbol='UVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
+        df_dvol = tv.get_hist(symbol='DVOLQ', exchange='USI', interval=Interval.in_daily, n_bars=n_bars)
+
+        if any(x is None or x.empty for x in [df_base, df_ndtw, df_ndfi, df_ndth, df_uvol, df_dvol]):
+            print(f"compute_nq1_es1_color({symbol}): missing dataframes")
+            return None
+
+        # 結合
+        df = df_base.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
+        df = df.join(df_ndtw[['close']].rename(columns={'close':'ndtw'}), how='inner')
+        df = df.join(df_ndfi[['close']].rename(columns={'close':'ndfi'}), how='inner')
+        df = df.join(df_ndth[['close']].rename(columns={'close':'ndth'}), how='inner')
+        df = df.join(df_uvol[['close']].rename(columns={'close':'uVol'}), how='inner')
+        df = df.join(df_dvol[['close']].rename(columns={'close':'dVol'}), how='inner')
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df.index = pd.to_datetime(df.index).normalize().tz_localize(None)
+
+        # スコア計算（fetch_nq1/fetch_es1 と完全に同じ式）
+        sma_col = 'QQQSMA20' if symbol == 'NQ1!' else 'SPYSMA20'
+        df[sma_col] = df['Close'].ewm(span=20, adjust=False).mean()
+        df['ndtwScore'] = df['ndtw'] / 3
+        df['ndfiScore'] = df['ndfi'] / 4
+        df['ndthScore'] = df['ndth'] / 6
+        df['discrepancyPercent'] = (df['Close'] - df[sma_col]) / df[sma_col] * 100
+        df['discrepancyScore'] = df['discrepancyPercent'] * 3
+        df['uVolSMA10'] = df['uVol'].rolling(window=10).mean()
+        df['dVolSMA10'] = df['dVol'].rolling(window=10).mean()
+        df['volDiff'] = df['uVolSMA10'] - df['dVolSMA10']
+        df['volDiffScore'] = df['volDiff'] / 50000000
+        df['totalScore'] = df['ndtwScore'] + df['ndfiScore'] + df['ndthScore'] + df['discrepancyScore'] + df['volDiffScore']
+        df['isAboveEMA20'] = df['Close'] > df[sma_col]
+
+        # 最終行（最新日）の色判定
+        last_score = df['totalScore'].iloc[-1]
+        last_above = bool(df['isAboveEMA20'].iloc[-1])
+        if pd.isna(last_score):
+            print(f"compute_nq1_es1_color({symbol}): last_score is NaN")
+            return None
+        last_score = float(last_score)
+        if last_score > 40 and last_above:
+            color = 'green'
+        elif last_score <= 40 and not last_above:
+            color = 'red'
+        else:
+            color = 'yellow'
+        print(f"compute_nq1_es1_color({symbol}): score={last_score:.1f}, above={last_above}, color={color}")
+        return color
+    except Exception as e:
+        print(f"compute_nq1_es1_color({symbol}) error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 # 為替は廃止（バックエンドのコードは残し、空セットにして prefetch されないようにする）
 FOREX_SET_FOR_TV = frozenset([])
 # 復活させる場合：
@@ -1219,27 +1307,31 @@ def process_light_targets(thumbs):
             except Exception:
                 pass
 
-            # NQ1!/ES1! は3色判定（make_chart_image_nq と同じロジック、ema_20 で代用）
-            # 上昇トレンド=緑 / レンジ=黄 / 下降トレンド=赤
+            # NQ1!/ES1! はチャート画像（fetch_nq1/fetch_es1）と同じロジックで色を計算する
+            # → ティッカー横の色マーカーとチャート画像の色を完全一致させる
             thumb_color = None
             if original_sym in ('NQ1!', 'ES1!'):
-                try:
-                    last_close = float(df['close'].iloc[-1])
-                    last_ema = df['ema_20'].iloc[-1] if 'ema_20' in df.columns else None
-                    if last_ema is not None and not pd.isna(last_ema):
-                        above = last_close > float(last_ema)
-                        below = last_close < float(last_ema)
-                        sc = last_score_val if last_score_val is not None else 0
-                        if sc > 40 and above:
-                            thumb_color = 'green'
-                        elif sc <= 40 and below:
-                            thumb_color = 'red'
+                thumb_color = compute_nq1_es1_color(original_sym)
+                if thumb_color is None:
+                    # tvDatafeed が使えない等で取得失敗時のフォールバック：
+                    # ema_20 と close で簡易3色判定
+                    try:
+                        last_close = float(df['close'].iloc[-1])
+                        last_ema = df['ema_20'].iloc[-1] if 'ema_20' in df.columns else None
+                        if last_ema is not None and not pd.isna(last_ema):
+                            above = last_close > float(last_ema)
+                            below = last_close < float(last_ema)
+                            sc = last_score_val if last_score_val is not None else 0
+                            if sc > 40 and above:
+                                thumb_color = 'green'
+                            elif sc <= 40 and below:
+                                thumb_color = 'red'
+                            else:
+                                thumb_color = 'yellow'
                         else:
                             thumb_color = 'yellow'
-                    else:
-                        thumb_color = 'yellow'
-                except Exception:
-                    thumb_color = None
+                    except Exception:
+                        thumb_color = None
 
             # 画像なしで thumbs に保存（フロントは score のみ使う）
             thumbs[original_sym] = {
