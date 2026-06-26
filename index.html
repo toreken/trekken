@@ -1838,7 +1838,7 @@
     .info-empty { font-size: 12px; color: #999; padding: 8px 0; }
 
     .chart-header {
-      padding: 14px 20px; color: white; font-size: 14px; font-weight: 700;
+      padding: 14px 20px; color: white; font-size: 17px; font-weight: 700;
       background: #1e2230; display: flex; justify-content: space-between; align-items: center;
     }
     .chart-close {
@@ -4722,7 +4722,8 @@
             const ch = parseFloat(item.week_change);
             if (!isNaN(ch)) {
               const sign = ch >= 0 ? '+' : '';
-              const color = ch >= 0 ? '#2eb872' : '#c4302b';
+              // 上昇：水色寄りの青、 下落：ピンク寄りの赤
+              const color = ch >= 0 ? '#3498db' : '#ec5f6a';
               changeHtml = ` <span style="color:${color}; font-weight:700; margin-left:10px;">${sign}${ch.toFixed(2)}%</span>`;
             }
           }
