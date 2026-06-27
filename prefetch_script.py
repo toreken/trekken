@@ -1394,6 +1394,18 @@ def process_n225_index(profiles, thumbs, charts, infos):
         if 'discrepancyScore' in df.columns:
             df['totalScore'] = df['discrepancyScore']
 
+        # OHLC の一部が NaN の行を削除（mpfinance の描画エラー回避）
+        # yfinance は未確定の最新日を「close だけ NaN」で返すことがある
+        ohlc_lower = [c for c in ['open', 'high', 'low', 'close'] if c in df.columns]
+        before_drop = len(df)
+        if ohlc_lower:
+            df = df.dropna(subset=ohlc_lower)
+        if before_drop - len(df) > 0:
+            print(f"  N225: dropped {before_drop - len(df)} rows with NaN in OHLC")
+        if df.empty:
+            print(f"  ✗ N225: dataframe empty after dropping NaN OHLC rows")
+            return
+
         # 画像生成
         chart_b64 = make_chart_b64(df, SYM)
         if chart_b64:
