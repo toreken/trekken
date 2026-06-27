@@ -1330,6 +1330,24 @@ def fetch_n225():
         df['volDiffScore'] = 0
         df['totalScore'] = df['discrepancyScore']
 
+        # ===== OHLC の一部が NaN の行を削除 =====
+        # yfinance が未確定の最新日を「Close が NaN, Open/High/Low は値あり」のような
+        # 半端な行で返すことがあり、これが mpfinance の
+        # "O,H,L,C must have the same amount of missing data!" エラーの原因になる
+        ohlc_cols_upper = [c for c in ['Open', 'High', 'Low', 'Close'] if c in df.columns]
+        ohlc_cols_lower = [c for c in ['open', 'high', 'low', 'close'] if c in df.columns]
+        before_drop = len(df)
+        if ohlc_cols_upper:
+            df = df.dropna(subset=ohlc_cols_upper)
+        if ohlc_cols_lower:
+            df = df.dropna(subset=ohlc_cols_lower)
+        if before_drop - len(df) > 0:
+            print(f"N225: dropped {before_drop - len(df)} rows with NaN in OHLC (last_close was incomplete)")
+
+        if df.empty:
+            print(f"N225: dataframe empty after dropping NaN OHLC rows")
+            return None
+
         print(f"N225: final success, shape={df.shape}, last_close={float(df['close'].iloc[-1])}")
         return df
     except Exception as e:
@@ -1614,7 +1632,25 @@ def chart(symbol):
                 stale = _fallback_to_stale_cache('N225 取得失敗')
                 if stale: return stale
                 return jsonify({'error': 'N225 のデータ取得に失敗しました'}), 500
-            img_b64 = make_chart_image_stock(df, 'N225')
+            try:
+                img_b64 = make_chart_image_stock(df, 'N225')
+                if not img_b64:
+                    print(f"N225: make_chart_image_stock returned empty/None")
+                    stale = _fallback_to_stale_cache('N225 描画失敗（空画像）')
+                    if stale: return stale
+                    return jsonify({'error': 'N225 のチャート画像生成に失敗しました'}), 500
+            except Exception as e_chart:
+                import traceback
+                print(f"N225: make_chart_image_stock raised exception: {e_chart}")
+                print(f"  df.columns: {df.columns.tolist()}")
+                print(f"  df.shape: {df.shape}")
+                print(f"  df.index type: {type(df.index).__name__}")
+                print(f"  df.index sample: {df.index[:3].tolist() if len(df) >= 3 else df.index.tolist()}")
+                print(f"  df.tail(2): \n{df.tail(2)}")
+                traceback.print_exc()
+                stale = _fallback_to_stale_cache(f'N225 描画エラー: {e_chart}')
+                if stale: return stale
+                return jsonify({'error': f'N225 のチャート画像生成に失敗しました: {e_chart}'}), 500
         elif symbol_upper in CRYPTO_MAP:
             df = fetch_crypto(symbol_upper)
             if df is None:
