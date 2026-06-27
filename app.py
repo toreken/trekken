@@ -1224,14 +1224,68 @@ def fetch_es1(n_bars=1000):
 
 
 def fetch_n225():
-    """日経平均株価指数（^N225）を yfinance で取得し、スコア計算してチャート用 DataFrame を返す。
-    出来高がないため volDiffScore は 0、totalScore = discrepancyScore のみ。"""
+    """日経平均株価指数（^N225）を取得しスコア計算する。
+    取得経路の優先順位：
+      1. yfinance ^N225（最大3回リトライ、指数バックオフ）
+      2. tvDatafeed TVC:NI225 → INDEX:NI225 → TVC:NIKKEI225（yfinance全失敗時）
+    出来高がないため volDiffScore は 0、totalScore = discrepancyScore のみ。
+    """
+    df = None
+
+    # ===== 1. yfinance を最大3回リトライ =====
+    for attempt in range(3):
+        try:
+            df_try = yf.download('^N225', period='max', interval='1d',
+                                 auto_adjust=False, progress=False, threads=False)
+            if df_try is not None and not df_try.empty:
+                df = df_try
+                print(f"N225: yfinance success on attempt {attempt+1}, shape={df.shape}")
+                break
+            else:
+                print(f"N225: yfinance attempt {attempt+1} returned empty")
+        except Exception as e:
+            print(f"N225: yfinance attempt {attempt+1} failed: {e}")
+        if attempt < 2:
+            time.sleep(2 ** attempt)  # 1s, 2s
+
+    # ===== 2. yfinance が全て失敗した時のみ、tvDatafeed フォールバック =====
+    if df is None or df.empty:
+        print("N225: all yfinance attempts failed, trying tvDatafeed fallback")
+        tv_local = get_tv()
+        Interval = get_interval()
+        if tv_local is not None and Interval is not None:
+            # TradingView 上の日経平均の主要シンボル候補（順に試行）
+            candidates = [
+                ('NI225', 'TVC'),
+                ('NI225', 'INDEX'),
+                ('NIKKEI225', 'TVC'),
+                ('NKY', 'TVC'),
+            ]
+            for tv_sym, tv_exch in candidates:
+                try:
+                    df_try = tv_local.get_hist(symbol=tv_sym, exchange=tv_exch,
+                                               interval=Interval.in_daily, n_bars=5000)
+                    if df_try is not None and not df_try.empty:
+                        # tvDatafeed の列は小文字 (open/high/low/close/volume) なので
+                        # yfinance 風（大文字始まり）に揃える
+                        if 'symbol' in df_try.columns:
+                            df_try = df_try.drop(columns=['symbol'])
+                        df_try.columns = [str(c).capitalize() for c in df_try.columns]
+                        df = df_try
+                        print(f"N225: tvDatafeed success from {tv_sym}/{tv_exch}, shape={df.shape}")
+                        break
+                except Exception as e_tv:
+                    print(f"N225: tvDatafeed {tv_sym}/{tv_exch} failed: {e_tv}")
+                    continue
+        else:
+            print("N225: tvDatafeed not available")
+
+    if df is None or df.empty:
+        print("N225: all sources (yfinance + tvDatafeed) failed")
+        return None
+
+    # ===== 3. 既存のスコア計算ロジック =====
     try:
-        df = yf.download('^N225', period='max', interval='1d',
-                         auto_adjust=False, progress=False, threads=False)
-        if df is None or df.empty:
-            print("N225: yf.download returned empty")
-            return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df.columns = [str(c).lower() for c in df.columns]
@@ -1276,11 +1330,11 @@ def fetch_n225():
         df['volDiffScore'] = 0
         df['totalScore'] = df['discrepancyScore']
 
-        print(f"N225: success, shape={df.shape}, last_close={float(df['close'].iloc[-1])}")
+        print(f"N225: final success, shape={df.shape}, last_close={float(df['close'].iloc[-1])}")
         return df
     except Exception as e:
         import traceback
-        print(f"N225 error: {e}")
+        print(f"N225 post-process error: {e}")
         traceback.print_exc()
         return None
 
