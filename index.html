@@ -3919,7 +3919,22 @@
       const q = currentQuery.trim().toUpperCase();
       list.classList.remove('etf-mode');  // ETFタブ以外では2列モードを解除
 
-      toolbar.style.display = (currentGroup === 'SP500' || currentGroup === 'NIKKEI225' || currentGroup === 'NASDAQ100') ? 'flex' : 'none';
+      // toolbar の表示制御：
+      //   - SP500 / NIKKEI225 / NASDAQ100 タブ → overview + expand 両方
+      //   - filterActive（「こんな銘柄を探す」or 条件検索で絞り込み中）→ expand のみ
+      const isSpecialGroup = (currentGroup === 'SP500' || currentGroup === 'NIKKEI225' || currentGroup === 'NASDAQ100');
+      const showOverviewBtn = isSpecialGroup && !filterActive;
+      const showExpandBtn = isSpecialGroup || filterActive;
+      toolbar.style.display = (showOverviewBtn || showExpandBtn) ? 'flex' : 'none';
+      const overviewBtnEl = document.getElementById('overviewBtn');
+      if (overviewBtnEl) overviewBtnEl.style.display = showOverviewBtn ? '' : 'none';
+      const expandBtnEl = document.getElementById('expandAllBtn');
+      if (expandBtnEl) expandBtnEl.style.display = showExpandBtn ? '' : 'none';
+      // overview の sort セレクタは isSpecialGroup の overview モード時のみ
+      if (!showOverviewBtn) {
+        const overviewSort = document.getElementById('overviewSort');
+        if (overviewSort) overviewSort.style.display = 'none';
+      }
 
       let displaySymbols, totalCount;
 
