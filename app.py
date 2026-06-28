@@ -1410,6 +1410,7 @@ def make_chart_image_stock(df, symbol):
     ax_main.set_xlim(xmin, xmax + 5)
 
     # 全銘柄：4色判定（青/緑/赤/黄）添付コード準拠
+    last_color = '#888888'
     for j in range(len(plot_df)):
         row = plot_df.iloc[j]
         score = row['totalScore']
@@ -1423,6 +1424,28 @@ def make_chart_image_stock(df, symbol):
         body_height = max(abs(row['open'] - row['close']), row['close'] * 0.0005)
         rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
         ax_main.add_patch(rect)
+        if j == len(plot_df) - 1:
+            last_color = c
+
+    # 最新終値の水平ドット線と価格ラベル（添付画像のような表示）
+    try:
+        last_close = float(plot_df['close'].iloc[-1])
+        if not (last_close != last_close):  # NaN check
+            xmin, xmax = ax_main.get_xlim()
+            ax_main.axhline(y=last_close, color=last_color, linestyle=':',
+                            linewidth=1, alpha=0.7, zorder=5)
+            ax_main.annotate(
+                f'{last_close:.2f}',
+                xy=(xmax, last_close),
+                xytext=(8, 0), textcoords='offset points',
+                fontsize=11, color='white', fontweight='bold',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor=last_color,
+                          edgecolor=last_color),
+                verticalalignment='center', zorder=20,
+                annotation_clip=False
+            )
+    except Exception as e:
+        print(f"last close indicator error for {symbol}: {e}")
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
@@ -1470,6 +1493,7 @@ def make_chart_image_nq(df, symbol):
     xmin, xmax = ax_main.get_xlim()
     ax_main.set_xlim(xmin, xmax + 5)
 
+    last_color = '#888888'
     for j in range(len(plot_df)):
         row = plot_df.iloc[j]
         c = row.get('candle_color', '#888888')
@@ -1479,6 +1503,28 @@ def make_chart_image_nq(df, symbol):
         body_height = max(abs(row['Open'] - row['Close']), row['Close'] * 0.0005)
         rect = Rectangle((j - 0.35, body_bottom), 0.7, body_height, facecolor=c, edgecolor=c, zorder=10)
         ax_main.add_patch(rect)
+        if j == len(plot_df) - 1:
+            last_color = c
+
+    # 最新終値の水平ドット線と価格ラベル
+    try:
+        last_close = float(plot_df['Close'].iloc[-1])
+        if not (last_close != last_close):  # NaN check
+            xmin, xmax = ax_main.get_xlim()
+            ax_main.axhline(y=last_close, color=last_color, linestyle=':',
+                            linewidth=1, alpha=0.7, zorder=5)
+            ax_main.annotate(
+                f'{last_close:.2f}',
+                xy=(xmax, last_close),
+                xytext=(8, 0), textcoords='offset points',
+                fontsize=11, color='white', fontweight='bold',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor=last_color,
+                          edgecolor=last_color),
+                verticalalignment='center', zorder=20,
+                annotation_clip=False
+            )
+    except Exception as e:
+        print(f"last close indicator error for {symbol} (nq): {e}")
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', facecolor=BG_COLOR, bbox_inches='tight', dpi=80)
