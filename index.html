@@ -3451,6 +3451,24 @@
         chip.setAttribute('data-score-color', '');
       }
     }
+    // チップの表示テキストを生成。 ティッカー + 騰落率（小さく色付き）
+    function _buildChipHtml(sym) {
+      const displaySym = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+      let wc = null;
+      try {
+        if (metaData && Array.isArray(metaData.items)) {
+          const item = metaData.items.find(it => it.symbol === sym);
+          if (item && item.week_change !== null && item.week_change !== undefined) {
+            const v = parseFloat(item.week_change);
+            if (!isNaN(v)) wc = v;
+          }
+        }
+      } catch (e) { /* ignore */ }
+      if (wc === null) return displaySym;
+      const sign = wc >= 0 ? '+' : '';
+      const col = wc >= 0 ? '#00bfff' : '#ec5f6a';
+      return `${displaySym}<span style="font-size:0.78em; color:${col}; font-weight:700; margin-left:5px;">${sign}${wc.toFixed(1)}%</span>`;
+    }
     const NIKKEI_SET = new Set([...GROUPS.NIKKEI225, 'N225']);
     const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
     const QUANTUM_SET = new Set(GROUPS.QUANTUM);
@@ -4066,7 +4084,7 @@
             else if (NASDAQ_SET.has(sym)) cls += ' nasdaq';
             chip.className = cls;
             chip.style.setProperty('--i', idx);
-            chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+            chip.innerHTML = _buildChipHtml(sym);
             chip.title = `スコア: ${rising[idx].score}`;
             chip.onclick = () => loadChart(sym);
             _applyScoreColor(chip, sym);
@@ -4116,7 +4134,7 @@
             if (sym === activeSymbol) cls += ' active';
             chip.className = cls;
             chip.style.setProperty('--i', idx);
-            chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+            chip.innerHTML = _buildChipHtml(sym);
             chip.onclick = () => loadChart(sym);
             // 右クリックで削除確認
             chip.oncontextmenu = (e) => {
@@ -4163,7 +4181,7 @@
             if (sym === activeSymbol) cls += ' active';
             chip.className = cls;
             chip.style.setProperty('--i', idx++);
-            chip.textContent = sym;
+            chip.innerHTML = _buildChipHtml(sym);
             chip.onclick = () => loadChart(sym);
             _applyScoreColor(chip, sym);
             symbolsWrap.appendChild(chip);
@@ -4203,7 +4221,7 @@
           chip.className = cls;
           chip.style.setProperty('--i', idx);
           // TSE:で始まる銘柄はコード番号だけ表示（TSE:7203 → 7203）
-          chip.textContent = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
+          chip.innerHTML = _buildChipHtml(sym);
           chip.onclick = () => loadChart(sym);
           _applyScoreColor(chip, sym);
           list.appendChild(chip);
