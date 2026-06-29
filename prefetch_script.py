@@ -923,7 +923,8 @@ def make_chart_b64(df, symbol):
 
 def generate_commentary_simple(df, is_futures=False):
     """app.py の generate_commentary と同等の処理を行う（軽量版）。
-    トレンド解説の文字列リストを返す。"""
+    トレンド解説の文字列リストを返す。
+    is_futures=True の場合は3色判定（緑/黄/赤）。"""
     try:
         if df is None or df.empty or 'totalScore' not in df.columns:
             return ['📊 解説を生成できませんでした']
@@ -932,7 +933,46 @@ def generate_commentary_simple(df, is_futures=False):
         if pd.isna(score):
             return ['📊 解説を生成できませんでした']
 
-        # 全銘柄：4色判定（青/緑/赤/黄）添付コード準拠
+        if is_futures:
+            # ES1!/NQ1! など先物・指数：3色判定（緑/黄/赤）
+            # 軽量版は candle_color 列が無いので、 score と close vs ema_20 で判定
+            above = False
+            try:
+                last_close = float(df['close'].iloc[-1])
+                if 'ema_20' in df.columns:
+                    last_ema20 = df['ema_20'].iloc[-1]
+                    if not pd.isna(last_ema20):
+                        above = last_close > float(last_ema20)
+            except Exception:
+                pass
+
+            if score > 40 and above:
+                zone, zone_emoji = '上昇トレンド', '🟢'
+            elif score <= 40 and not above:
+                zone, zone_emoji = '下降トレンド', '🔴'
+            else:
+                zone, zone_emoji = 'レンジ', '🟡'
+
+            lines = [f'{zone_emoji} 現在: {zone}(スコア {int(score):+d})']
+
+            # 乖離率
+            try:
+                last_close = float(df['close'].iloc[-1])
+                if 'ema_20' in df.columns:
+                    last_ema20 = df['ema_20'].iloc[-1]
+                    if not pd.isna(last_ema20) and float(last_ema20) != 0:
+                        dev = (last_close - float(last_ema20)) / float(last_ema20) * 100
+                        if abs(dev) < 1:
+                            lines.append(f'➡️ EMA20近辺で推移(乖離 {dev:+.1f}%)')
+                        elif dev > 0:
+                            lines.append(f'📈 EMA20から {dev:+.1f}% で上方乖離')
+                        else:
+                            lines.append(f'📉 EMA20から {dev:+.1f}% で下方乖離')
+            except Exception:
+                pass
+            return lines
+
+        # 通常銘柄：4色判定（青/緑/赤/黄）添付コード準拠
         if score >= 7:
             zone, zone_emoji = '上昇トレンド', '🟦'
         elif score > 0:
