@@ -4834,7 +4834,7 @@
           else if (tsColor === 'green') scoreCls = 'ts-green';
           else if (tsColor === 'yellow') scoreCls = 'ts-yellow';
           else scoreCls = 'ts-red';
-          scoreLabel = (sc >= 0 ? '+' : '') + sc.toFixed(1);
+          scoreLabel = (sc >= 0 ? '+' : '') + Math.round(sc);
         }
         // 日経銘柄はコード番号だけ表示
         const displaySym = NIKKEI_SET.has(it.symbol) ? it.symbol.replace('TSE:', '') : it.symbol;
