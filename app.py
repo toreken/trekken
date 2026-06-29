@@ -1796,7 +1796,51 @@ def generate_commentary(df, is_futures=False):
         if pd.isna(score):
             return ['スコアがまだ計算できていません']
 
-        # 全銘柄：4色判定（青/緑/赤/黄）添付コード準拠
+        if is_futures:
+            # ES1!/NQ1! は3色判定（緑/黄/赤）チャート画像と完全一致させる
+            candle_color = last.get('candle_color') if 'candle_color' in df.columns else None
+            if candle_color == '#32cd32':
+                zone = '上昇トレンド'
+                zone_emoji = '🟢'
+            elif candle_color == '#ff4444':
+                zone = '下降トレンド'
+                zone_emoji = '🔴'
+            elif candle_color == '#ffd700':
+                zone = 'レンジ'
+                zone_emoji = '🟡'
+            else:
+                # candle_color が無い場合のフォールバック判定
+                above = False
+                if 'isAboveEMA20' in df.columns and not pd.isna(last.get('isAboveEMA20')):
+                    above = bool(last['isAboveEMA20'])
+                if score > 40 and above:
+                    zone, zone_emoji = '上昇トレンド', '🟢'
+                elif score <= 40 and not above:
+                    zone, zone_emoji = '下降トレンド', '🔴'
+                else:
+                    zone, zone_emoji = 'レンジ', '🟡'
+
+            lines = [f'{zone_emoji} 現在: {zone}(スコア {int(score):+d})']
+
+            # ES1!/NQ1! 専用：QQQ/SPY SMA20 ベースの乖離解説
+            if 'discrepancyPercent' in df.columns and not pd.isna(last['discrepancyPercent']):
+                disc = float(last['discrepancyPercent'])
+                if 'QQQSMA20' in df.columns:
+                    index_label = 'QQQ SMA20'
+                elif 'SPYSMA20' in df.columns:
+                    index_label = 'SPY SMA20'
+                else:
+                    index_label = '指数SMA20'
+                if disc > 3:
+                    lines.append(f'📈 {index_label}から +{disc:.1f}% で上方乖離')
+                elif disc < -3:
+                    lines.append(f'📉 {index_label}から {disc:.1f}% で下方乖離')
+                else:
+                    lines.append(f'➡️ {index_label}近辺で推移(乖離 {disc:+.1f}%)')
+
+            return lines[:4]
+
+        # 通常銘柄：4色判定（青/緑/赤/黄）添付コード準拠
         if score >= 7:
             zone = '上昇トレンド'          # 🟦 青
             zone_emoji = '🟦'
