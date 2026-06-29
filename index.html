@@ -1355,7 +1355,7 @@
       overflow-y: visible !important;
     }
     .symbol-chip {
-      padding: 9px 6px;
+      padding: 6px 6px;
       background: var(--cream-100);
       border: 1px solid var(--brown-100);
       border-radius: 8px;
@@ -1369,6 +1369,22 @@
       user-select: none;
       animation: chipFadeIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
       animation-delay: calc(var(--i, 0) * 0.012s);
+      /* 内容を縦並びで中央寄せ + 全chip同じ高さで揃える */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      line-height: 1.2;
+      gap: 1px;
+    }
+    .symbol-chip .chip-change {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0;
+      /* 騰落率が無い銘柄でも縦サイズを揃えるため最小高さを確保 */
+      min-height: 12px;
+      display: inline-block;
     }
     .symbol-chip:hover {
       background: var(--brown-700);
@@ -3464,10 +3480,13 @@
           }
         }
       } catch (e) { /* ignore */ }
-      if (wc === null) return displaySym;
+      if (wc === null) {
+        // 騰落率が無い銘柄でも縦サイズを揃えるため空の span を入れる
+        return `<span class="chip-sym">${displaySym}</span><span class="chip-change">&nbsp;</span>`;
+      }
       const sign = wc >= 0 ? '+' : '';
       const col = wc >= 0 ? '#00bfff' : '#ec5f6a';
-      return `${displaySym}<span style="font-size:0.78em; color:${col}; font-weight:700; margin-left:5px;">${sign}${wc.toFixed(1)}%</span>`;
+      return `<span class="chip-sym">${displaySym}</span><span class="chip-change" style="color:${col};">${sign}${wc.toFixed(1)}%</span>`;
     }
     const NIKKEI_SET = new Set([...GROUPS.NIKKEI225, 'N225']);
     const NASDAQ_SET = new Set(GROUPS.NASDAQ100);
