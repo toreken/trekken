@@ -1347,9 +1347,9 @@ def process_light_targets(thumbs):
             week_change = None
             try:
                 closes = df['close'].dropna()
-                if len(closes) >= 6:
+                if len(closes) >= 2:
                     cur = float(closes.iloc[-1])
-                    ref = float(closes.iloc[-6])
+                    ref = float(closes.iloc[-2])  # 1営業日前との比較（前日比）
                     if ref != 0:
                         week_change = (cur - ref) / ref * 100
             except Exception:
@@ -1486,9 +1486,9 @@ def process_n225_index(profiles, thumbs, charts, infos):
         week_change = None
         try:
             closes = df['close'].dropna()
-            if len(closes) >= 6:
+            if len(closes) >= 2:
                 cur = float(closes.iloc[-1])
-                ref = float(closes.iloc[-6])
+                ref = float(closes.iloc[-2])  # 1営業日前との比較（前日比）
                 if ref != 0:
                     week_change = (cur - ref) / ref * 100
         except Exception:
