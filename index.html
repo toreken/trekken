@@ -1342,7 +1342,7 @@
     .note-card:hover .note-card-thumb img { transform: scale(1.06); }
 
     .symbol-list {
-      margin-top: 18px;
+      margin-top: 8px;
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
       gap: 6px;
@@ -1350,6 +1350,25 @@
       overflow-y: auto;
       padding: 4px;
     }
+    /* 並び替えセレクタ */
+    .symbol-sort-row {
+      margin-top: 14px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+    }
+    .symbol-sort-select {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--brown-300);
+      background: var(--cream-50);
+      color: var(--brown-800);
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .symbol-sort-select:hover { background: var(--cream-100); }
+    .symbol-sort-select:focus { outline: 2px solid var(--gold-500); outline-offset: 1px; }
     .symbol-list.expanded {
       max-height: none !important;
       overflow-y: visible !important;
@@ -3021,6 +3040,13 @@
         </select>
       </div>
 
+      <div class="symbol-sort-row">
+        <select class="symbol-sort-select" id="symbolSort" onchange="renderSymbolList()">
+          <option value="default">並び替え: デフォルト</option>
+          <option value="change_desc">並び替え: 騰落率（高い順）</option>
+          <option value="change_asc">並び替え: 騰落率（低い順）</option>
+        </select>
+      </div>
       <div class="symbol-list" id="symbolList"></div>
       <div class="overview-grid" id="overviewGrid" style="display:none;"></div>
       <div class="count-info" id="countInfo"></div>
@@ -3939,7 +3965,114 @@
     let lastChartImage = null;
     let compareMode = false;
 
+    function _getWeekChangeForSym(sym) {
+      // metaData から該当銘柄の week_change を返す（無ければ null）
+      if (!metaData || !Array.isArray(metaData.items)) return null;
+      const it = metaData.items.find(x => x.symbol === sym);
+      if (!it || it.week_change === null || it.week_change === undefined) return null;
+      const v = parseFloat(it.week_change);
+      return isNaN(v) ? null : v;
+    }
+    function _applySymbolSort(arr) {
+      // 並び替えセレクタの値に応じて配列を並び替える（コピーを返す）
+      const sortEl = document.getElementById('symbolSort');
+      const mode = sortEl ? sortEl.value : 'default';
+      if (mode === 'default') return arr;
+      const copy = arr.slice();
+      const sign = mode === 'change_asc' ? 1 : -1;
+      copy.sort((a, b) => {
+        const va = _getWeekChangeForSym(a);
+        const vb = _getWeekChangeForSym(b);
+        // null は末尾に
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        return (va - vb) * sign;
+      });
+      return copy;
+    }
+    // 現在のタブの銘柄を騰落率順で並び替えてフラット表示
+    function _renderSortedSymbolList(mode) {
+      const list = document.getElementById('symbolList');
+      const countInfo = document.getElementById('countInfo');
+      const toolbar = document.getElementById('sp500Toolbar');
+      list.classList.remove('etf-mode');
+
+      // 現在のタブの銘柄リストを取得
+      let allSyms = [];
+      if (currentGroup === 'WATCHLIST') {
+        allSyms = loadWatchlist(currentWatchlistId);
+      } else {
+        allSyms = (GROUPS[currentGroup] || []).slice();
+      }
+
+      // 並び替え（騰落率の昇順 or 降順、 nullは末尾）
+      const sign = (mode === 'change_asc') ? 1 : -1;
+      allSyms.sort((a, b) => {
+        const va = _getWeekChangeForSym(a);
+        const vb = _getWeekChangeForSym(b);
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        return (va - vb) * sign;
+      });
+
+      // toolbar 制御
+      const isSpecialGroup = (currentGroup === 'SP500' || currentGroup === 'NIKKEI225' || currentGroup === 'NASDAQ100');
+      toolbar.style.display = isSpecialGroup ? 'flex' : 'none';
+      const overviewBtnEl = document.getElementById('overviewBtn');
+      if (overviewBtnEl) overviewBtnEl.style.display = isSpecialGroup ? '' : 'none';
+      const expandBtnEl = document.getElementById('expandAllBtn');
+      if (expandBtnEl) expandBtnEl.style.display = isSpecialGroup ? '' : 'none';
+
+      // 描画
+      list.innerHTML = '';
+      if (allSyms.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--brown-500); font-size: 13px;';
+        empty.innerHTML = 'このタブには銘柄がありません';
+        list.appendChild(empty);
+      } else {
+        allSyms.forEach((sym, idx) => {
+          const chip = document.createElement('div');
+          let cls = 'symbol-chip';
+          if (sym === activeSymbol) cls += ' active';
+          if (FUTURES_SET.has(sym)) cls += ' futures';
+          else if (HYDROGEN_SET.has(sym)) cls += ' hydrogen';
+          else if (SOLAR_SET.has(sym)) cls += ' solar';
+          else if (QUANTUM_SET.has(sym)) cls += ' quantum';
+          else if (SPACE_SET.has(sym)) cls += ' space';
+          else if (NIKKEI_SET.has(sym)) cls += ' nikkei';
+          else if (FOREX_SET.has(sym)) cls += ' forex';
+          else if (ETF_SET.has(sym)) cls += ' etf';
+          else if (NASDAQ_SET.has(sym)) cls += ' nasdaq';
+          chip.className = cls;
+          chip.style.setProperty('--i', idx);
+          chip.innerHTML = _buildChipHtml(sym);
+          chip.onclick = () => loadChart(sym);
+          _applyScoreColor(chip, sym);
+          list.appendChild(chip);
+        });
+      }
+      const sortLabel = (mode === 'change_asc') ? '騰落率昇順' : '騰落率降順';
+      countInfo.textContent = `${allSyms.length} 銘柄（${sortLabel}）`;
+
+      // 横向きサイドバーが表示中なら同期
+      try {
+        if (document.body.classList.contains('landscape-split-mode')) {
+          _renderLandscapeSidebar();
+        }
+      } catch (e) { /* ignore */ }
+    }
+
     function sortSymbols(arr) {
+      const sortEl = document.getElementById('symbolSort');
+      const mode = sortEl ? sortEl.value : 'default';
+      // 騰落率ソートが選択されている場合はカテゴリ分類せず一括ソート
+      if (mode === 'change_asc' || mode === 'change_desc') {
+        return _applySymbolSort(arr);
+      }
+      // デフォルト：カテゴリ別ソート（先物 → others → 日経）
       const futures = [], nikkei = [], others = [];
       arr.forEach(s => {
         if (FUTURES_SET.has(s)) futures.push(s);
@@ -4041,6 +4174,15 @@
       const toolbar = document.getElementById('sp500Toolbar');
       const q = currentQuery.trim().toUpperCase();
       list.classList.remove('etf-mode');  // ETFタブ以外では2列モードを解除
+
+      // 並び替えセレクタ：騰落率モード時は専用フラット表示
+      const sortEl = document.getElementById('symbolSort');
+      const sortMode = sortEl ? sortEl.value : 'default';
+      if ((sortMode === 'change_asc' || sortMode === 'change_desc')
+          && !q && !filterActive) {
+        _renderSortedSymbolList(sortMode);
+        return;
+      }
 
       // toolbar の表示制御：
       //   - SP500 / NIKKEI225 / NASDAQ100 タブ → overview + expand 両方
