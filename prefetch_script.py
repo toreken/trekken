@@ -159,6 +159,27 @@ FOREX_SET_FOR_TV = frozenset([])
 #     'EURJPY', 'GBPJPY', 'AUDJPY', 'EURGBP',
 # ])
 
+# 暗号通貨は tvDatafeed (BINANCE) で取得することで、 サイト内チャート（fetch_crypto）と
+# ティッカー横の騰落率を完全一致させる
+# app.py の CRYPTO_MAP と同じマッピング
+CRYPTO_MAP_TV = {
+    'BTC':   ('BTCUSDT',  'BINANCE'),
+    'ETH':   ('ETHUSDT',  'BINANCE'),
+    'USDT':  ('USDTUSD',  'BINANCE'),
+    'BNB':   ('BNBUSDT',  'BINANCE'),
+    'SOL':   ('SOLUSDT',  'BINANCE'),
+    'USDC':  ('USDCUSDT', 'BINANCE'),
+    'XRP':   ('XRPUSDT',  'BINANCE'),
+    'ADA':   ('ADAUSDT',  'BINANCE'),
+    'DOGE':  ('DOGEUSDT', 'BINANCE'),
+    'TRX':   ('TRXUSDT',  'BINANCE'),
+    'AVAX':  ('AVAXUSDT', 'BINANCE'),
+    'LINK':  ('LINKUSDT', 'BINANCE'),
+    'MATIC': ('POLUSDT',  'BINANCE'),
+    'ATOMC': ('ATOMUSDT', 'BINANCE'),
+}
+CRYPTO_SET_FOR_TV = frozenset(CRYPTO_MAP_TV.keys())
+
 
 # ===========================
 # S&P 500 銘柄リストと業界マップ
@@ -1332,6 +1353,31 @@ def process_light_targets(thumbs):
                         continue
                 if df is None or df.empty or len(df) < 60:
                     print(f"  ✗ {original_sym}: all exchanges failed. last_error={last_error}")
+                    failed.append(original_sym)
+                    continue
+                # tvDatafeed の戻り値: 列は symbol, open, high, low, close, volume（小文字）
+                if 'symbol' in df.columns:
+                    df = df.drop(columns=['symbol'])
+                df.columns = [str(c).lower() for c in df.columns]
+
+            # 暗号通貨も tvDatafeed (BINANCE) で取得することで、 サイト内チャートと完全一致
+            elif original_sym in CRYPTO_SET_FOR_TV:
+                tv = get_tv()
+                Interval = get_tv_interval()
+                if tv is None or Interval is None:
+                    print(f"  ✗ {original_sym}: tvDatafeed not available, skipping")
+                    failed.append(original_sym)
+                    continue
+                tv_sym, tv_exch = CRYPTO_MAP_TV[original_sym]
+                try:
+                    df = tv.get_hist(symbol=tv_sym, exchange=tv_exch,
+                                     interval=Interval.in_daily, n_bars=400)
+                except Exception as tv_e:
+                    print(f"  ✗ {original_sym}: tvDatafeed get_hist failed: {tv_e}")
+                    failed.append(original_sym)
+                    continue
+                if df is None or df.empty or len(df) < 60:
+                    print(f"  ✗ {original_sym}: tvDatafeed returned insufficient data")
                     failed.append(original_sym)
                     continue
                 # tvDatafeed の戻り値: 列は symbol, open, high, low, close, volume（小文字）
