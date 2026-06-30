@@ -2533,75 +2533,14 @@
     }
 
     /* ===== iPhone横向きレイアウト ===== */
-    /* チャート表示中だけ、 左にチャート(70%) / 右にティッカー一覧(30%) で分割 */
-    /* JS が body.landscape-split-mode を付けた時のみ有効化 */
-    /* CSS のメディアクエリ縛りは JS 側でやるためここでは不要にする */
-    body.landscape-split-mode {
-      overflow: hidden !important;
+    /* CSS だけで横分割を実現（JS の判定に依存しない確実な方法） */
+    /* チャート表示中（.active）かつ横向き＋スマホサイズの場合のみ適用 */
+
+    /* 共通：landscape-sidebar の基本スタイル（縦向きでは非表示） */
+    .landscape-sidebar {
+      display: none;
     }
-    body.landscape-split-mode #chartArea.active {
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: 70vw !important;
-      height: 100vh !important;
-      max-width: 70vw !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      z-index: 200 !important;
-      background: var(--cream-50) !important;
-      display: flex !important;
-      flex-direction: column !important;
-      transition: width 0.25s ease, max-width 0.25s ease !important;
-    }
-    body.landscape-split-mode.list-hidden #chartArea.active {
-      width: 100vw !important;
-      max-width: 100vw !important;
-    }
-    body.landscape-split-mode #chartArea.active .chart-main {
-      flex: 1 !important;
-      display: flex !important;
-      flex-direction: column !important;
-      max-width: 100% !important;
-      margin: 0 !important;
-      border-radius: 0 !important;
-      height: 100% !important;
-    }
-    body.landscape-split-mode #chartArea.active .chart-body {
-      flex: 1 !important;
-      overflow: hidden !important;
-    }
-    body.landscape-split-mode #chartArea.active .chart-body img {
-      max-height: 100% !important;
-      object-fit: contain !important;
-    }
-    /* 右側に表示する銘柄リストパネル */
-    body.landscape-split-mode .landscape-sidebar {
-      display: block !important;
-      position: fixed !important;
-      top: 0 !important;
-      right: 0 !important;
-      width: 30vw !important;
-      height: 100vh !important;
-      background: white !important;
-      border-left: 1px solid var(--brown-200) !important;
-      overflow-y: auto !important;
-      overflow-x: hidden !important;
-      z-index: 201 !important;
-      padding: 8px 10px !important;
-      transition: transform 0.25s ease !important;
-      box-shadow: -2px 0 6px rgba(0,0,0,0.05) !important;
-      font-size: 11px !important;
-    }
-    body.landscape-split-mode.list-hidden .landscape-sidebar {
-      transform: translateX(100%) !important;
-    }
-    body.landscape-split-mode .landscape-sidebar .symbol-chip {
-      font-size: 11px !important;
-      padding: 4px 6px !important;
-      min-height: 36px !important;
-    }
-    /* リスト表示・非表示トグルボタン（チャートヘッダー内に表示） */
+    /* リスト非表示・トグルボタンの基本スタイル（縦向きでは非表示） */
     .landscape-toggle-list-btn {
       display: none;
       background: rgba(255,255,255,0.1);
@@ -2614,8 +2553,157 @@
       margin-right: 6px;
     }
     .landscape-toggle-list-btn:hover { background: rgba(255,255,255,0.25); }
-    body.landscape-split-mode .landscape-toggle-list-btn {
-      display: inline-block !important;
+
+    /* ===== 小型スマホ横向き（iPhone SE 等、 640px以下）：チャート60% / リスト40% ===== */
+    @media (orientation: landscape) and (max-width: 640px) {
+      .chart-area.active {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 60vw !important;
+        height: 100vh !important;
+        max-width: 60vw !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        z-index: 200 !important;
+        background: var(--cream-50) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow-y: auto !important;
+      }
+      .chart-area.active.list-hidden { width: 100vw !important; max-width: 100vw !important; }
+      .landscape-sidebar {
+        display: block !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        width: 40vw !important;
+        height: 100vh !important;
+        background: white !important;
+        border-left: 1px solid var(--brown-200) !important;
+        overflow-y: auto !important;
+        z-index: 201 !important;
+        padding: 6px 8px !important;
+        font-size: 10px !important;
+      }
+      .chart-area.active.list-hidden + .landscape-sidebar { transform: translateX(100%); }
+      .landscape-sidebar .symbol-chip { font-size: 10px !important; padding: 4px 4px !important; min-height: 34px !important; }
+      .chart-area.active .landscape-toggle-list-btn { display: inline-block !important; }
+      body:has(.chart-area.active) { overflow: hidden; }
+    }
+
+    /* ===== 中型スマホ横向き（iPhone 12/14 等、 641-768px）：チャート65% / リスト35% ===== */
+    @media (orientation: landscape) and (min-width: 641px) and (max-width: 768px) {
+      .chart-area.active {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 65vw !important;
+        height: 100vh !important;
+        max-width: 65vw !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        z-index: 200 !important;
+        background: var(--cream-50) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow-y: auto !important;
+      }
+      .chart-area.active.list-hidden { width: 100vw !important; max-width: 100vw !important; }
+      .landscape-sidebar {
+        display: block !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        width: 35vw !important;
+        height: 100vh !important;
+        background: white !important;
+        border-left: 1px solid var(--brown-200) !important;
+        overflow-y: auto !important;
+        z-index: 201 !important;
+        padding: 8px 10px !important;
+        font-size: 11px !important;
+      }
+      .chart-area.active.list-hidden + .landscape-sidebar { transform: translateX(100%); }
+      .landscape-sidebar .symbol-chip { font-size: 11px !important; padding: 4px 6px !important; min-height: 36px !important; }
+      .chart-area.active .landscape-toggle-list-btn { display: inline-block !important; }
+      body:has(.chart-area.active) { overflow: hidden; }
+    }
+
+    /* ===== 大型スマホ・小型タブレット横向き（iPhone Pro Max 等、 769-1024px）：チャート70% / リスト30% ===== */
+    @media (orientation: landscape) and (min-width: 769px) and (max-width: 1024px) {
+      .chart-area.active {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 70vw !important;
+        height: 100vh !important;
+        max-width: 70vw !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        z-index: 200 !important;
+        background: var(--cream-50) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow-y: auto !important;
+      }
+      .chart-area.active.list-hidden { width: 100vw !important; max-width: 100vw !important; }
+      .landscape-sidebar {
+        display: block !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        width: 30vw !important;
+        height: 100vh !important;
+        background: white !important;
+        border-left: 1px solid var(--brown-200) !important;
+        overflow-y: auto !important;
+        z-index: 201 !important;
+        padding: 8px 10px !important;
+        font-size: 11px !important;
+      }
+      .chart-area.active.list-hidden + .landscape-sidebar { transform: translateX(100%); }
+      .landscape-sidebar .symbol-chip { font-size: 11px !important; padding: 4px 6px !important; min-height: 36px !important; }
+      .chart-area.active .landscape-toggle-list-btn { display: inline-block !important; }
+      body:has(.chart-area.active) { overflow: hidden; }
+    }
+
+    /* ===== iPad / Safari デスクトップモード等 横向き（1025-1920px）：チャート75% / リスト25% ===== */
+    @media (orientation: landscape) and (min-width: 1025px) and (max-width: 1920px) {
+      .chart-area.active {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 75vw !important;
+        height: 100vh !important;
+        max-width: 75vw !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        z-index: 200 !important;
+        background: var(--cream-50) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow-y: auto !important;
+      }
+      .chart-area.active.list-hidden { width: 100vw !important; max-width: 100vw !important; }
+      .landscape-sidebar {
+        display: block !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        width: 25vw !important;
+        height: 100vh !important;
+        background: white !important;
+        border-left: 1px solid var(--brown-200) !important;
+        overflow-y: auto !important;
+        z-index: 201 !important;
+        padding: 10px 12px !important;
+        font-size: 12px !important;
+      }
+      .chart-area.active.list-hidden + .landscape-sidebar { transform: translateX(100%); }
+      .landscape-sidebar .symbol-chip { font-size: 12px !important; padding: 6px 8px !important; min-height: 40px !important; }
+      .chart-area.active .landscape-toggle-list-btn { display: inline-block !important; }
+      body:has(.chart-area.active) { overflow: hidden; }
     }
 
     /* ===== ローディング画面 ===== */
@@ -4058,11 +4146,9 @@
       const sortLabel = (mode === 'change_asc') ? '騰落率昇順' : '騰落率降順';
       countInfo.textContent = `${allSyms.length} 銘柄（${sortLabel}）`;
 
-      // 横向きサイドバーが表示中なら同期
+      // 横向きサイドバーも常時同期（CSS の media query で表示制御）
       try {
-        if (document.body.classList.contains('landscape-split-mode')) {
-          _renderLandscapeSidebar();
-        }
+        _renderLandscapeSidebar();
       } catch (e) { /* ignore */ }
     }
 
@@ -4397,11 +4483,9 @@
       } else {
         countInfo.textContent = `${displaySymbols.length} / ${totalCount} 銘柄`;
       }
-      // 横向きサイドバーが表示中なら同期する
+      // 横向き時用サイドバーも同期（CSS が media query で表示制御）
       try {
-        if (document.body.classList.contains('landscape-split-mode')) {
-          _renderLandscapeSidebar();
-        }
+        _renderLandscapeSidebar();
       } catch (e) { /* ignore */ }
     }
 
@@ -5061,8 +5145,9 @@
       }
     }
     function toggleLandscapeList() {
-      const body = document.body;
-      body.classList.toggle('list-hidden');
+      // CSS で chart-area.active.list-hidden を 100vw に展開する
+      const area = document.getElementById('chartArea');
+      if (area) area.classList.toggle('list-hidden');
       _updateLandscapeDebug('toggle clicked');
     }
 
@@ -5071,19 +5156,16 @@
       try {
         const el = document.getElementById('landscapeDebug');
         if (!el) return;
-        const body = document.body;
         const w = window.innerWidth;
         const h = window.innerHeight;
         const isLand = w > h;
-        const cls = body.className || '(empty)';
-        const sidebar = document.getElementById('landscapeSidebar');
-        const sidebarInline = sidebar ? (sidebar.style.display || '(none-inline)') : '(no-elem)';
-        const sidebarComp = sidebar ? getComputedStyle(sidebar).display : '(no-elem)';
         const chartArea = document.getElementById('chartArea');
         const chartActive = chartArea ? chartArea.classList.contains('active') : false;
         const chartPos = chartArea ? getComputedStyle(chartArea).position : '(none)';
         const chartW = chartArea ? getComputedStyle(chartArea).width : '(none)';
-        el.textContent = `[${label||'state'}] w=${w} h=${h} land=${isLand} | body.cls="${cls}" | chart.active=${chartActive} pos=${chartPos} w=${chartW} | sidebar inline=${sidebarInline} computed=${sidebarComp}`;
+        const sidebar = document.getElementById('landscapeSidebar');
+        const sidebarComp = sidebar ? getComputedStyle(sidebar).display : '(no-elem)';
+        el.textContent = `[${label||'state'}] w=${w} h=${h} land=${isLand} | chart.active=${chartActive} pos=${chartPos} w=${chartW} | sidebar=${sidebarComp}`;
       } catch (e) {}
     }
     setInterval(() => _updateLandscapeDebug('tick'), 1000);
@@ -5591,8 +5673,8 @@
     fetchMetaData();
   </script>
 
-  <!-- iPhone横向き専用：右側に表示するティッカー一覧サイドバー（PC・縦向き時は非表示） -->
-  <div class="landscape-sidebar" id="landscapeSidebar" style="display:none;"></div>
+  <!-- iPhone横向き専用：右側に表示するティッカー一覧サイドバー（CSS の media query で表示制御） -->
+  <div class="landscape-sidebar" id="landscapeSidebar"></div>
 
   <!-- デバッグバー（横向きレイアウト確認用、 動作確認後に削除予定） -->
   <div id="landscapeDebug" style="position:fixed; bottom:0; left:0; right:0; background:rgba(0,0,0,0.85); color:#0f0; font-size:10px; padding:4px 8px; z-index:9999; font-family:monospace; line-height:1.3; pointer-events:none; word-break:break-all;"></div>
