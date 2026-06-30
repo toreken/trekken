@@ -2584,67 +2584,71 @@
       }
     }
 
-    /* 小型スマホ横向き（〜640px）：右側 40% をサイドバーに */
+    /* 小型スマホ横向き（〜640px）：右側 15% をサイドバーに */
     @media (orientation: landscape) and (max-width: 640px) {
-      body.chart-open { margin-right: 40vw !important; }
+      body.chart-open { margin-right: 15vw !important; }
       body.chart-open.list-hidden { margin-right: 0 !important; }
       body.chart-open .landscape-sidebar {
-        width: 40vw !important;
+        width: 15vw !important;
+        min-width: 70px !important;
+        padding: 4px 5px !important;
+        font-size: 9px !important;
+      }
+      body.chart-open .landscape-sidebar .symbol-chip {
+        font-size: 9px !important;
+        padding: 3px 3px !important;
+        min-height: 30px !important;
+      }
+    }
+
+    /* 中型スマホ横向き（641-768px）：右側 15% をサイドバーに */
+    @media (orientation: landscape) and (min-width: 641px) and (max-width: 768px) {
+      body.chart-open { margin-right: 15vw !important; }
+      body.chart-open.list-hidden { margin-right: 0 !important; }
+      body.chart-open .landscape-sidebar {
+        width: 15vw !important;
+        min-width: 90px !important;
+        padding: 6px 6px !important;
+        font-size: 10px !important;
+      }
+      body.chart-open .landscape-sidebar .symbol-chip {
+        font-size: 10px !important;
+        padding: 3px 4px !important;
+        min-height: 32px !important;
+      }
+    }
+
+    /* 大型スマホ横向き（769-1024px）：右側 15% をサイドバーに */
+    @media (orientation: landscape) and (min-width: 769px) and (max-width: 1024px) {
+      body.chart-open { margin-right: 15vw !important; }
+      body.chart-open.list-hidden { margin-right: 0 !important; }
+      body.chart-open .landscape-sidebar {
+        width: 15vw !important;
+        min-width: 110px !important;
         padding: 6px 8px !important;
         font-size: 10px !important;
       }
       body.chart-open .landscape-sidebar .symbol-chip {
         font-size: 10px !important;
-        padding: 4px 4px !important;
+        padding: 4px 5px !important;
         min-height: 34px !important;
       }
     }
 
-    /* 中型スマホ横向き（641-768px）：右側 35% をサイドバーに */
-    @media (orientation: landscape) and (min-width: 641px) and (max-width: 768px) {
-      body.chart-open { margin-right: 35vw !important; }
-      body.chart-open.list-hidden { margin-right: 0 !important; }
-      body.chart-open .landscape-sidebar {
-        width: 35vw !important;
-        padding: 8px 10px !important;
-        font-size: 11px !important;
-      }
-      body.chart-open .landscape-sidebar .symbol-chip {
-        font-size: 11px !important;
-        padding: 4px 6px !important;
-        min-height: 36px !important;
-      }
-    }
-
-    /* 大型スマホ横向き（769-1024px）：右側 30% をサイドバーに */
-    @media (orientation: landscape) and (min-width: 769px) and (max-width: 1024px) {
-      body.chart-open { margin-right: 30vw !important; }
-      body.chart-open.list-hidden { margin-right: 0 !important; }
-      body.chart-open .landscape-sidebar {
-        width: 30vw !important;
-        padding: 8px 10px !important;
-        font-size: 11px !important;
-      }
-      body.chart-open .landscape-sidebar .symbol-chip {
-        font-size: 11px !important;
-        padding: 4px 6px !important;
-        min-height: 36px !important;
-      }
-    }
-
-    /* iPad / Safari デスクトップモード等 横向き（1025-1920px）：右側 25% をサイドバーに */
+    /* iPad / Safari デスクトップモード等 横向き（1025-1920px）：右側 15% をサイドバーに */
     @media (orientation: landscape) and (min-width: 1025px) and (max-width: 1920px) {
-      body.chart-open { margin-right: 25vw !important; }
+      body.chart-open { margin-right: 15vw !important; }
       body.chart-open.list-hidden { margin-right: 0 !important; }
       body.chart-open .landscape-sidebar {
-        width: 25vw !important;
-        padding: 10px 12px !important;
-        font-size: 12px !important;
+        width: 15vw !important;
+        min-width: 140px !important;
+        padding: 8px 10px !important;
+        font-size: 11px !important;
       }
       body.chart-open .landscape-sidebar .symbol-chip {
-        font-size: 12px !important;
-        padding: 6px 8px !important;
-        min-height: 40px !important;
+        font-size: 11px !important;
+        padding: 5px 6px !important;
+        min-height: 36px !important;
       }
     }
 
@@ -4080,7 +4084,7 @@
           chip.className = cls;
           chip.style.setProperty('--i', idx);
           chip.innerHTML = _buildChipHtml(sym);
-          chip.onclick = () => loadChart(sym);
+          chip.setAttribute("data-symbol", sym); chip.onclick = () => loadChart(sym);
           _applyScoreColor(chip, sym);
           list.appendChild(chip);
         });
@@ -4276,7 +4280,7 @@
             chip.style.setProperty('--i', idx);
             chip.innerHTML = _buildChipHtml(sym);
             chip.title = `スコア: ${rising[idx].score}`;
-            chip.onclick = () => loadChart(sym);
+            chip.setAttribute("data-symbol", sym); chip.onclick = () => loadChart(sym);
             _applyScoreColor(chip, sym);
             list.appendChild(chip);
           });
@@ -4325,7 +4329,7 @@
             chip.className = cls;
             chip.style.setProperty('--i', idx);
             chip.innerHTML = _buildChipHtml(sym);
-            chip.onclick = () => loadChart(sym);
+            chip.setAttribute("data-symbol", sym); chip.onclick = () => loadChart(sym);
             // 右クリックで削除確認
             chip.oncontextmenu = (e) => {
               e.preventDefault();
@@ -4372,7 +4376,7 @@
             chip.className = cls;
             chip.style.setProperty('--i', idx++);
             chip.innerHTML = _buildChipHtml(sym);
-            chip.onclick = () => loadChart(sym);
+            chip.setAttribute("data-symbol", sym); chip.onclick = () => loadChart(sym);
             _applyScoreColor(chip, sym);
             symbolsWrap.appendChild(chip);
           });
@@ -4412,7 +4416,7 @@
           chip.style.setProperty('--i', idx);
           // TSE:で始まる銘柄はコード番号だけ表示（TSE:7203 → 7203）
           chip.innerHTML = _buildChipHtml(sym);
-          chip.onclick = () => loadChart(sym);
+          chip.setAttribute("data-symbol", sym); chip.onclick = () => loadChart(sym);
           _applyScoreColor(chip, sym);
           list.appendChild(chip);
         });
@@ -5084,7 +5088,29 @@
       const sidebar = document.getElementById('landscapeSidebar');
       if (!main || !sidebar) return;
       sidebar.innerHTML = main.innerHTML;
-      // 注：onclick は HTML 内に inline で記述済みなので、 そのままで loadChart 等は動作する
+      // 注：onclickハンドラは innerHTML コピーで失われるため、
+      // イベント委譲（後述の_initLandscapeSidebarClick）で対応する。
+      // chip要素には data-symbol 属性が付いているのでそこから銘柄を取得する。
+    }
+
+    // サイドバーのクリックを処理（イベント委譲）
+    // chip 要素の data-symbol 属性から銘柄を取得して loadChart を呼ぶ
+    function _initLandscapeSidebarClick() {
+      const sidebar = document.getElementById('landscapeSidebar');
+      if (!sidebar || sidebar.dataset.clickInit === '1') return;
+      sidebar.dataset.clickInit = '1';
+      sidebar.addEventListener('click', (e) => {
+        const chip = e.target.closest('.symbol-chip');
+        if (chip && chip.dataset.symbol) {
+          loadChart(chip.dataset.symbol);
+        }
+      });
+    }
+    // DOM 準備完了後に登録
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _initLandscapeSidebarClick);
+    } else {
+      _initLandscapeSidebarClick();
     }
     // 画面回転 / リサイズ時の再判定
     window.addEventListener('resize', () => {
