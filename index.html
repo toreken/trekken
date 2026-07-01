@@ -4359,10 +4359,12 @@
           const block = document.createElement('div');
           block.className = 'etf-sector-block';
 
-          // セクター見出し
+          // セクター見出し（クリックで一気見）
           const header = document.createElement('div');
           header.className = 'sector-header';
           header.innerHTML = `<span class="sector-header-name">${sector.name}</span><span class="sector-header-action">📊 一気見</span>`;
+          header.setAttribute('data-sector', sector.name);
+          header.setAttribute('data-symbols', JSON.stringify(sector.symbols));
           header.onclick = () => loadSectorCompare(sector.name, sector.symbols);
           block.appendChild(header);
 
@@ -5095,11 +5097,24 @@
 
     // サイドバーのクリックを処理（イベント委譲）
     // chip 要素の data-symbol 属性から銘柄を取得して loadChart を呼ぶ
+    // sector-header (ETF一気見) の場合は loadSectorCompare を呼ぶ
     function _initLandscapeSidebarClick() {
       const sidebar = document.getElementById('landscapeSidebar');
       if (!sidebar || sidebar.dataset.clickInit === '1') return;
       sidebar.dataset.clickInit = '1';
       sidebar.addEventListener('click', (e) => {
+        // 1. ETFセクター見出し（一気見）判定
+        const header = e.target.closest('.sector-header');
+        if (header && header.dataset.sector && header.dataset.symbols) {
+          try {
+            const symbols = JSON.parse(header.dataset.symbols);
+            loadSectorCompare(header.dataset.sector, symbols);
+          } catch (err) {
+            console.error('sector header click failed:', err);
+          }
+          return;
+        }
+        // 2. 個別銘柄チップ判定
         const chip = e.target.closest('.symbol-chip');
         if (chip && chip.dataset.symbol) {
           loadChart(chip.dataset.symbol);
