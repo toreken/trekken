@@ -102,6 +102,7 @@ def is_valid_symbol(symbol):
 # ===== robots.txt（AI クローラーブロック） =====
 ROBOTS_TXT_CONTENT = """User-agent: *
 Allow: /
+Disallow: /operator
 
 # AI/LLM 学習クローラーを全面ブロック
 User-agent: GPTBot
@@ -3349,9 +3350,30 @@ def index():
         return f.read()
 
 
-# / もレート制限から除外（Render のデフォルトヘルスチェックパス対応）
-# ※ index() に直接 @limiter.exempt はつけられないので、別の方法で除外
+@app.route('/operator')
+def operator_page():
+    """運営専用ページ。 環境変数 OPERATOR_TOKEN と URL の ?token=xxx を比較して認証。
+    通過すると、通常の index.html に IS_OPERATOR=true フラグを注入して返す。
+    クライアント側で運営専用 UI（時間軸切替、 自動リロード、 TradingView Widget等）を有効化。
+    """
+    token = request.args.get('token', '').strip()
+    expected = os.environ.get('OPERATOR_TOKEN', '').strip()
+    if not expected:
+        # 環境変数未設定 → セキュリティのため全拒否
+        return "🔒 OPERATOR_TOKEN が未設定です（Render の環境変数に設定してください）", 503
+    if token != expected:
+        return "🚫 Access denied", 403
+    # 認証通過：index.html を読み込み、 運営モードフラグを <head> 内に注入
+    with open('index.html', 'r', encoding='utf-8') as f:
+        html = f.read()
+    injection = '<script>window.IS_OPERATOR = true;</script>'
+    html = html.replace('</head>', f'{injection}\n</head>', 1)
+    return html
+
+
+# / と /operator もレート制限から除外
 limiter.exempt(index)
+limiter.exempt(operator_page)
 
 
 if __name__ == '__main__':
