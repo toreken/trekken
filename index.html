@@ -2532,6 +2532,73 @@
       .note-card { flex: 0 0 260px; }
     }
 
+    /* ===== 運営モード専用スタイル ===== */
+    /* /operator?token=xxx で認証を通過すると body.operator-mode が付く */
+    /* 運営専用UIを .operator-only クラスで制御 */
+    .operator-only { display: none !important; }
+    body.operator-mode .operator-only { display: block !important; }
+    body.operator-mode .operator-only-inline { display: inline-block !important; }
+    body.operator-mode .operator-only-flex { display: flex !important; }
+
+    /* 運営モードバッジ（画面右上に常時表示） */
+    .operator-badge {
+      display: none;
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      background: linear-gradient(135deg, #ff4b5c 0%, #c9302c 100%);
+      color: white;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      z-index: 9999;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      pointer-events: none;
+      user-select: none;
+    }
+    body.operator-mode .operator-badge { display: inline-block; }
+
+    /* 運営用ツールバー（チャートエリア内、 時間軸切替＋自動リロード＋TVモード） */
+    .operator-toolbar {
+      display: none;
+      gap: 8px;
+      padding: 8px 14px;
+      background: linear-gradient(135deg, #fff0f0 0%, #ffe0e0 100%);
+      border-bottom: 1px solid #ff9999;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+    body.operator-mode .operator-toolbar { display: flex; }
+    .operator-toolbar .op-label {
+      font-weight: 700;
+      color: #c9302c;
+      margin-right: 4px;
+    }
+    .operator-toolbar select,
+    .operator-toolbar button {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid #c9302c;
+      background: white;
+      color: #c9302c;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .operator-toolbar select:hover,
+    .operator-toolbar button:hover { background: #fff5f5; }
+    .operator-toolbar button.active {
+      background: #c9302c;
+      color: white;
+    }
+    .operator-toolbar .op-status {
+      color: #666;
+      font-size: 11px;
+      margin-left: auto;
+    }
+
     /* ===== iPhone横向きレイアウト ===== */
     /* チャート表示中だけ、 右にティッカー一覧サイドバー、 メインは通常フローで上下スクロール可能 */
     /* JS が body に chart-open / list-hidden クラスを付けて制御 */
@@ -3104,6 +3171,20 @@
           <button class="chart-close" onclick="closeChart()" title="閉じる">✕</button>
         </div>
       </div>
+      <!-- 運営専用ツールバー（body.operator-mode 時のみ表示） -->
+      <div class="operator-toolbar" id="operatorToolbar">
+        <span class="op-label">🔧 運営</span>
+        <select id="opInterval" onchange="opChangeInterval()" title="時間軸切替">
+          <option value="1d">日足</option>
+          <option value="1h">1時間足</option>
+          <option value="15m">15分足</option>
+          <option value="5m">5分足</option>
+          <option value="1m">1分足</option>
+        </select>
+        <button id="opAutoReloadBtn" onclick="opToggleAutoReload()" title="1分ごと自動リロード">🔄 自動更新: OFF</button>
+        <button id="opTradingViewBtn" onclick="opToggleTradingView()" title="TradingView Widget 表示">📺 TV Widget: OFF</button>
+        <span class="op-status" id="opStatus">日足表示中</span>
+      </div>
       <div class="chart-body" id="chartBody"></div>
     </div>
     <!-- 色凡例バナー（チャート直下） -->
@@ -3342,6 +3423,111 @@
   </script>
 
   <script>
+
+    // ===== 運営モード初期化 =====
+    // /operator?token=xxx でアクセスすると app.py が window.IS_OPERATOR = true を注入
+    if (window.IS_OPERATOR) {
+      document.body.classList.add('operator-mode');
+      console.log('[operator] Operator mode enabled');
+    }
+
+    // ===== 運営機能：時間軸切替 =====
+    let opCurrentInterval = '1d';  // 現在の時間軸（'1d', '1h', '15m', '5m', '1m'）
+    function opChangeInterval() {
+      const sel = document.getElementById('opInterval');
+      if (!sel) return;
+      opCurrentInterval = sel.value;
+      const label = sel.options[sel.selectedIndex].text;
+      const status = document.getElementById('opStatus');
+      if (status) status.textContent = `${label}表示中`;
+      console.log('[operator] Interval changed to', opCurrentInterval);
+      // 現在表示中の銘柄があれば再取得
+      if (typeof activeSymbol !== 'undefined' && activeSymbol) {
+        // 現状は日足のみ対応。 intraday は Phase 2 で実装。
+        if (opCurrentInterval === '1d') {
+          if (typeof loadChart === 'function') loadChart(activeSymbol);
+        } else {
+          if (status) status.textContent = `${label}: Phase 2で実装予定`;
+        }
+      }
+    }
+
+    // ===== 運営機能：自動リロード =====
+    let opAutoReloadTimer = null;
+    let opAutoReloadEnabled = false;
+    function opToggleAutoReload() {
+      const btn = document.getElementById('opAutoReloadBtn');
+      opAutoReloadEnabled = !opAutoReloadEnabled;
+      if (opAutoReloadEnabled) {
+        btn.textContent = '🔄 自動更新: ON';
+        btn.classList.add('active');
+        // 60秒ごとに現在の銘柄を再取得
+        opAutoReloadTimer = setInterval(() => {
+          if (typeof activeSymbol !== 'undefined' && activeSymbol && typeof loadChart === 'function') {
+            console.log('[operator] Auto reload:', activeSymbol);
+            loadChart(activeSymbol);
+          }
+        }, 60000);
+        console.log('[operator] Auto reload enabled (60s)');
+      } else {
+        btn.textContent = '🔄 自動更新: OFF';
+        btn.classList.remove('active');
+        if (opAutoReloadTimer) {
+          clearInterval(opAutoReloadTimer);
+          opAutoReloadTimer = null;
+        }
+        console.log('[operator] Auto reload disabled');
+      }
+    }
+
+    // ===== 運営機能：TradingView Widget 切替 =====
+    let opTradingViewMode = false;
+    function opToggleTradingView() {
+      const btn = document.getElementById('opTradingViewBtn');
+      const body = document.getElementById('chartBody');
+      opTradingViewMode = !opTradingViewMode;
+      if (opTradingViewMode) {
+        btn.textContent = '📺 TV Widget: ON';
+        btn.classList.add('active');
+        if (typeof activeSymbol !== 'undefined' && activeSymbol && body) {
+          opRenderTradingViewWidget(activeSymbol);
+        }
+      } else {
+        btn.textContent = '📺 TV Widget: OFF';
+        btn.classList.remove('active');
+        // 通常のチャートに戻す
+        if (typeof activeSymbol !== 'undefined' && activeSymbol && typeof loadChart === 'function') {
+          loadChart(activeSymbol);
+        }
+      }
+    }
+    function opRenderTradingViewWidget(sym) {
+      const body = document.getElementById('chartBody');
+      if (!body) return;
+      // TradingView シンボルに変換（暗号通貨・日本株の特殊対応）
+      let tvSym = sym;
+      if (sym.startsWith('TSE:')) {
+        tvSym = sym.replace('TSE:', 'TSE:');  // 日本株
+      } else if (['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','BNB','USDT','USDC','TRX','ATOMC'].includes(sym)) {
+        tvSym = `BINANCE:${sym === 'ATOMC' ? 'ATOM' : sym}USDT`;
+      } else if (sym === 'NQ1!' || sym === 'ES1!') {
+        tvSym = `CME:${sym}`;
+      } else if (sym === 'N225') {
+        tvSym = 'TVC:NI225';
+      } else {
+        tvSym = `NASDAQ:${sym}`;  // 米国株のデフォルト（多くはNASDAQ）
+      }
+      body.innerHTML = `
+        <div style="position:relative; width:100%; height:70vh; min-height:400px;">
+          <iframe
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tv_op&symbol=${encodeURIComponent(tvSym)}&interval=D&hidesidetoolbar=1&symboledit=1&saveimage=0&toolbarbg=f1f3f6&studies=%5B%5D&theme=light&style=1&timezone=Asia%2FTokyo&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=ja"
+            style="width:100%; height:100%; border:0;"
+            allowfullscreen
+            frameborder="0">
+          </iframe>
+        </div>
+        <div style="text-align:center; padding:8px; font-size:11px; color:#666;">TradingView Widget: ${tvSym}</div>`;
+    }
 
     // ローディング画面
     window.addEventListener('load', () => {
@@ -5624,5 +5810,8 @@
 
   <!-- iPhone横向き専用：右側に表示するティッカー一覧サイドバー（CSS の media query で表示制御） -->
   <div class="landscape-sidebar" id="landscapeSidebar"></div>
+
+  <!-- 運営モードバッジ（body.operator-mode 時のみ表示） -->
+  <div class="operator-badge">🔧 運営モード</div>
 </body>
 </html>
