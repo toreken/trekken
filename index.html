@@ -3432,22 +3432,38 @@
     }
 
     // ===== 運営機能：時間軸切替 =====
-    let opCurrentInterval = '1d';  // 現在の時間軸（'1d', '1h', '15m', '5m', '1m'）
+    // '1d'/'1h'/'15m'/'5m'/'1m' → TradingView Widget の interval パラメータへ変換
+    const OP_INTERVAL_TO_TV = {
+      '1d':  'D',
+      '1h':  '60',
+      '15m': '15',
+      '5m':  '5',
+      '1m':  '1',
+    };
+    let opCurrentInterval = '1d';
     function opChangeInterval() {
       const sel = document.getElementById('opInterval');
       if (!sel) return;
       opCurrentInterval = sel.value;
       const label = sel.options[sel.selectedIndex].text;
       const status = document.getElementById('opStatus');
-      if (status) status.textContent = `${label}表示中`;
       console.log('[operator] Interval changed to', opCurrentInterval);
-      // 現在表示中の銘柄があれば再取得
-      if (typeof activeSymbol !== 'undefined' && activeSymbol) {
-        // 現状は日足のみ対応。 intraday は Phase 2 で実装。
+
+      if (opTradingViewMode) {
+        // TV Widget モード：新しい interval で iframe を再描画
+        if (status) status.textContent = `${label} 表示中 (TV Widget)`;
+        if (typeof activeSymbol !== 'undefined' && activeSymbol) {
+          opRenderTradingViewWidget(activeSymbol);
+        }
+      } else {
+        // 通常モード：日足のみ動作、 他は「TV Widget ON にしてください」案内
         if (opCurrentInterval === '1d') {
-          if (typeof loadChart === 'function') loadChart(activeSymbol);
+          if (status) status.textContent = `日足表示中`;
+          if (typeof activeSymbol !== 'undefined' && activeSymbol && typeof loadChart === 'function') {
+            loadChart(activeSymbol);
+          }
         } else {
-          if (status) status.textContent = `${label}: Phase 2で実装予定`;
+          if (status) status.textContent = `${label}: 「📺 TV Widget: ON」で表示可能`;
         }
       }
     }
@@ -3504,29 +3520,42 @@
     function opRenderTradingViewWidget(sym) {
       const body = document.getElementById('chartBody');
       if (!body) return;
-      // TradingView シンボルに変換（暗号通貨・日本株の特殊対応）
+      // TradingView シンボルに変換（暗号通貨・日本株・先物の特殊対応）
       let tvSym = sym;
       if (sym.startsWith('TSE:')) {
-        tvSym = sym.replace('TSE:', 'TSE:');  // 日本株
+        tvSym = sym;  // TSE:7203 → そのまま
       } else if (['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','BNB','USDT','USDC','TRX','ATOMC'].includes(sym)) {
-        tvSym = `BINANCE:${sym === 'ATOMC' ? 'ATOM' : sym}USDT`;
+        const base = sym === 'ATOMC' ? 'ATOM' : sym;
+        // USDT/USDC はUSDペア、それ以外はUSDTペア
+        if (sym === 'USDT') tvSym = 'BINANCE:USDTUSD';
+        else if (sym === 'USDC') tvSym = 'BINANCE:USDCUSDT';
+        else tvSym = `BINANCE:${base}USDT`;
       } else if (sym === 'NQ1!' || sym === 'ES1!') {
-        tvSym = `CME:${sym}`;
+        tvSym = `CME_MINI:${sym.replace('1!', '1!')}`;  // CME_MINI:NQ1! / CME_MINI:ES1!
       } else if (sym === 'N225') {
         tvSym = 'TVC:NI225';
       } else {
-        tvSym = `NASDAQ:${sym}`;  // 米国株のデフォルト（多くはNASDAQ）
+        // 米国株：exchange を指定しないと TV Widget が自動で解決してくれる
+        tvSym = sym;
       }
+      // interval を TV Widget 用パラメータへ変換
+      const tvInterval = OP_INTERVAL_TO_TV[opCurrentInterval] || 'D';
+      const iframeUrl = 'https://s.tradingview.com/widgetembed/?frameElementId=tv_op'
+        + '&symbol=' + encodeURIComponent(tvSym)
+        + '&interval=' + encodeURIComponent(tvInterval)
+        + '&hidesidetoolbar=1&symboledit=1&saveimage=0'
+        + '&toolbarbg=f1f3f6&theme=light&style=1'
+        + '&timezone=Asia%2FTokyo&locale=ja';
       body.innerHTML = `
         <div style="position:relative; width:100%; height:70vh; min-height:400px;">
           <iframe
-            src="https://s.tradingview.com/widgetembed/?frameElementId=tv_op&symbol=${encodeURIComponent(tvSym)}&interval=D&hidesidetoolbar=1&symboledit=1&saveimage=0&toolbarbg=f1f3f6&studies=%5B%5D&theme=light&style=1&timezone=Asia%2FTokyo&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=ja"
+            src="${iframeUrl}"
             style="width:100%; height:100%; border:0;"
             allowfullscreen
             frameborder="0">
           </iframe>
         </div>
-        <div style="text-align:center; padding:8px; font-size:11px; color:#666;">TradingView Widget: ${tvSym}</div>`;
+        <div style="text-align:center; padding:8px; font-size:11px; color:#666;">TradingView Widget: ${tvSym} (${opCurrentInterval})</div>`;
     }
 
     // ローディング画面
