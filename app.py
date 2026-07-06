@@ -1406,7 +1406,19 @@ def make_chart_image_stock(df, symbol):
         return None
 
     current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
+    # 直近の騰落率（前日比）を計算してタイトルに追加
+    change_str = ""
+    try:
+        if len(plot_df) >= 2:
+            prev_c = float(plot_df['close'].iloc[-2])
+            curr_c = float(plot_df['close'].iloc[-1])
+            if prev_c != 0:
+                pct = (curr_c - prev_c) / prev_c * 100
+                sign = "+" if pct >= 0 else ""
+                change_str = f" / {sign}{pct:.2f}%"
+    except Exception:
+        pass
+    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d}{change_str})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
     ax_main.xaxis.grid(False)
     xmin, xmax = ax_main.get_xlim()
     ax_main.set_xlim(xmin, xmax + 5)
@@ -1490,7 +1502,19 @@ def make_chart_image_nq(df, symbol):
         return None
 
     current_score = plot_df['totalScore'].iloc[-1] if 'totalScore' in plot_df.columns and not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
+    # 直近の騰落率（前日比）を計算してタイトルに追加
+    change_str = ""
+    try:
+        if len(plot_df) >= 2:
+            prev_c = float(plot_df['Close'].iloc[-2])
+            curr_c = float(plot_df['Close'].iloc[-1])
+            if prev_c != 0:
+                pct = (curr_c - prev_c) / prev_c * 100
+                sign = "+" if pct >= 0 else ""
+                change_str = f" / {sign}{pct:.2f}%"
+    except Exception:
+        pass
+    ax_main.set_title(f"{symbol} (Score: {int(current_score):+d}{change_str})", fontsize=20, loc='center', pad=15, color=TEXT_COLOR)
     ax_main.xaxis.grid(False)
     xmin, xmax = ax_main.get_xlim()
     ax_main.set_xlim(xmin, xmax + 5)
@@ -1582,7 +1606,19 @@ def make_thumbnail_image(df, symbol):
             return None
 
         current_score = plot_df['totalScore'].iloc[-1] if not pd.isna(plot_df['totalScore'].iloc[-1]) else 0
-        ax_main.set_title(f"{symbol} (Score: {int(current_score):+d})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
+        # 直近の騰落率（前日比）を計算してタイトルに追加
+        change_str = ""
+        try:
+            if len(plot_df) >= 2:
+                prev_c = float(plot_df['close'].iloc[-2])
+                curr_c = float(plot_df['close'].iloc[-1])
+                if prev_c != 0:
+                    pct = (curr_c - prev_c) / prev_c * 100
+                    sign = "+" if pct >= 0 else ""
+                    change_str = f" / {sign}{pct:.2f}%"
+        except Exception:
+            pass
+        ax_main.set_title(f"{symbol} (Score: {int(current_score):+d}{change_str})", fontsize=12, loc='center', pad=8, color=TEXT_COLOR)
         ax_main.xaxis.grid(False)
         xmin, xmax = ax_main.get_xlim()
         ax_main.set_xlim(xmin, xmax + 5)
