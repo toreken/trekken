@@ -2532,6 +2532,144 @@
       .note-card { flex: 0 0 260px; }
     }
 
+    /* ===== note記事スライダー（サイト上部・広告バー）===== */
+    .note-slider {
+      position: relative;
+      background: linear-gradient(90deg, var(--brown-800) 0%, var(--brown-700) 100%);
+      color: white;
+      padding: 8px 44px 8px 40px;
+      min-height: 62px;
+      overflow: hidden;
+      border-bottom: 2px solid var(--gold-500);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .note-slider-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 46px;
+      cursor: pointer;
+      transition: opacity 0.4s ease;
+    }
+    .note-slider-inner.fading { opacity: 0.2; }
+    .note-slider-badge {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
+      color: white;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 9px;
+      border-radius: 12px;
+      flex-shrink: 0;
+      letter-spacing: 0.5px;
+    }
+    .note-slider-thumb {
+      width: 46px;
+      height: 46px;
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: var(--brown-900);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .note-slider-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .note-slider-content {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .note-slider-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ffd700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .note-slider-preview {
+      font-size: 11px;
+      color: rgba(255, 250, 240, 0.8);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+    .note-slider-arrow {
+      font-size: 12px;
+      color: var(--gold-400);
+      font-weight: 700;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+    .note-slider-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255, 255, 255, 0.12);
+      border: none;
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      font-size: 11px;
+      cursor: pointer;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .note-slider-nav:hover { background: rgba(255, 255, 255, 0.25); }
+    .note-slider-nav.prev { left: 8px; }
+    .note-slider-nav.next { right: 40px; }
+    .note-slider-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.65);
+      font-size: 18px;
+      cursor: pointer;
+      z-index: 2;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .note-slider-close:hover { color: white; background: rgba(255, 255, 255, 0.1); }
+    /* インジケータ（現在の位置） */
+    .note-slider-indicator {
+      position: absolute;
+      bottom: 3px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 4px;
+      z-index: 2;
+    }
+    .note-slider-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.3);
+      transition: background 0.2s;
+    }
+    .note-slider-dot.active { background: var(--gold-500); width: 14px; border-radius: 3px; }
+
+    @media (max-width: 640px) {
+      .note-slider { padding: 6px 34px 8px 32px; min-height: 56px; }
+      .note-slider-thumb { width: 40px; height: 40px; }
+      .note-slider-title { font-size: 12px; }
+      .note-slider-preview { display: none; }
+      .note-slider-arrow { display: none; }
+      .note-slider-nav { width: 24px; height: 24px; }
+      .note-slider-nav.next { right: 34px; }
+      .note-slider-badge { font-size: 9px; padding: 2px 6px; }
+    }
+
     /* ===== 運営モード専用スタイル ===== */
     /* /operator?token=xxx で認証を通過すると body.operator-mode が付く */
     /* 運営専用UIを .operator-only クラスで制御 */
@@ -2855,6 +2993,14 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- note記事スライダー（サイト上部に広告バーとして表示、 5秒ごとに切替） -->
+  <div class="note-slider" id="noteSlider" style="display:none;">
+    <button class="note-slider-nav prev" onclick="_noteSliderPrev()" title="前の記事">◀</button>
+    <div class="note-slider-inner" id="noteSliderInner"></div>
+    <button class="note-slider-nav next" onclick="_noteSliderNext()" title="次の記事">▶</button>
+    <button class="note-slider-close" onclick="_noteSliderClose()" title="閉じる">×</button>
   </div>
 
   <!-- ヒーロー -->
@@ -5520,6 +5666,109 @@
       }).join('');
     }
 
+    // ===== note記事スライダー（サイト上部の広告バー）=====
+    // loadNoteArticles で取得した記事を使って、 5秒ごとに自動でスライド切替
+    let _noteSliderData = [];
+    let _noteSliderIdx = 0;
+    let _noteSliderTimer = null;
+    const _NOTE_SLIDER_INTERVAL = 5000;  // 5秒ごとに切替
+    const _NOTE_SLIDER_CLOSE_KEY = 'trekken_note_slider_closed';
+
+    function _initNoteSlider(items) {
+      const slider = document.getElementById('noteSlider');
+      if (!slider || !Array.isArray(items) || items.length === 0) return;
+      // ユーザーが閉じていれば表示しない（sessionStorage で管理、 リロードで復活）
+      try {
+        if (sessionStorage.getItem(_NOTE_SLIDER_CLOSE_KEY) === '1') return;
+      } catch (e) { /* ignore */ }
+      _noteSliderData = items;
+      _noteSliderIdx = 0;
+      slider.style.display = 'block';
+      _renderNoteSlider(false);
+      _startNoteSliderAuto();
+    }
+
+    function _renderNoteSlider(withFade) {
+      const inner = document.getElementById('noteSliderInner');
+      if (!inner || _noteSliderData.length === 0) return;
+      const item = _noteSliderData[_noteSliderIdx];
+      if (!item) return;
+
+      const doRender = () => {
+        const thumbHtml = item.thumb
+          ? `<img src="${escapeHtml(item.thumb)}" alt="">`
+          : `<div style="font-size:22px; color:var(--gold-500);">📝</div>`;
+        inner.innerHTML = `
+          <span class="note-slider-badge">📝 note</span>
+          <div class="note-slider-thumb">${thumbHtml}</div>
+          <div class="note-slider-content">
+            <div class="note-slider-title">${escapeHtml(item.title || '')}</div>
+            <div class="note-slider-preview">${escapeHtml(item.preview || '')}</div>
+          </div>
+          <span class="note-slider-arrow">記事を読む →</span>`;
+        inner.onclick = () => {
+          if (item.link) window.open(item.link, '_blank', 'noopener');
+        };
+        _renderNoteSliderIndicator();
+        inner.classList.remove('fading');
+      };
+
+      if (withFade) {
+        inner.classList.add('fading');
+        setTimeout(doRender, 400);
+      } else {
+        doRender();
+      }
+    }
+
+    function _renderNoteSliderIndicator() {
+      const slider = document.getElementById('noteSlider');
+      if (!slider) return;
+      let ind = slider.querySelector('.note-slider-indicator');
+      if (!ind) {
+        ind = document.createElement('div');
+        ind.className = 'note-slider-indicator';
+        slider.appendChild(ind);
+      }
+      // 最大表示ドット数（記事数が多すぎるとゴチャつくので上限）
+      const maxDots = Math.min(_noteSliderData.length, 10);
+      const dots = [];
+      for (let i = 0; i < maxDots; i++) {
+        const active = (i === (_noteSliderIdx % maxDots));
+        dots.push(`<div class="note-slider-dot${active ? ' active' : ''}"></div>`);
+      }
+      ind.innerHTML = dots.join('');
+    }
+
+    function _noteSliderNext() {
+      if (_noteSliderData.length === 0) return;
+      _noteSliderIdx = (_noteSliderIdx + 1) % _noteSliderData.length;
+      _renderNoteSlider(true);
+      _restartNoteSliderAuto();
+    }
+    function _noteSliderPrev() {
+      if (_noteSliderData.length === 0) return;
+      _noteSliderIdx = (_noteSliderIdx - 1 + _noteSliderData.length) % _noteSliderData.length;
+      _renderNoteSlider(true);
+      _restartNoteSliderAuto();
+    }
+    function _startNoteSliderAuto() {
+      if (_noteSliderTimer) clearInterval(_noteSliderTimer);
+      _noteSliderTimer = setInterval(() => {
+        _noteSliderIdx = (_noteSliderIdx + 1) % _noteSliderData.length;
+        _renderNoteSlider(true);
+      }, _NOTE_SLIDER_INTERVAL);
+    }
+    function _restartNoteSliderAuto() {
+      _startNoteSliderAuto();
+    }
+    function _noteSliderClose() {
+      const slider = document.getElementById('noteSlider');
+      if (slider) slider.style.display = 'none';
+      if (_noteSliderTimer) { clearInterval(_noteSliderTimer); _noteSliderTimer = null; }
+      try { sessionStorage.setItem(_NOTE_SLIDER_CLOSE_KEY, '1'); } catch (e) {}
+    }
+
     // ===== Note記事の取得 =====
     async function loadNoteArticles() {
       const grid = document.getElementById('noteGrid');
@@ -5538,6 +5787,8 @@
             </div>`;
           return;
         }
+        // 上部の広告スライダーも初期化
+        try { _initNoteSlider(data.items); } catch (e) { console.error('note slider init failed:', e); }
         grid.innerHTML = data.items.map((it, idx) => {
           const num = '(' + String(idx + 1).padStart(2, '0') + ')';
           const thumbHtml = it.thumb
