@@ -3171,20 +3171,12 @@
           <button class="chart-close" onclick="closeChart()" title="閉じる">✕</button>
         </div>
       </div>
-      <!-- 運営専用ツールバー（body.operator-mode 時のみ表示） -->
+      <!-- 運営専用ツールバーは削除済み。将来の運営機能追加時のためにコメントで残す -->
+      <!--
       <div class="operator-toolbar" id="operatorToolbar">
-        <span class="op-label">🔧 運営</span>
-        <select id="opInterval" onchange="opChangeInterval()" title="時間軸切替">
-          <option value="1d">日足</option>
-          <option value="1h">1時間足</option>
-          <option value="15m">15分足</option>
-          <option value="5m">5分足</option>
-          <option value="1m">1分足</option>
-        </select>
-        <button id="opAutoReloadBtn" onclick="opToggleAutoReload()" title="1分ごと自動リロード">🔄 自動更新: OFF</button>
-        <button id="opTradingViewBtn" onclick="opToggleTradingView()" title="TradingView Widget 表示">📺 TV Widget: OFF</button>
-        <span class="op-status" id="opStatus">日足表示中</span>
+        （時間軸切替 / 自動更新 / TV Widget などの運営機能をここに追加）
       </div>
+      -->
       <div class="chart-body" id="chartBody"></div>
     </div>
     <!-- 色凡例バナー（チャート直下） -->
@@ -3430,133 +3422,8 @@
       document.body.classList.add('operator-mode');
       console.log('[operator] Operator mode enabled');
     }
-
-    // ===== 運営機能：時間軸切替 =====
-    // '1d'/'1h'/'15m'/'5m'/'1m' → TradingView Widget の interval パラメータへ変換
-    const OP_INTERVAL_TO_TV = {
-      '1d':  'D',
-      '1h':  '60',
-      '15m': '15',
-      '5m':  '5',
-      '1m':  '1',
-    };
-    let opCurrentInterval = '1d';
-    function opChangeInterval() {
-      const sel = document.getElementById('opInterval');
-      if (!sel) return;
-      opCurrentInterval = sel.value;
-      const label = sel.options[sel.selectedIndex].text;
-      const status = document.getElementById('opStatus');
-      console.log('[operator] Interval changed to', opCurrentInterval);
-
-      if (opTradingViewMode) {
-        // TV Widget モード：新しい interval で iframe を再描画
-        if (status) status.textContent = `${label} 表示中 (TV Widget)`;
-        if (typeof activeSymbol !== 'undefined' && activeSymbol) {
-          opRenderTradingViewWidget(activeSymbol);
-        }
-      } else {
-        // 通常モード：日足のみ動作、 他は「TV Widget ON にしてください」案内
-        if (opCurrentInterval === '1d') {
-          if (status) status.textContent = `日足表示中`;
-          if (typeof activeSymbol !== 'undefined' && activeSymbol && typeof loadChart === 'function') {
-            loadChart(activeSymbol);
-          }
-        } else {
-          if (status) status.textContent = `${label}: 「📺 TV Widget: ON」で表示可能`;
-        }
-      }
-    }
-
-    // ===== 運営機能：自動リロード =====
-    let opAutoReloadTimer = null;
-    let opAutoReloadEnabled = false;
-    function opToggleAutoReload() {
-      const btn = document.getElementById('opAutoReloadBtn');
-      opAutoReloadEnabled = !opAutoReloadEnabled;
-      if (opAutoReloadEnabled) {
-        btn.textContent = '🔄 自動更新: ON';
-        btn.classList.add('active');
-        // 60秒ごとに現在の銘柄を再取得
-        opAutoReloadTimer = setInterval(() => {
-          if (typeof activeSymbol !== 'undefined' && activeSymbol && typeof loadChart === 'function') {
-            console.log('[operator] Auto reload:', activeSymbol);
-            loadChart(activeSymbol);
-          }
-        }, 60000);
-        console.log('[operator] Auto reload enabled (60s)');
-      } else {
-        btn.textContent = '🔄 自動更新: OFF';
-        btn.classList.remove('active');
-        if (opAutoReloadTimer) {
-          clearInterval(opAutoReloadTimer);
-          opAutoReloadTimer = null;
-        }
-        console.log('[operator] Auto reload disabled');
-      }
-    }
-
-    // ===== 運営機能：TradingView Widget 切替 =====
-    let opTradingViewMode = false;
-    function opToggleTradingView() {
-      const btn = document.getElementById('opTradingViewBtn');
-      const body = document.getElementById('chartBody');
-      opTradingViewMode = !opTradingViewMode;
-      if (opTradingViewMode) {
-        btn.textContent = '📺 TV Widget: ON';
-        btn.classList.add('active');
-        if (typeof activeSymbol !== 'undefined' && activeSymbol && body) {
-          opRenderTradingViewWidget(activeSymbol);
-        }
-      } else {
-        btn.textContent = '📺 TV Widget: OFF';
-        btn.classList.remove('active');
-        // 通常のチャートに戻す
-        if (typeof activeSymbol !== 'undefined' && activeSymbol && typeof loadChart === 'function') {
-          loadChart(activeSymbol);
-        }
-      }
-    }
-    function opRenderTradingViewWidget(sym) {
-      const body = document.getElementById('chartBody');
-      if (!body) return;
-      // TradingView シンボルに変換（暗号通貨・日本株・先物の特殊対応）
-      let tvSym = sym;
-      if (sym.startsWith('TSE:')) {
-        tvSym = sym;  // TSE:7203 → そのまま
-      } else if (['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','MATIC','BNB','USDT','USDC','TRX','ATOMC'].includes(sym)) {
-        const base = sym === 'ATOMC' ? 'ATOM' : sym;
-        // USDT/USDC はUSDペア、それ以外はUSDTペア
-        if (sym === 'USDT') tvSym = 'BINANCE:USDTUSD';
-        else if (sym === 'USDC') tvSym = 'BINANCE:USDCUSDT';
-        else tvSym = `BINANCE:${base}USDT`;
-      } else if (sym === 'NQ1!' || sym === 'ES1!') {
-        tvSym = `CME_MINI:${sym.replace('1!', '1!')}`;  // CME_MINI:NQ1! / CME_MINI:ES1!
-      } else if (sym === 'N225') {
-        tvSym = 'TVC:NI225';
-      } else {
-        // 米国株：exchange を指定しないと TV Widget が自動で解決してくれる
-        tvSym = sym;
-      }
-      // interval を TV Widget 用パラメータへ変換
-      const tvInterval = OP_INTERVAL_TO_TV[opCurrentInterval] || 'D';
-      const iframeUrl = 'https://s.tradingview.com/widgetembed/?frameElementId=tv_op'
-        + '&symbol=' + encodeURIComponent(tvSym)
-        + '&interval=' + encodeURIComponent(tvInterval)
-        + '&hidesidetoolbar=1&symboledit=1&saveimage=0'
-        + '&toolbarbg=f1f3f6&theme=light&style=1'
-        + '&timezone=Asia%2FTokyo&locale=ja';
-      body.innerHTML = `
-        <div style="position:relative; width:100%; height:70vh; min-height:400px;">
-          <iframe
-            src="${iframeUrl}"
-            style="width:100%; height:100%; border:0;"
-            allowfullscreen
-            frameborder="0">
-          </iframe>
-        </div>
-        <div style="text-align:center; padding:8px; font-size:11px; color:#666;">TradingView Widget: ${tvSym} (${opCurrentInterval})</div>`;
-    }
+    // 注：運営専用機能（時間軸切替 / 自動更新 / TV Widget）は削除済み
+    // 将来の運営機能追加時はここに実装を追加
 
     // ローディング画面
     window.addEventListener('load', () => {
