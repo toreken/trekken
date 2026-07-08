@@ -1656,7 +1656,14 @@ def chart(symbol):
     symbol_upper = symbol.upper()
     now = time.time()
 
-    if symbol_upper in chart_cache:
+    # 運営専用：?refresh=<OPERATOR_TOKEN> でキャッシュを完全バイパスして最新チャート再生成
+    refresh_token = request.args.get('refresh', '').strip()
+    expected_op_token = os.environ.get('OPERATOR_TOKEN', '').strip()
+    force_refresh = bool(refresh_token and expected_op_token and refresh_token == expected_op_token)
+    if force_refresh:
+        print(f"[operator refresh] /chart/{symbol_upper}: bypassing all caches")
+
+    if not force_refresh and symbol_upper in chart_cache:
         cached_time, cached_img = chart_cache[symbol_upper]
         if now - cached_time < CHART_CACHE_SECONDS:
             meta = chart_meta_cache.get(symbol_upper) or {}
@@ -1668,7 +1675,8 @@ def chart(symbol):
             }, max_age=1800)
 
     # NEW: メモリキャッシュに無い場合、GitHubから個別ファイル取得を試みる（リスト内銘柄）
-    if symbol_upper not in chart_cache or (now - chart_cache[symbol_upper][0]) >= CHART_CACHE_SECONDS:
+    # force_refresh の場合は GitHub キャッシュもスキップ
+    if not force_refresh and (symbol_upper not in chart_cache or (now - chart_cache[symbol_upper][0]) >= CHART_CACHE_SECONDS):
         github_img = fetch_chart_from_github(symbol_upper)
         if github_img:
             chart_cache[symbol_upper] = (now, github_img)
@@ -3403,7 +3411,11 @@ def operator_page():
     # 認証通過：index.html を読み込み、 運営モードフラグを <head> 内に注入
     with open('index.html', 'r', encoding='utf-8') as f:
         html = f.read()
-    injection = '<script>window.IS_OPERATOR = true;</script>'
+    # トークンも埋め込む（チャート更新の refresh パラメータで使用）
+    # ※ JS 文字列としてエスケープ（"や\などの特殊文字を無効化）
+    import json as _json
+    token_js_safe = _json.dumps(token)  # → '"xxxxx"' に自動エスケープ
+    injection = f'<script>window.IS_OPERATOR = true; window.OPERATOR_TOKEN = {token_js_safe};</script>'
     html = html.replace('</head>', f'{injection}\n</head>', 1)
     return html
 
