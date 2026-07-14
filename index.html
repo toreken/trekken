@@ -5060,13 +5060,23 @@
         chartPromise = Promise.resolve();
       } else {
         const chartController = new AbortController();
-        const chartTimeoutId = setTimeout(() => chartController.abort(), 90000);
+        // タイムアウトを 90秒 → 120秒 に延長（Renderのコールドスタートや yfinance の遅延に対応）
+        const chartTimeoutId = setTimeout(() => chartController.abort(), 120000);
         // forceRefresh 時はサーバー側のキャッシュも運営トークンでバイパス
         const refreshParam = (forceRefresh && window.OPERATOR_TOKEN)
           ? `?refresh=${encodeURIComponent(window.OPERATOR_TOKEN)}`
           : '';
         chartPromise = fetch(`/chart/${encodeURIComponent(sym)}${refreshParam}`, { signal: chartController.signal })
-          .then(r => r.json())
+          .then(r => {
+            // HTTP エラー（500/502/503/429等）をここでキャッチして詳細を残す
+            if (!r.ok) {
+              const err = new Error(`HTTP ${r.status}`);
+              err.httpStatus = r.status;
+              err.httpStatusText = r.statusText;
+              throw err;
+            }
+            return r.json();
+          })
           .then(data => {
             clearTimeout(chartTimeoutId);
             if (data.image) {
@@ -5094,14 +5104,22 @@
           })
           .catch((err) => {
             clearTimeout(chartTimeoutId);
-            // 自動リトライ：最大3回（待ち時間 3, 6, 10秒）
-            const MAX_AUTO_RETRY = 3;
-            const RETRY_WAITS = [3000, 6000, 10000];
+            // エラー詳細をコンソールに残す（デバッグ用）
+            const errName = err && err.name ? err.name : 'UnknownError';
+            const errMsg = err && err.message ? err.message : String(err);
+            const httpStatus = err && err.httpStatus ? err.httpStatus : null;
+            console.error(`[loadChart] ${sym} error: name=${errName} msg=${errMsg} httpStatus=${httpStatus}`, err);
+
+            // 自動リトライ：最大5回（待ち時間 2, 4, 8, 15, 25秒）
+            const MAX_AUTO_RETRY = 5;
+            const RETRY_WAITS = [2000, 4000, 8000, 15000, 25000];
+            // 429（Rate limit）と AbortError（タイムアウト）は特に自動リトライで復活しやすい
             if (_retryCount < MAX_AUTO_RETRY) {
-              const waitMs = RETRY_WAITS[_retryCount] || 10000;
-              body.innerHTML = `<div class="chart-loading">再試行中... (${_retryCount + 1}/${MAX_AUTO_RETRY})</div>`;
+              const waitMs = RETRY_WAITS[_retryCount] || 25000;
+              const remain = MAX_AUTO_RETRY - _retryCount;
+              body.innerHTML = `<div class="chart-loading">再試行中... (${_retryCount + 1}/${MAX_AUTO_RETRY}) 残り${remain}回</div>`;
               setTimeout(() => {
-                if (activeSymbol === sym) loadChart(sym, _retryCount + 1);
+                if (activeSymbol === sym) loadChart(sym, _retryCount + 1, forceRefresh);
               }, waitMs);
               return;
             }
@@ -5121,12 +5139,32 @@
                 }
               }
             } catch (e) { /* 続行 */ }
-            // それでもダメな場合は手動ボタン
-            const msg = (err && err.name === 'AbortError') ? 'サーバー応答が遅すぎます（タイムアウト）' : 'サーバーに接続できません';
+            // それでもダメな場合：エラー種別ごとに具体的なメッセージ
+            let msg = 'サーバーに接続できません';
+            let hint = '起動中の可能性があります。10〜30秒待ってから再試行してください。';
+            if (errName === 'AbortError') {
+              msg = 'サーバー応答が遅すぎます（タイムアウト2分）';
+              hint = 'Render のスリープからの起動、 または yfinance の遅延が原因の可能性があります。';
+            } else if (httpStatus === 429) {
+              msg = 'アクセス集中中（レート制限）';
+              hint = '30秒〜1分待ってから再試行してください。';
+            } else if (httpStatus === 500) {
+              msg = 'サーバー内部エラー（500）';
+              hint = 'データ取得元（yfinance/tvDatafeed）が一時的に応答していない可能性があります。';
+            } else if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) {
+              msg = `Render サービス一時停止中（${httpStatus}）`;
+              hint = '再デプロイ中またはスリープ復帰中。 30秒待ってから再試行してください。';
+            } else if (errMsg && errMsg.toLowerCase().includes('failed to fetch')) {
+              msg = 'ネットワーク接続エラー';
+              hint = 'インターネット接続を確認してください。';
+            }
             body.innerHTML = `
               <div class="chart-error">
                 <div>⚠️ ${msg}</div>
-                <div class="chart-error-hint">起動中の可能性があります。10〜30秒待ってから再試行してください。</div>
+                <div class="chart-error-hint">${hint}</div>
+                <div class="chart-error-detail" style="font-size:10px; color:#888; margin-top:6px;">
+                  [${errName}${httpStatus ? ' HTTP ' + httpStatus : ''}]
+                </div>
                 <button class="chart-retry-btn" onclick="loadChart(this.dataset.sym)" data-sym="${sym}">🔄 もう一度試す</button>
               </div>`;
           });
