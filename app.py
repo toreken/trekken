@@ -1662,6 +1662,9 @@ def chart(symbol):
     force_refresh = bool(refresh_token and expected_op_token and refresh_token == expected_op_token)
     if force_refresh:
         print(f"[operator refresh] /chart/{symbol_upper}: bypassing all caches")
+        # メモリキャッシュも消しておく。 これで _fallback_to_stale_cache が古い画像を返せなくなる。
+        chart_cache.pop(symbol_upper, None)
+        chart_meta_cache.pop(symbol_upper, None)
 
     if not force_refresh and symbol_upper in chart_cache:
         cached_time, cached_img = chart_cache[symbol_upper]
