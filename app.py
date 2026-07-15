@@ -1811,6 +1811,30 @@ def chart(symbol):
             'ema20_dev': ema20_dev_val,
             'color': score_to_color(last_score_val),
         }
+        # 直近11日分の close を thumb_cache に保存（運営ページの日数切替用）
+        # チャート表示のたびに更新される → prefetch を待たなくても最新の履歴が入る
+        try:
+            close_col = 'close' if 'close' in df.columns else ('Close' if 'Close' in df.columns else None)
+            if close_col:
+                closes_series = df[close_col].dropna()
+                n_recent = min(len(closes_series), 11)
+                if n_recent >= 2:
+                    recent_closes_list = [round(float(x), 4) for x in closes_series.iloc[-n_recent:].tolist()]
+                    existing = thumb_cache.get(symbol_upper)
+                    if existing:
+                        _, td = existing
+                        new_td = dict(td)
+                        new_td['recent_closes'] = recent_closes_list
+                        thumb_cache[symbol_upper] = (time.time(), new_td)
+                    else:
+                        thumb_cache[symbol_upper] = (time.time(), {
+                            'thumb': None,
+                            'score': last_score_val,
+                            'ema20_dev': ema20_dev_val,
+                            'recent_closes': recent_closes_list,
+                        })
+        except Exception as e_rc:
+            print(f"recent_closes save failed for {symbol_upper}: {e_rc}")
         return _cached_json({
             'image': img_b64, 'symbol': symbol_upper, 'cached': False,
             'score': last_score_val,
