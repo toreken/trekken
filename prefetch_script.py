@@ -1167,7 +1167,7 @@ def _process_us_batch(symbols, profiles, thumbs, charts, infos, failed):
 
             df = calculate_scores(df)
             thumb_b64 = make_thumbnail_b64(df, sym)
-            last_score_val, week_change, ema20_dev, sma50_dev = _extract_score_and_change(df)
+            last_score_val, week_change, ema20_dev, sma50_dev, recent_closes = _extract_score_and_change(df)
 
             if thumb_b64:
                 thumbs[sym] = {
@@ -1176,6 +1176,7 @@ def _process_us_batch(symbols, profiles, thumbs, charts, infos, failed):
                     "week_change": week_change,
                     "ema20_dev": ema20_dev,
                     "sma50_dev": sma50_dev,
+                    "recent_closes": recent_closes,
                 }
 
             # NEW: 大きいチャート画像も生成（個別表示用）
@@ -1247,7 +1248,7 @@ def _process_jp_batch(symbols, profiles, thumbs, charts, infos, failed):
             df = calculate_scores(df)
             # タイトルはTSE:XXXX形式で表示
             thumb_b64 = make_thumbnail_b64(df, tse_sym)
-            last_score_val, week_change, ema20_dev, sma50_dev = _extract_score_and_change(df)
+            last_score_val, week_change, ema20_dev, sma50_dev, recent_closes = _extract_score_and_change(df)
 
             if thumb_b64:
                 thumbs[tse_sym] = {
@@ -1256,6 +1257,7 @@ def _process_jp_batch(symbols, profiles, thumbs, charts, infos, failed):
                     "week_change": week_change,
                     "ema20_dev": ema20_dev,
                     "sma50_dev": sma50_dev,
+                    "recent_closes": recent_closes,
                 }
 
             # NEW: 大きいチャート画像も生成
@@ -1300,7 +1302,7 @@ def _build_df(sub):
 
 
 def _extract_score_and_change(df):
-    """totalScoreの最終値、1週間変動率、20EMA乖離率、50SMA乖離率を返す"""
+    """totalScoreの最終値、1週間変動率、20EMA乖離率、50SMA乖離率、直近11日分のclose を返す"""
     last_score = df["totalScore"].iloc[-1] if "totalScore" in df.columns else None
     try:
         last_score_val = float(last_score) if last_score is not None and not pd.isna(last_score) else None
@@ -1319,6 +1321,17 @@ def _extract_score_and_change(df):
     except Exception:
         week_change = None
 
+    # 直近11日分（今日 + 過去10日）の close を保存
+    # 運営ページでN日前との騰落率を切替可能にするため
+    recent_closes = None
+    try:
+        closes = df["close"].dropna()
+        n = min(len(closes), 11)
+        if n >= 2:
+            recent_closes = [round(float(x), 4) for x in closes.iloc[-n:].tolist()]
+    except Exception:
+        recent_closes = None
+
     # 20EMA乖離率・50SMA乖離率
     ema20_dev = None
     sma50_dev = None
@@ -1335,7 +1348,7 @@ def _extract_score_and_change(df):
     except Exception:
         pass
 
-    return last_score_val, week_change, ema20_dev, sma50_dev
+    return last_score_val, week_change, ema20_dev, sma50_dev, recent_closes
 
 
 
@@ -1463,6 +1476,16 @@ def process_light_targets(thumbs):
             except Exception:
                 pass
 
+            # 直近11日分（今日 + 過去10日）の close を保存（運営ページ日数切替用）
+            recent_closes = None
+            try:
+                closes = df['close'].dropna()
+                n = min(len(closes), 11)
+                if n >= 2:
+                    recent_closes = [round(float(x), 4) for x in closes.iloc[-n:].tolist()]
+            except Exception:
+                pass
+
             # NQ1!/ES1! はチャート画像（fetch_nq1/fetch_es1）と同じロジックで色を計算する
             # → ティッカー横の色マーカーとチャート画像の色を完全一致させる
             thumb_color = None
@@ -1497,6 +1520,7 @@ def process_light_targets(thumbs):
                 "ema20_dev": ema20_dev,
                 "sma50_dev": sma50_dev,
                 "color": thumb_color,  # NQ1!/ES1! のみ 3色判定の結果、その他はNoneで通常4色判定にフォールバック
+                "recent_closes": recent_closes,
             }
             success += 1
             print(f"  ✓ {original_sym} (score={last_score_val}, week_change={week_change})")
@@ -1602,12 +1626,23 @@ def process_n225_index(profiles, thumbs, charts, infos):
         except Exception:
             pass
 
+        # 直近11日分（今日 + 過去10日）の close を保存（運営ページ日数切替用）
+        recent_closes = None
+        try:
+            closes = df['close'].dropna()
+            n = min(len(closes), 11)
+            if n >= 2:
+                recent_closes = [round(float(x), 4) for x in closes.iloc[-n:].tolist()]
+        except Exception:
+            pass
+
         thumbs[SYM] = {
             "thumb": thumb_b64 if thumb_b64 else None,
             "score": last_score_val,
             "week_change": week_change,
             "ema20_dev": ema20_dev,
             "sma50_dev": sma50_dev,
+            "recent_closes": recent_closes,
         }
 
         # プロファイル（指数の説明）
