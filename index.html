@@ -2670,6 +2670,51 @@
       .note-slider-badge { font-size: 9px; padding: 2px 6px; }
     }
 
+    /* 運営専用：騰落率の比較日数切替 */
+    .op-day-selector {
+      margin-top: 10px;
+      gap: 4px;
+      align-items: center;
+      padding: 8px 12px;
+      background: linear-gradient(135deg, #fff0f0 0%, #ffe0e0 100%);
+      border: 1px solid #ff9999;
+      border-radius: 8px;
+      font-size: 12px;
+      overflow-x: auto;
+      flex-wrap: nowrap;
+    }
+    .op-day-label {
+      font-weight: 700;
+      color: #c9302c;
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
+    .op-day-btn {
+      padding: 4px 8px;
+      border: 1px solid #c9302c;
+      background: white;
+      color: #c9302c;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 700;
+      min-width: 28px;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+    .op-day-btn:hover { background: #fff5f5; }
+    .op-day-btn.active {
+      background: #c9302c;
+      color: white;
+      box-shadow: 0 2px 4px rgba(201, 48, 44, 0.3);
+    }
+    .op-day-suffix {
+      color: #666;
+      font-size: 11px;
+      margin-left: 4px;
+      flex-shrink: 0;
+    }
+
     /* ===== 運営モード専用スタイル ===== */
     /* /operator?token=xxx で認証を通過すると body.operator-mode が付く */
     /* 運営専用UIを .operator-only クラスで制御 */
@@ -3295,6 +3340,21 @@
           <option value="change_asc">並び替え: 騰落率（低い順）</option>
         </select>
       </div>
+      <!-- 運営専用：騰落率の比較日数切替（1日前〜10日前）-->
+      <div class="op-day-selector operator-only-flex" id="opDaySelector">
+        <span class="op-day-label">🔧 比較:</span>
+        <button class="op-day-btn active" data-days="1" onclick="opSetDayOffset(1)">1</button>
+        <button class="op-day-btn" data-days="2" onclick="opSetDayOffset(2)">2</button>
+        <button class="op-day-btn" data-days="3" onclick="opSetDayOffset(3)">3</button>
+        <button class="op-day-btn" data-days="4" onclick="opSetDayOffset(4)">4</button>
+        <button class="op-day-btn" data-days="5" onclick="opSetDayOffset(5)">5</button>
+        <button class="op-day-btn" data-days="6" onclick="opSetDayOffset(6)">6</button>
+        <button class="op-day-btn" data-days="7" onclick="opSetDayOffset(7)">7</button>
+        <button class="op-day-btn" data-days="8" onclick="opSetDayOffset(8)">8</button>
+        <button class="op-day-btn" data-days="9" onclick="opSetDayOffset(9)">9</button>
+        <button class="op-day-btn" data-days="10" onclick="opSetDayOffset(10)">10</button>
+        <span class="op-day-suffix">日前 vs 今日</span>
+      </div>
       <div class="symbol-list" id="symbolList"></div>
       <div class="overview-grid" id="overviewGrid" style="display:none;"></div>
       <div class="count-info" id="countInfo"></div>
@@ -3586,6 +3646,23 @@
       loadChart(activeSymbol, 0, true);
     }
 
+    // 運営専用：騰落率の比較日数を切替（1〜10日前 vs 今日）
+    // デフォルト 1（前日比）。 リスト内 chip の表示のみに反映される（チャートは前日比のまま）
+    let _opDayOffset = 1;
+    function opSetDayOffset(days) {
+      if (!window.IS_OPERATOR) return;
+      const n = parseInt(days, 10);
+      if (isNaN(n) || n < 1 || n > 10) return;
+      _opDayOffset = n;
+      // ボタンの active 状態を更新
+      document.querySelectorAll('.op-day-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.days, 10) === n);
+      });
+      console.log('[operator] Day offset changed to', n);
+      // 銘柄リストを再描画（chip の騰落率が変わる）
+      if (typeof renderSymbolList === 'function') renderSymbolList();
+    }
+
     // ローディング画面
     window.addEventListener('load', () => {
       setTimeout(() => {
@@ -3772,15 +3849,29 @@
       }
     }
     // チップの表示テキストを生成。 ティッカー + 騰落率（小さく色付き）
+    // 運営モード時は _opDayOffset に応じた「N日前 vs 今日」の騰落率で表示
     function _buildChipHtml(sym) {
       const displaySym = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
       let wc = null;
       try {
         if (metaData && Array.isArray(metaData.items)) {
           const item = metaData.items.find(it => it.symbol === sym);
-          if (item && item.week_change !== null && item.week_change !== undefined) {
-            const v = parseFloat(item.week_change);
-            if (!isNaN(v)) wc = v;
+          if (item) {
+            // 運営モード + 2日前以上を選択中：recent_closes から計算
+            if (window.IS_OPERATOR && _opDayOffset > 1
+                && Array.isArray(item.recent_closes) && item.recent_closes.length > _opDayOffset) {
+              const arr = item.recent_closes;
+              const curr = arr[arr.length - 1];
+              const past = arr[arr.length - 1 - _opDayOffset];
+              if (past !== null && past !== undefined && past !== 0) {
+                const v = (curr - past) / past * 100;
+                if (!isNaN(v)) wc = v;
+              }
+            } else if (item.week_change !== null && item.week_change !== undefined) {
+              // 通常時 or 1日前：既存の week_change（前日比）を使う
+              const v = parseFloat(item.week_change);
+              if (!isNaN(v)) wc = v;
+            }
           }
         }
       } catch (e) { /* ignore */ }
@@ -4244,10 +4335,25 @@
     let compareMode = false;
 
     function _getWeekChangeForSym(sym) {
-      // metaData から該当銘柄の week_change を返す（無ければ null）
+      // metaData から該当銘柄の騰落率を返す（無ければ null）
+      // 運営モード時は _opDayOffset に応じた「N日前 vs 今日」の値を返す
       if (!metaData || !Array.isArray(metaData.items)) return null;
       const it = metaData.items.find(x => x.symbol === sym);
-      if (!it || it.week_change === null || it.week_change === undefined) return null;
+      if (!it) return null;
+      // 運営モード + 2日前以上：recent_closes から計算
+      if (window.IS_OPERATOR && typeof _opDayOffset !== 'undefined' && _opDayOffset > 1
+          && Array.isArray(it.recent_closes) && it.recent_closes.length > _opDayOffset) {
+        const arr = it.recent_closes;
+        const curr = arr[arr.length - 1];
+        const past = arr[arr.length - 1 - _opDayOffset];
+        if (past !== null && past !== undefined && past !== 0) {
+          const v = (curr - past) / past * 100;
+          return isNaN(v) ? null : v;
+        }
+        return null;
+      }
+      // 通常：既存の week_change を使う
+      if (it.week_change === null || it.week_change === undefined) return null;
       const v = parseFloat(it.week_change);
       return isNaN(v) ? null : v;
     }
