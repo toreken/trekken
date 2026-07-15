@@ -2672,6 +2672,7 @@
 
     /* 運営専用：騰落率の比較日数切替 */
     .op-day-selector {
+      display: none !important;   /* 一般ページでは常に非表示 */
       margin-top: 10px;
       gap: 4px;
       align-items: center;
@@ -2682,6 +2683,9 @@
       font-size: 12px;
       overflow-x: auto;
       flex-wrap: nowrap;
+    }
+    body.operator-mode .op-day-selector {
+      display: flex !important;   /* 運営モード時のみ表示 */
     }
     .op-day-label {
       font-weight: 700;
@@ -2717,8 +2721,11 @@
 
     /* ===== 運営モード専用スタイル ===== */
     /* /operator?token=xxx で認証を通過すると body.operator-mode が付く */
-    /* 運営専用UIを .operator-only クラスで制御 */
+    /* 運営専用UIを .operator-only / .operator-only-inline / .operator-only-flex で制御 */
+    /* すべてデフォルトで非表示にし、 operator-mode 時のみ表示させる */
     .operator-only { display: none !important; }
+    .operator-only-inline { display: none !important; }
+    .operator-only-flex { display: none !important; }
     body.operator-mode .operator-only { display: block !important; }
     body.operator-mode .operator-only-inline { display: inline-block !important; }
     body.operator-mode .operator-only-flex { display: flex !important; }
@@ -3659,8 +3666,25 @@
         b.classList.toggle('active', parseInt(b.dataset.days, 10) === n);
       });
       console.log('[operator] Day offset changed to', n);
-      // 銘柄リストを再描画（chip の騰落率が変わる）
-      if (typeof renderSymbolList === 'function') renderSymbolList();
+      // デバッグ：metaData に recent_closes があるか確認
+      if (metaData && Array.isArray(metaData.items)) {
+        const withRC = metaData.items.filter(it => Array.isArray(it.recent_closes) && it.recent_closes.length > n).length;
+        const total = metaData.items.length;
+        console.log(`[operator] recent_closes available for ${withRC}/${total} symbols (need ${n+1} days each)`);
+        if (withRC === 0) {
+          alert(`比較日数 ${n} 日前 の履歴データがまだ準備されていません。\n\n各銘柄のチャートを一度開くと、その銘柄のデータが自動で追加されます。\nまたは、GitHub Actions でPrefetchを再実行してください。`);
+        }
+      }
+      // メタデータを最新化してから再描画
+      if (typeof fetchMetaData === 'function') {
+        fetchMetaData().then(() => {
+          if (typeof renderSymbolList === 'function') renderSymbolList();
+        }).catch(() => {
+          if (typeof renderSymbolList === 'function') renderSymbolList();
+        });
+      } else {
+        if (typeof renderSymbolList === 'function') renderSymbolList();
+      }
     }
 
     // ローディング画面
