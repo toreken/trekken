@@ -3666,25 +3666,36 @@
         b.classList.toggle('active', parseInt(b.dataset.days, 10) === n);
       });
       console.log('[operator] Day offset changed to', n);
-      // デバッグ：metaData に recent_closes があるか確認
-      if (metaData && Array.isArray(metaData.items)) {
-        const withRC = metaData.items.filter(it => Array.isArray(it.recent_closes) && it.recent_closes.length > n).length;
-        const total = metaData.items.length;
-        console.log(`[operator] recent_closes available for ${withRC}/${total} symbols (need ${n+1} days each)`);
-        if (withRC === 0) {
-          alert(`比較日数 ${n} 日前 の履歴データがまだ準備されていません。\n\n各銘柄のチャートを一度開くと、その銘柄のデータが自動で追加されます。\nまたは、GitHub Actions でPrefetchを再実行してください。`);
+      // metaData を強制再取得してから再描画（キャッシュを無効化）
+      _forceRefreshMetaAndRerender(n);
+    }
+
+    async function _forceRefreshMetaAndRerender(n) {
+      try {
+        console.log('[operator] Force re-fetching /symbols-meta ...');
+        // キャッシュバスターを付けて必ずサーバーから取得
+        const res = await fetch('/symbols-meta?_=' + Date.now(), { cache: 'no-store' });
+        const data = await res.json();
+        metaData = data;
+        console.log('[operator] metaData refreshed. items.length=', (data.items || []).length);
+        // recent_closes の分布を確認
+        if (Array.isArray(data.items)) {
+          const withRC = data.items.filter(it => Array.isArray(it.recent_closes) && it.recent_closes.length > n).length;
+          const total = data.items.length;
+          const sample = data.items.find(it => Array.isArray(it.recent_closes) && it.recent_closes.length > n);
+          console.log(`[operator] recent_closes available for ${withRC}/${total} symbols (need ${n+1} days each)`);
+          if (sample) {
+            console.log('[operator] Sample:', sample.symbol, 'recent_closes.length=', sample.recent_closes.length, 'values=', sample.recent_closes);
+          }
+          if (withRC === 0) {
+            alert(`比較日数 ${n} 日前 の履歴データ (recent_closes.length >= ${n+1}) が全銘柄で見つかりません。\n\n・items.length: ${total}\n・items[0]の recent_closes: ${JSON.stringify(data.items[0] && data.items[0].recent_closes)}\n\nこの情報を開発者に伝えてください。`);
+          }
         }
+      } catch (e) {
+        console.error('[operator] meta refresh failed:', e);
       }
-      // メタデータを最新化してから再描画
-      if (typeof fetchMetaData === 'function') {
-        fetchMetaData().then(() => {
-          if (typeof renderSymbolList === 'function') renderSymbolList();
-        }).catch(() => {
-          if (typeof renderSymbolList === 'function') renderSymbolList();
-        });
-      } else {
-        if (typeof renderSymbolList === 'function') renderSymbolList();
-      }
+      // 再描画
+      if (typeof renderSymbolList === 'function') renderSymbolList();
     }
 
     // ローディング画面
