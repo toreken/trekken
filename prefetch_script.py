@@ -1177,6 +1177,8 @@ def _process_us_batch(symbols, profiles, thumbs, charts, infos, failed):
                     "ema20_dev": ema20_dev,
                     "sma50_dev": sma50_dev,
                     "recent_closes": recent_closes,
+                    "recent_meta": _extract_recent_meta(df),
+                    "recent_meta": _extract_recent_meta(df),
                 }
 
             # NEW: 大きいチャート画像も生成（個別表示用）
@@ -1258,6 +1260,8 @@ def _process_jp_batch(symbols, profiles, thumbs, charts, infos, failed):
                     "ema20_dev": ema20_dev,
                     "sma50_dev": sma50_dev,
                     "recent_closes": recent_closes,
+                    "recent_meta": _extract_recent_meta(df),
+                    "recent_meta": _extract_recent_meta(df),
                 }
 
             # NEW: 大きいチャート画像も生成
@@ -1299,6 +1303,116 @@ def _build_df(sub):
             df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=["close"])
     return df
+
+
+def _extract_recent_meta(df):
+    """過去11日分（今日 + 過去10日）のスコア/EMA20乖離/SMA50乖離/色を返す。
+    運営ページの履歴遡り機能のために保存する。
+    返り値：配列（先頭が最も古い日、末尾が今日）
+      [{'s': score, 'e': ema20_dev, 'm': sma50_dev, 'c': color}, ...]
+    """
+    if df is None or df.empty:
+        return None
+    try:
+        n = min(len(df), 11)
+        if n < 2:
+            return None
+        recent = []
+        for i in range(-n, 0):
+            row = df.iloc[i]
+            # スコア
+            score = row.get('totalScore') if 'totalScore' in df.columns else None
+            if score is None or pd.isna(score):
+                score = None
+            else:
+                score = round(float(score), 2)
+            # 終値
+            close_col = 'close' if 'close' in df.columns else ('Close' if 'Close' in df.columns else None)
+            close_v = None
+            if close_col:
+                cv = row.get(close_col)
+                if cv is not None and not pd.isna(cv):
+                    close_v = float(cv)
+            # EMA20 乖離
+            ema20_dev = None
+            if close_v is not None and 'ema_20' in df.columns:
+                ema_v = row.get('ema_20')
+                if ema_v is not None and not pd.isna(ema_v) and float(ema_v) != 0:
+                    ema20_dev = round((close_v - float(ema_v)) / float(ema_v) * 100, 2)
+            # SMA50 乖離
+            sma50_dev = None
+            if close_v is not None and 'sma_50' in df.columns:
+                sma_v = row.get('sma_50')
+                if sma_v is not None and not pd.isna(sma_v) and float(sma_v) != 0:
+                    sma50_dev = round((close_v - float(sma_v)) / float(sma_v) * 100, 2)
+            # 色判定（app.py の score_to_color と同じロジック）
+            color = None
+            if score is not None:
+                if score >= 7:      color = 'blue'
+                elif score > 0:     color = 'green'
+                elif score <= -7:   color = 'yellow'
+                else:               color = 'red'
+            recent.append({
+                's': score,
+                'e': ema20_dev,
+                'm': sma50_dev,
+                'c': color,
+            })
+        return recent
+    except Exception:
+        return None
+
+
+def _extract_recent_meta(df):
+    """過去11日分（今日 + 10日前まで）の {s: score, e: ema20_dev, m: sma50_dev, c: color} を返す。
+    フィルタリスト遡り機能用（クライアントで N日前のスクリーニング結果を復元できる）"""
+    try:
+        # 必要カラムが全部揃っているか確認
+        if 'totalScore' not in df.columns:
+            return None
+        n = min(len(df), 11)
+        if n < 2:
+            return None
+        result = []
+        for i in range(-n, 0):
+            score = df['totalScore'].iloc[i] if not pd.isna(df['totalScore'].iloc[i]) else None
+            close_v = float(df['close'].iloc[i]) if not pd.isna(df['close'].iloc[i]) else None
+            ema20_v = None
+            if 'ema_20' in df.columns and not pd.isna(df['ema_20'].iloc[i]):
+                ema20_v = float(df['ema_20'].iloc[i])
+            sma50_v = None
+            if 'sma_50' in df.columns and not pd.isna(df['sma_50'].iloc[i]):
+                sma50_v = float(df['sma_50'].iloc[i])
+
+            e_dev = None
+            if close_v is not None and ema20_v is not None and ema20_v != 0:
+                e_dev = round((close_v - ema20_v) / ema20_v * 100, 2)
+            m_dev = None
+            if close_v is not None and sma50_v is not None and sma50_v != 0:
+                m_dev = round((close_v - sma50_v) / sma50_v * 100, 2)
+
+            # 色判定（4色 blue/green/yellow/red）— app.py の score_to_color と同じ閾値
+            color = None
+            if score is not None:
+                sc = float(score)
+                if sc >= 7:
+                    color = 'blue'
+                elif sc > 0:
+                    color = 'green'
+                elif sc <= -7:
+                    color = 'yellow'
+                else:
+                    color = 'red'
+
+            result.append({
+                's': round(float(score), 1) if score is not None else None,
+                'e': e_dev,
+                'm': m_dev,
+                'c': color,
+            })
+        return result
+    except Exception:
+        return None
 
 
 def _extract_score_and_change(df):
@@ -1521,6 +1635,8 @@ def process_light_targets(thumbs):
                 "sma50_dev": sma50_dev,
                 "color": thumb_color,  # NQ1!/ES1! のみ 3色判定の結果、その他はNoneで通常4色判定にフォールバック
                 "recent_closes": recent_closes,
+                    "recent_meta": _extract_recent_meta(df),
+                    "recent_meta": _extract_recent_meta(df),
             }
             success += 1
             print(f"  ✓ {original_sym} (score={last_score_val}, week_change={week_change})")
@@ -1643,6 +1759,8 @@ def process_n225_index(profiles, thumbs, charts, infos):
             "ema20_dev": ema20_dev,
             "sma50_dev": sma50_dev,
             "recent_closes": recent_closes,
+                    "recent_meta": _extract_recent_meta(df),
+                    "recent_meta": _extract_recent_meta(df),
         }
 
         # プロファイル（指数の説明）
