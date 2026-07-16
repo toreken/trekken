@@ -3887,9 +3887,23 @@
       try {
         if (metaData && Array.isArray(metaData.items)) {
           const item = metaData.items.find(it => it.symbol === sym);
-          if (item && item.week_change !== null && item.week_change !== undefined) {
-            const v = parseFloat(item.week_change);
-            if (!isNaN(v)) wc = v;
+          if (item) {
+            const off = (typeof _qfHistoryOffset === 'number') ? _qfHistoryOffset : 0;
+            if (off > 0 && Array.isArray(item.recent_closes) && item.recent_closes.length > off) {
+              // N日前 → 今日 の騰落率
+              // recent_closes は古→新の順、末尾が最新（今日）
+              const arr = item.recent_closes;
+              const curr = arr[arr.length - 1];  // 今日
+              const past = arr[arr.length - 1 - off];  // N日前
+              if (past !== null && past !== undefined && past !== 0) {
+                const v = (curr - past) / past * 100;
+                if (!isNaN(v)) wc = v;
+              }
+            } else if (item.week_change !== null && item.week_change !== undefined) {
+              // offset=0（今日）は既存の週次変動（前日比）を使う
+              const v = parseFloat(item.week_change);
+              if (!isNaN(v)) wc = v;
+            }
           }
         }
       } catch (e) { /* ignore */ }
@@ -4260,13 +4274,13 @@
         const rm = meta.recent_meta[idx];
         if (!rm) return false;
         sc = rm.s; e20 = rm.e; s50 = rm.m; col = rm.c || null;
-        // N日前の「前日比」は recent_closes から計算
+        // N日前 → 今日 の騰落率（指定日から最新日まで）
         ch = null;
-        if (Array.isArray(meta.recent_closes) && meta.recent_closes.length > off + 1) {
-          const curr = meta.recent_closes[meta.recent_closes.length - 1 - off];
-          const prev = meta.recent_closes[meta.recent_closes.length - 1 - off - 1];
-          if (prev !== null && prev !== undefined && prev !== 0) {
-            ch = (curr - prev) / prev * 100;
+        if (Array.isArray(meta.recent_closes) && meta.recent_closes.length > off) {
+          const curr = meta.recent_closes[meta.recent_closes.length - 1];       // 今日
+          const past = meta.recent_closes[meta.recent_closes.length - 1 - off]; // N日前
+          if (past !== null && past !== undefined && past !== 0) {
+            ch = (curr - past) / past * 100;
           }
         }
       }
@@ -4401,7 +4415,21 @@
     function _getWeekChangeForSym(sym) {
       if (!metaData || !Array.isArray(metaData.items)) return null;
       const it = metaData.items.find(x => x.symbol === sym);
-      if (!it || it.week_change === null || it.week_change === undefined) return null;
+      if (!it) return null;
+      // N日前 → 今日 の騰落率（_qfHistoryOffset > 0 のとき）
+      const off = (typeof _qfHistoryOffset === 'number') ? _qfHistoryOffset : 0;
+      if (off > 0 && Array.isArray(it.recent_closes) && it.recent_closes.length > off) {
+        const arr = it.recent_closes;
+        const curr = arr[arr.length - 1];
+        const past = arr[arr.length - 1 - off];
+        if (past !== null && past !== undefined && past !== 0) {
+          const v = (curr - past) / past * 100;
+          return isNaN(v) ? null : v;
+        }
+        return null;
+      }
+      // offset=0：通常の前日比
+      if (it.week_change === null || it.week_change === undefined) return null;
       const v = parseFloat(it.week_change);
       return isNaN(v) ? null : v;
     }
