@@ -4134,9 +4134,7 @@
       renderSymbolList();
     }
 
-    // 割安/上昇ボタンで表示されるリストを N日前 で遡る
-    // 0=今日, 1=1日前, ..., 10=10日前
-    let _qfHistoryOffset = 0;
+    // 割安/上昇ボタンで表示されるリストを N日前 で遡る（既に上部で宣言済み）
     function setQuickFilterHistoryOffset(offset) {
       const n = parseInt(offset, 10);
       if (isNaN(n) || n < 0 || n > 10) return;
