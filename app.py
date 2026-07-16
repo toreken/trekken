@@ -3184,6 +3184,7 @@ def symbols_meta():
         ema20_dev = None
         sma50_dev = None
         recent_closes = None
+        recent_meta = None
         thumb_color = None  # サーバー側で計算済みの色（NQ1!/ES1! のような特別判定銘柄用）
         if sym in thumb_cache:
             _, data = thumb_cache[sym]
@@ -3192,6 +3193,7 @@ def symbols_meta():
             ema20_dev = data.get('ema20_dev')
             sma50_dev = data.get('sma50_dev')
             recent_closes = data.get('recent_closes')
+            recent_meta = data.get('recent_meta')
             thumb_color = data.get('color')  # NQ1!/ES1! は事前計算済み色を持つ
         # NaN/Inf を None に正規化（JSON シリアライズで NaN を含むとフロントでパース失敗）
         score = _safe_num(score)
@@ -3224,6 +3226,7 @@ def symbols_meta():
             'ema20_dev': ema20_dev,
             'sma50_dev': sma50_dev,
             'recent_closes': recent_closes,  # 直近11日分の close（運営ページの日数切替用）
+            'recent_meta': recent_meta,      # 直近11日分の {s, e, m, c}（履歴遡り用）
         })
 
     cached_count = sum(1 for it in items if it['score'] is not None)
