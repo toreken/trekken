@@ -2670,53 +2670,47 @@
       .note-slider-badge { font-size: 9px; padding: 2px 6px; }
     }
 
-    /* 運営専用：騰落率の比較日数切替 */
-    .op-day-selector {
-      display: none !important;   /* 一般ページでは常に非表示 */
+    /* クイックフィルタ用の履歴セレクタ（1日前〜10日前を遡る） */
+    .quick-filter-history-selector {
+      display: none;
       margin-top: 10px;
       gap: 4px;
       align-items: center;
-      padding: 8px 12px;
-      background: linear-gradient(135deg, #fff0f0 0%, #ffe0e0 100%);
-      border: 1px solid #ff9999;
+      padding: 10px 12px;
+      background: linear-gradient(135deg, var(--cream-50) 0%, var(--cream-100) 100%);
+      border: 1px solid var(--gold-500);
       border-radius: 8px;
       font-size: 12px;
       overflow-x: auto;
       flex-wrap: nowrap;
+      box-shadow: 0 2px 6px rgba(196, 154, 74, 0.12);
     }
-    body.operator-mode .op-day-selector {
-      display: flex !important;   /* 運営モード時のみ表示 */
-    }
-    .op-day-label {
+    .quick-filter-history-selector.active { display: flex; }
+    .qfh-label {
       font-weight: 700;
-      color: #c9302c;
-      margin-right: 4px;
+      color: var(--brown-800);
+      margin-right: 6px;
       flex-shrink: 0;
+      font-size: 12px;
     }
-    .op-day-btn {
-      padding: 4px 8px;
-      border: 1px solid #c9302c;
+    .qfh-btn {
+      padding: 5px 10px;
+      border: 1px solid var(--gold-500);
       background: white;
-      color: #c9302c;
-      border-radius: 4px;
+      color: var(--brown-800);
+      border-radius: 6px;
       font-size: 11px;
       cursor: pointer;
       font-weight: 700;
-      min-width: 28px;
       flex-shrink: 0;
       transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
     }
-    .op-day-btn:hover { background: #fff5f5; }
-    .op-day-btn.active {
-      background: #c9302c;
+    .qfh-btn:hover { background: var(--cream-100); }
+    .qfh-btn.active {
+      background: linear-gradient(135deg, var(--gold-500), var(--gold-600));
       color: white;
-      box-shadow: 0 2px 4px rgba(201, 48, 44, 0.3);
-    }
-    .op-day-suffix {
-      color: #666;
-      font-size: 11px;
-      margin-left: 4px;
-      flex-shrink: 0;
+      box-shadow: 0 2px 4px rgba(196, 154, 74, 0.3);
     }
 
     /* ===== 運営モード専用スタイル ===== */
@@ -3347,20 +3341,20 @@
           <option value="change_asc">並び替え: 騰落率（低い順）</option>
         </select>
       </div>
-      <!-- 運営専用：騰落率の比較日数切替（1日前〜10日前）-->
-      <div class="op-day-selector operator-only-flex" id="opDaySelector">
-        <span class="op-day-label">🔧 比較:</span>
-        <button class="op-day-btn active" data-days="1" onclick="opSetDayOffset(1)">1</button>
-        <button class="op-day-btn" data-days="2" onclick="opSetDayOffset(2)">2</button>
-        <button class="op-day-btn" data-days="3" onclick="opSetDayOffset(3)">3</button>
-        <button class="op-day-btn" data-days="4" onclick="opSetDayOffset(4)">4</button>
-        <button class="op-day-btn" data-days="5" onclick="opSetDayOffset(5)">5</button>
-        <button class="op-day-btn" data-days="6" onclick="opSetDayOffset(6)">6</button>
-        <button class="op-day-btn" data-days="7" onclick="opSetDayOffset(7)">7</button>
-        <button class="op-day-btn" data-days="8" onclick="opSetDayOffset(8)">8</button>
-        <button class="op-day-btn" data-days="9" onclick="opSetDayOffset(9)">9</button>
-        <button class="op-day-btn" data-days="10" onclick="opSetDayOffset(10)">10</button>
-        <span class="op-day-suffix">日前 vs 今日</span>
+      <!-- クイックフィルタ用の履歴セレクタ（割安/上昇ボタン押下時に表示） -->
+      <div class="quick-filter-history-selector" id="quickFilterHistorySelector">
+        <span class="qfh-label">📅 リストを遡って見る:</span>
+        <button class="qfh-btn active" data-offset="0" onclick="setQuickFilterHistoryOffset(0)">今日</button>
+        <button class="qfh-btn" data-offset="1" onclick="setQuickFilterHistoryOffset(1)">1日前</button>
+        <button class="qfh-btn" data-offset="2" onclick="setQuickFilterHistoryOffset(2)">2日前</button>
+        <button class="qfh-btn" data-offset="3" onclick="setQuickFilterHistoryOffset(3)">3日前</button>
+        <button class="qfh-btn" data-offset="4" onclick="setQuickFilterHistoryOffset(4)">4日前</button>
+        <button class="qfh-btn" data-offset="5" onclick="setQuickFilterHistoryOffset(5)">5日前</button>
+        <button class="qfh-btn" data-offset="6" onclick="setQuickFilterHistoryOffset(6)">6日前</button>
+        <button class="qfh-btn" data-offset="7" onclick="setQuickFilterHistoryOffset(7)">7日前</button>
+        <button class="qfh-btn" data-offset="8" onclick="setQuickFilterHistoryOffset(8)">8日前</button>
+        <button class="qfh-btn" data-offset="9" onclick="setQuickFilterHistoryOffset(9)">9日前</button>
+        <button class="qfh-btn" data-offset="10" onclick="setQuickFilterHistoryOffset(10)">10日前</button>
       </div>
       <div class="symbol-list" id="symbolList"></div>
       <div class="overview-grid" id="overviewGrid" style="display:none;"></div>
@@ -3653,49 +3647,52 @@
       loadChart(activeSymbol, 0, true);
     }
 
-    // 運営専用：騰落率の比較日数を切替（1〜10日前 vs 今日）
-    // デフォルト 1（前日比）。 リスト内 chip の表示のみに反映される（チャートは前日比のまま）
-    let _opDayOffset = 1;
-    function opSetDayOffset(days) {
-      if (!window.IS_OPERATOR) return;
-      const n = parseInt(days, 10);
-      if (isNaN(n) || n < 1 || n > 10) return;
-      _opDayOffset = n;
+    // ===== クイックフィルタの履歴遡り機能 =====
+    // 「割安/上昇銘柄」ボタンで表示されるリストを、 過去10日分遡って見れるようにする
+    // 0=今日, 1=1日前, ..., 10=10日前
+    let _qfHistoryOffset = 0;
+
+    function setQuickFilterHistoryOffset(offset) {
+      const n = parseInt(offset, 10);
+      if (isNaN(n) || n < 0 || n > 10) return;
+      _qfHistoryOffset = n;
       // ボタンの active 状態を更新
-      document.querySelectorAll('.op-day-btn').forEach(b => {
-        b.classList.toggle('active', parseInt(b.dataset.days, 10) === n);
+      document.querySelectorAll('.qfh-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.offset, 10) === n);
       });
-      console.log('[operator] Day offset changed to', n);
-      // metaData を強制再取得してから再描画（キャッシュを無効化）
-      _forceRefreshMetaAndRerender(n);
+      // フィルタ結果を再描画
+      if (typeof renderSymbolList === 'function') renderSymbolList();
     }
 
-    async function _forceRefreshMetaAndRerender(n) {
-      try {
-        console.log('[operator] Force re-fetching /symbols-meta ...');
-        // キャッシュバスターを付けて必ずサーバーから取得
-        const res = await fetch('/symbols-meta?_=' + Date.now(), { cache: 'no-store' });
-        const data = await res.json();
-        metaData = data;
-        console.log('[operator] metaData refreshed. items.length=', (data.items || []).length);
-        // recent_closes の分布を確認
-        if (Array.isArray(data.items)) {
-          const withRC = data.items.filter(it => Array.isArray(it.recent_closes) && it.recent_closes.length > n).length;
-          const total = data.items.length;
-          const sample = data.items.find(it => Array.isArray(it.recent_closes) && it.recent_closes.length > n);
-          console.log(`[operator] recent_closes available for ${withRC}/${total} symbols (need ${n+1} days each)`);
-          if (sample) {
-            console.log('[operator] Sample:', sample.symbol, 'recent_closes.length=', sample.recent_closes.length, 'values=', sample.recent_closes);
-          }
-          if (withRC === 0) {
-            alert(`比較日数 ${n} 日前 の履歴データ (recent_closes.length >= ${n+1}) が全銘柄で見つかりません。\n\n・items.length: ${total}\n・items[0]の recent_closes: ${JSON.stringify(data.items[0] && data.items[0].recent_closes)}\n\nこの情報を開発者に伝えてください。`);
-          }
-        }
-      } catch (e) {
-        console.error('[operator] meta refresh failed:', e);
+    // 指定銘柄の「N日前時点」のスコア/乖離率/色を取得
+    // offset=0 なら今日のデータ、 1〜10 なら recent_meta から
+    function _getMetaForOffset(item, offset) {
+      if (!item) return null;
+      if (offset === 0) {
+        return {
+          score: item.score,
+          ema20_dev: item.ema20_dev,
+          sma50_dev: item.sma50_dev,
+          color: item.color,
+          available: (item.score !== null && item.score !== undefined),
+        };
       }
-      // 再描画
-      if (typeof renderSymbolList === 'function') renderSymbolList();
+      // N日前：recent_meta 配列から取り出し
+      // recent_meta は [10日前, 9日前, ..., 1日前, 今日] の順で 11 要素
+      if (!Array.isArray(item.recent_meta)) return { available: false };
+      const arr = item.recent_meta;
+      // 末尾が「今日」なので、 N日前 = arr[len - 1 - N]
+      const idx = arr.length - 1 - offset;
+      if (idx < 0 || idx >= arr.length) return { available: false };
+      const rm = arr[idx];
+      if (!rm) return { available: false };
+      return {
+        score: rm.s,
+        ema20_dev: rm.e,
+        sma50_dev: rm.m,
+        color: rm.c,
+        available: (rm.s !== null && rm.s !== undefined),
+      };
     }
 
     // ローディング画面
@@ -3884,34 +3881,19 @@
       }
     }
     // チップの表示テキストを生成。 ティッカー + 騰落率（小さく色付き）
-    // 運営モード時は _opDayOffset に応じた「N日前 vs 今日」の騰落率で表示
     function _buildChipHtml(sym) {
       const displaySym = sym.startsWith('TSE:') ? sym.replace('TSE:', '') : sym;
       let wc = null;
       try {
         if (metaData && Array.isArray(metaData.items)) {
           const item = metaData.items.find(it => it.symbol === sym);
-          if (item) {
-            // 運営モード + 2日前以上を選択中：recent_closes から計算
-            if (window.IS_OPERATOR && _opDayOffset > 1
-                && Array.isArray(item.recent_closes) && item.recent_closes.length > _opDayOffset) {
-              const arr = item.recent_closes;
-              const curr = arr[arr.length - 1];
-              const past = arr[arr.length - 1 - _opDayOffset];
-              if (past !== null && past !== undefined && past !== 0) {
-                const v = (curr - past) / past * 100;
-                if (!isNaN(v)) wc = v;
-              }
-            } else if (item.week_change !== null && item.week_change !== undefined) {
-              // 通常時 or 1日前：既存の week_change（前日比）を使う
-              const v = parseFloat(item.week_change);
-              if (!isNaN(v)) wc = v;
-            }
+          if (item && item.week_change !== null && item.week_change !== undefined) {
+            const v = parseFloat(item.week_change);
+            if (!isNaN(v)) wc = v;
           }
         }
       } catch (e) { /* ignore */ }
       if (wc === null) {
-        // 騰落率が無い銘柄でも縦サイズを揃えるため空の span を入れる
         return `<span class="chip-sym">${displaySym}</span><span class="chip-change">&nbsp;</span>`;
       }
       const sign = wc >= 0 ? '+' : '';
@@ -4144,13 +4126,40 @@
       document.querySelectorAll('.filter-color-check').forEach(cb => cb.checked = true);
       document.querySelectorAll('.filter-group-check').forEach(cb => cb.checked = true);
       document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
+      // 履歴セレクタも非表示にしてリセット
+      _qfHistoryOffset = 0;
+      const qfhSel = document.getElementById('quickFilterHistorySelector');
+      if (qfhSel) qfhSel.classList.remove('active');
       readFilterInputs();
+      renderSymbolList();
+    }
+
+    // 割安/上昇ボタンで表示されるリストを N日前 で遡る
+    // 0=今日, 1=1日前, ..., 10=10日前
+    let _qfHistoryOffset = 0;
+    function setQuickFilterHistoryOffset(offset) {
+      const n = parseInt(offset, 10);
+      if (isNaN(n) || n < 0 || n > 10) return;
+      _qfHistoryOffset = n;
+      // ボタンの active 状態を更新
+      document.querySelectorAll('.qfh-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.offset, 10) === n);
+      });
+      // フィルタ結果を再描画
       renderSymbolList();
     }
 
     function applyQuickFilter(type) {
       const validTypes = ['undervalued_us', 'undervalued_jp', 'uptrend_us', 'uptrend_jp'];
       if (!validTypes.includes(type)) return;
+
+      // 割安/上昇ボタン押下時：履歴セレクタを表示し、 offset を今日にリセット
+      _qfHistoryOffset = 0;
+      document.querySelectorAll('.qfh-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.offset, 10) === 0);
+      });
+      const qfhSel = document.getElementById('quickFilterHistorySelector');
+      if (qfhSel) qfhSel.classList.add('active');
 
       // まず全リセット
       document.getElementById('scoreMin').value = '';
@@ -4237,8 +4246,32 @@
       if (!metaData) return true;
       const meta = metaData.items.find(it => it.symbol === sym);
       if (!meta) return false;
-      const sc = meta.score, ch = meta.week_change;
-      const e20 = meta.ema20_dev, s50 = meta.sma50_dev;
+      // 履歴 offset に応じて、 その日のスコア/乖離率/色を使う
+      const off = (typeof _qfHistoryOffset === 'number') ? _qfHistoryOffset : 0;
+      let sc, ch, e20, s50, col;
+      if (off === 0) {
+        // 今日のデータ
+        sc = meta.score; ch = meta.week_change;
+        e20 = meta.ema20_dev; s50 = meta.sma50_dev;
+        col = meta.color || null;
+      } else {
+        // N日前のデータ：recent_meta[len - 1 - off] を使う
+        if (!Array.isArray(meta.recent_meta)) return false;  // 履歴なし → 除外
+        const idx = meta.recent_meta.length - 1 - off;
+        if (idx < 0 || idx >= meta.recent_meta.length) return false;
+        const rm = meta.recent_meta[idx];
+        if (!rm) return false;
+        sc = rm.s; e20 = rm.e; s50 = rm.m; col = rm.c || null;
+        // N日前の「前日比」は recent_closes から計算
+        ch = null;
+        if (Array.isArray(meta.recent_closes) && meta.recent_closes.length > off + 1) {
+          const curr = meta.recent_closes[meta.recent_closes.length - 1 - off];
+          const prev = meta.recent_closes[meta.recent_closes.length - 1 - off - 1];
+          if (prev !== null && prev !== undefined && prev !== 0) {
+            ch = (curr - prev) / prev * 100;
+          }
+        }
+      }
       if (filterState.scoreMin !== null && (sc === null || sc === undefined || sc < filterState.scoreMin)) return false;
       if (filterState.scoreMax !== null && (sc === null || sc === undefined || sc > filterState.scoreMax)) return false;
       if (filterState.changeMin !== null && (ch === null || ch === undefined || ch < filterState.changeMin)) return false;
@@ -4248,8 +4281,6 @@
       if (filterState.sma50Min !== null && (s50 === null || s50 === undefined || s50 < filterState.sma50Min)) return false;
       if (filterState.sma50Max !== null && (s50 === null || s50 === undefined || s50 > filterState.sma50Max)) return false;
       if (filterState.colors.size < 4) {
-        // サーバー側で判定済みの meta.color を使う
-        const col = meta.color || null;
         if (col === null || !filterState.colors.has(col)) return false;
       }
       return true;
@@ -4370,25 +4401,9 @@
     let compareMode = false;
 
     function _getWeekChangeForSym(sym) {
-      // metaData から該当銘柄の騰落率を返す（無ければ null）
-      // 運営モード時は _opDayOffset に応じた「N日前 vs 今日」の値を返す
       if (!metaData || !Array.isArray(metaData.items)) return null;
       const it = metaData.items.find(x => x.symbol === sym);
-      if (!it) return null;
-      // 運営モード + 2日前以上：recent_closes から計算
-      if (window.IS_OPERATOR && typeof _opDayOffset !== 'undefined' && _opDayOffset > 1
-          && Array.isArray(it.recent_closes) && it.recent_closes.length > _opDayOffset) {
-        const arr = it.recent_closes;
-        const curr = arr[arr.length - 1];
-        const past = arr[arr.length - 1 - _opDayOffset];
-        if (past !== null && past !== undefined && past !== 0) {
-          const v = (curr - past) / past * 100;
-          return isNaN(v) ? null : v;
-        }
-        return null;
-      }
-      // 通常：既存の week_change を使う
-      if (it.week_change === null || it.week_change === undefined) return null;
+      if (!it || it.week_change === null || it.week_change === undefined) return null;
       const v = parseFloat(it.week_change);
       return isNaN(v) ? null : v;
     }
