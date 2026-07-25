@@ -1674,6 +1674,47 @@ def process_n225_index(profiles, thumbs, charts, infos):
         df.columns = [c.lower() for c in df.columns]
         if df.index.tz is not None:
             df.index = df.index.tz_localize(None)
+
+        # ===== 当日データ補完（yfinance日足に本日分がまだ反映されない対策）=====
+        # 大引け後も yfinance の日足更新には時間差があるため、 1分足で当日OHLCを合成
+        try:
+            now_jst = pd.Timestamp.now(tz='Asia/Tokyo')
+            today_date = pd.Timestamp(now_jst.date())
+            df_norm_dates = df.index.normalize() if isinstance(df.index, pd.DatetimeIndex) else None
+            has_today = df_norm_dates is not None and (today_date in df_norm_dates)
+            if not has_today:
+                print(f"  N225: 日足に本日({today_date.date()})が無い → 1分足で補完を試みる")
+                intra = yf.download('^N225', period='1d', interval='1m',
+                                    auto_adjust=False, progress=False, threads=False)
+                if intra is not None and not intra.empty:
+                    if isinstance(intra.columns, pd.MultiIndex):
+                        intra.columns = intra.columns.get_level_values(0)
+                    intra.columns = [str(c).lower() for c in intra.columns]
+                    if intra.index.tz is not None:
+                        intra.index = intra.index.tz_convert('Asia/Tokyo').tz_localize(None)
+                    intra = intra.dropna(subset=['close']) if 'close' in intra.columns else intra
+                    if len(intra) > 0:
+                        t_open = float(intra['open'].dropna().iloc[0])
+                        t_high = float(intra['high'].dropna().max())
+                        t_low  = float(intra['low'].dropna().min())
+                        t_close = float(intra['close'].dropna().iloc[-1])
+                        t_vol = float(intra['volume'].dropna().sum()) if 'volume' in intra.columns else 0.0
+                        new_row = pd.DataFrame({
+                            'open':  [t_open],
+                            'high':  [t_high],
+                            'low':   [t_low],
+                            'close': [t_close],
+                            'volume':[t_vol if t_vol > 0 else 1],
+                        }, index=[today_date])
+                        df = pd.concat([df, new_row]).sort_index()
+                        print(f"  N225: 本日ローソク補完 O={t_open:.0f} H={t_high:.0f} L={t_low:.0f} C={t_close:.0f}")
+                    else:
+                        print("  N225: 1分足取得成功だがNaN除外後に空")
+                else:
+                    print("  N225: 1分足取得失敗（yfinance ^N225 intraday empty）")
+        except Exception as e_intra:
+            print(f"  N225: 当日補完失敗: {e_intra}")
+
         df = df.reset_index()
 
         # 出来高がない/0 の場合はダミー値で埋める（calculate_scoresが動くように）
