@@ -2713,6 +2713,67 @@
       box-shadow: 0 2px 4px rgba(196, 154, 74, 0.3);
     }
 
+    /* 銘柄コンマ区切りコピーエリア */
+    .symbol-copy-area {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: var(--cream-50);
+      border: 1px solid var(--brown-200);
+      border-radius: 6px;
+    }
+    .symbol-copy-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .symbol-copy-label {
+      font-size: 11px;
+      color: var(--brown-700);
+      font-weight: 600;
+    }
+    .symbol-copy-btn {
+      padding: 3px 10px;
+      background: var(--gold-500);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .symbol-copy-btn:hover { background: var(--gold-600); }
+    .symbol-copy-btn.copied { background: #4caf50; }
+    .symbol-copy-text {
+      width: 100%;
+      min-height: 40px;
+      max-height: 100px;
+      padding: 6px 8px;
+      border: 1px solid var(--brown-200);
+      border-radius: 4px;
+      font-size: 10px;
+      font-family: 'Courier New', monospace;
+      color: var(--brown-800);
+      background: white;
+      resize: vertical;
+      box-sizing: border-box;
+      line-height: 1.4;
+    }
+    .symbol-copy-text:focus { outline: 1px solid var(--gold-500); }
+    .symbol-copy-feedback {
+      font-size: 10px;
+      color: #4caf50;
+      font-weight: 700;
+      margin-top: 4px;
+      min-height: 12px;
+      opacity: 0;
+      transition: opacity 0.25s;
+    }
+    .symbol-copy-feedback.show { opacity: 1; }
+
     /* ===== 運営モード専用スタイル ===== */
     /* /operator?token=xxx で認証を通過すると body.operator-mode が付く */
     /* 運営専用UIを .operator-only / .operator-only-inline / .operator-only-flex で制御 */
@@ -3359,6 +3420,15 @@
       <div class="symbol-list" id="symbolList"></div>
       <div class="overview-grid" id="overviewGrid" style="display:none;"></div>
       <div class="count-info" id="countInfo"></div>
+      <!-- リストをコンマ区切りで表示、クリック or ボタンでコピー -->
+      <div class="symbol-copy-area" id="symbolCopyArea" style="display:none;">
+        <div class="symbol-copy-header">
+          <span class="symbol-copy-label">📋 コンマ区切りリスト (<span id="symbolCopyCount">0</span>銘柄):</span>
+          <button class="symbol-copy-btn" onclick="copySymbolListToClipboard()">コピー</button>
+        </div>
+        <textarea class="symbol-copy-text" id="symbolCopyText" readonly onclick="this.select()"></textarea>
+        <div class="symbol-copy-feedback" id="symbolCopyFeedback"></div>
+      </div>
     </div>
   </section>
 
@@ -4521,6 +4591,8 @@
       try {
         _renderLandscapeSidebar();
       } catch (e) { /* ignore */ }
+      // コンマ区切りコピーエリア更新
+      try { _updateSymbolCopyArea(); } catch (e) { /* ignore */ }
     }
 
     function sortSymbols(arr) {
@@ -4860,6 +4932,74 @@
       try {
         _renderLandscapeSidebar();
       } catch (e) { /* ignore */ }
+      // コンマ区切りコピーエリア更新
+      try { _updateSymbolCopyArea(); } catch (e) { /* ignore */ }
+    }
+
+    // 現在表示中の銘柄をコンマ区切りで取得し、コピーエリアを更新する
+    function _updateSymbolCopyArea() {
+      const area = document.getElementById('symbolCopyArea');
+      const text = document.getElementById('symbolCopyText');
+      const countEl = document.getElementById('symbolCopyCount');
+      const list = document.getElementById('symbolList');
+      if (!area || !text || !list) return;
+      // symbol-chip から data-symbol を全部取得
+      const chips = list.querySelectorAll('.symbol-chip[data-symbol]');
+      const syms = [];
+      const seen = new Set();
+      chips.forEach(c => {
+        const s = c.getAttribute('data-symbol');
+        if (s && !seen.has(s)) {
+          seen.add(s);
+          // TSE: プレフィクス除去（表示用シンプル化）
+          const clean = s.startsWith('TSE:') ? s.replace('TSE:', '') : s;
+          syms.push(clean);
+        }
+      });
+      if (syms.length === 0) {
+        area.style.display = 'none';
+        return;
+      }
+      area.style.display = 'block';
+      text.value = syms.join(', ');
+      if (countEl) countEl.textContent = syms.length;
+    }
+
+    // クリップボードへコピー
+    function copySymbolListToClipboard() {
+      const text = document.getElementById('symbolCopyText');
+      const btn = document.querySelector('.symbol-copy-btn');
+      const fb = document.getElementById('symbolCopyFeedback');
+      if (!text) return;
+      try {
+        text.select();
+        text.setSelectionRange(0, text.value.length);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text.value).then(() => _showCopyFeedback(btn, fb))
+            .catch(() => { document.execCommand('copy'); _showCopyFeedback(btn, fb); });
+        } else {
+          document.execCommand('copy');
+          _showCopyFeedback(btn, fb);
+        }
+      } catch (e) {
+        if (fb) { fb.textContent = 'コピー失敗。 テキストを長押しして手動コピーしてください'; fb.style.color = '#ec5f6a'; fb.classList.add('show'); }
+      }
+    }
+    function _showCopyFeedback(btn, fb) {
+      if (btn) {
+        btn.classList.add('copied');
+        btn.textContent = '✓ コピー済み';
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.textContent = 'コピー';
+        }, 1500);
+      }
+      if (fb) {
+        fb.textContent = 'クリップボードにコピーしました';
+        fb.style.color = '#4caf50';
+        fb.classList.add('show');
+        setTimeout(() => fb.classList.remove('show'), 1500);
+      }
     }
 
     async function loadSectorCompare(sectorName, symbols) {
